@@ -20,7 +20,7 @@ function result(
     readonly key: string
   }[],
   configuration: ElectronArtifactBuildResult['configuration'] = {
-    productName: 'DSH Desktop',
+    productName: 'LING',
   },
 ): ElectronArtifactBuildResult {
   return {
@@ -49,9 +49,9 @@ describe('final Electron fuse verification', () => {
   it('maps only requested platform and architecture keys to complete runtime contexts', () => {
     const expected = [
       join('/build', 'linux-unpacked', 'dsh-plugin-desktop'),
-      join('/build', 'mac-universal', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop'),
-      join('/build', 'win-unpacked', 'DSH Desktop.exe'),
-      join('/build', 'win-arm64-unpacked', 'DSH Desktop.exe'),
+      join('/build', 'mac-universal', 'LING.app', 'Contents', 'MacOS', 'LING'),
+      join('/build', 'win-unpacked', 'LING.exe'),
+      join('/build', 'win-arm64-unpacked', 'LING.exe'),
     ].sort()
 
     expect(resolveFinalPackagedRuntimeContexts(
@@ -68,26 +68,26 @@ describe('final Electron fuse verification', () => {
         electronPlatformName: 'linux',
         packager: {
           executableName: 'dsh-plugin-desktop',
-          appInfo: { productFilename: 'DSH Desktop' },
+          appInfo: { productFilename: 'LING' },
         },
       },
       {
         appOutDir: join('/build', 'mac-universal'),
         arch: 4,
         electronPlatformName: 'darwin',
-        packager: { appInfo: { productFilename: 'DSH Desktop' } },
+        packager: { appInfo: { productFilename: 'LING' } },
       },
       {
         appOutDir: join('/build', 'win-arm64-unpacked'),
         arch: 3,
         electronPlatformName: 'win32',
-        packager: { appInfo: { productFilename: 'DSH Desktop' } },
+        packager: { appInfo: { productFilename: 'LING' } },
       },
       {
         appOutDir: join('/build', 'win-unpacked'),
         arch: 1,
         electronPlatformName: 'win32',
-        packager: { appInfo: { productFilename: 'DSH Desktop' } },
+        packager: { appInfo: { productFilename: 'LING' } },
       },
     ])
   })
@@ -100,7 +100,7 @@ describe('final Electron fuse verification', () => {
 
   it('honors Linux executableName and recovers a configured suffixless architecture', () => {
     const configured = result([{ key: 'linux', archs: [Arch.arm64] }], {
-      productName: 'DSH Desktop',
+      productName: 'LING',
       linux: { defaultArch: 'arm64', executableName: 'dsh-desktop' },
     })
     const executable = join('/build', 'linux-unpacked', 'dsh-desktop')
@@ -149,8 +149,8 @@ describe('final Electron fuse verification', () => {
   })
 
   it('ignores a stale sibling architecture from an earlier build', () => {
-    const expected = join('/build', 'win-unpacked', 'DSH Desktop.exe')
-    const stale = join('/build', 'win-arm64-unpacked', 'DSH Desktop.exe')
+    const expected = join('/build', 'win-unpacked', 'LING.exe')
+    const stale = join('/build', 'win-arm64-unpacked', 'LING.exe')
     const exists = vi.fn((filename: string) => filename === expected || filename === stale)
 
     expect(resolveFinalPackagedRuntimeContexts(
@@ -166,19 +166,19 @@ describe('final Electron fuse verification', () => {
   })
 
   it('fails when one requested architecture is missing even if a sibling exists', () => {
-    const x64Executable = join('/build', 'win-unpacked', 'DSH Desktop.exe')
+    const x64Executable = join('/build', 'win-unpacked', 'LING.exe')
 
     expect(() => resolveFinalPackagedRuntimeContexts(
       result([{ key: 'win', archs: [Arch.x64, Arch.arm64] }]),
       filename => filename === x64Executable,
-    )).toThrow(`win/arm64 at ${join('/build', 'win-arm64-unpacked', 'DSH Desktop.exe')}`)
+    )).toThrow(`win/arm64 at ${join('/build', 'win-arm64-unpacked', 'LING.exe')}`)
   })
 
   it('resolves a real target-name map through the target archs retained by NSIS', () => {
     const platform = { buildConfigurationKey: 'win' }
     const built = {
       outDir: '/build',
-      configuration: { productName: 'DSH Desktop' },
+      configuration: { productName: 'LING' },
       platformToTargets: new Map([[platform, new Map([
         ['nsis', { archs: new Map([
           [Arch.x64, '/build/win-unpacked'],
@@ -201,7 +201,7 @@ describe('final Electron fuse verification', () => {
     ])]])
     const built = {
       outDir: '/build',
-      configuration: { productName: 'DSH Desktop' },
+      configuration: { productName: 'LING' },
       platformToTargets: new Map([[platform, new Map([
         ['dmg', { packager: { packagerOptions: { targets: requestedTargets } } }],
       ])]]),
@@ -209,10 +209,10 @@ describe('final Electron fuse verification', () => {
     const universalExecutable = join(
       '/build',
       'mac-universal',
-      'DSH Desktop.app',
+      'LING.app',
       'Contents',
       'MacOS',
-      'DSH Desktop',
+      'LING',
     )
     const exists = vi.fn((filename: string) => filename === universalExecutable)
 
@@ -225,8 +225,8 @@ describe('final Electron fuse verification', () => {
 
   it('checks every requested final executable after all artifact builds', async () => {
     const executables = [
-      join('/build', 'mac-arm64', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop'),
-      join('/build', 'mac', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop'),
+      join('/build', 'mac-arm64', 'LING.app', 'Contents', 'MacOS', 'LING'),
+      join('/build', 'mac', 'LING.app', 'Contents', 'MacOS', 'LING'),
     ]
     const events: string[] = []
     const read = vi.fn<ElectronFuseReader>(async (executable) => {
@@ -263,7 +263,7 @@ describe('final Electron fuse verification', () => {
   ])('fails loud when required fuse %s is not enabled', async (option, name) => {
     const read: ElectronFuseReader = async () => fuseWire({ [option]: FuseState.DISABLE })
 
-    await expect(verifyElectronExecutableFuses('/build/DSH Desktop.exe', read))
+    await expect(verifyElectronExecutableFuses('/build/LING.exe', read))
       .rejects.toThrow(`${name}=DISABLE`)
   })
 
@@ -284,7 +284,7 @@ describe('final Electron fuse verification', () => {
   it('wraps an unreadable final executable with its resolved path', async () => {
     const read: ElectronFuseReader = async () => { throw new Error('missing sentinel') }
 
-    await expect(verifyElectronExecutableFuses('/build/DSH Desktop.exe', read))
-      .rejects.toThrow('/build/DSH Desktop.exe')
+    await expect(verifyElectronExecutableFuses('/build/LING.exe', read))
+      .rejects.toThrow('/build/LING.exe')
   })
 })

@@ -359,8 +359,8 @@ function parseState(text: string): ParsedUpdateState {
 
 function updateAvailableNotification(locale: DesktopLocale, version: string): DesktopNotification {
   return locale === 'zh'
-    ? { title: 'DSH Desktop 有可用更新', body: `版本 ${version} 已可下载。打开 DSH Desktop 即可继续。` }
-    : { title: 'DSH Desktop Update Available', body: `Version ${version} is ready to download. Open DSH Desktop to continue.` }
+    ? { title: 'LING 有可用更新', body: `版本 ${version} 已可下载。打开 LING 即可继续。` }
+    : { title: 'LING Update Available', body: `Version ${version} is ready to download. Open LING to continue.` }
 }
 
 async function readState(filename: string): Promise<string> {

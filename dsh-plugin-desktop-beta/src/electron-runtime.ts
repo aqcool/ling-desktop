@@ -175,7 +175,7 @@ export function requestDesktopArtifact(url: string, init: RequestInit): Promise<
   })
 }
 
-/** Native adapter used by the DSH Desktop launcher and owned by its Cordis shell plugin. */
+/** Native adapter used by the LING launcher and owned by its Cordis shell plugin. */
 export class ElectronDesktopRuntime implements DesktopRuntime {
   readonly platform: DesktopPlatform
   readonly windowsBuild: number | undefined

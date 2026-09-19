@@ -1,4 +1,4 @@
-# DSH Desktop Next
+# LING Next
 
 English | [中文](README.zh.md)
 

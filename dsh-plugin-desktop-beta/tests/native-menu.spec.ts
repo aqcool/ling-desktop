@@ -17,13 +17,13 @@ describe('native macOS application menu', () => {
   })
 
   it('localizes the complete Simplified Chinese menu while retaining native roles', () => {
-    const template = macApplicationMenuTemplate('DSH Desktop', 'zh-CN')
+    const template = macApplicationMenuTemplate('LING', 'zh-CN')
 
     expect(template.map(item => item.label)).toEqual([
-      'DSH Desktop', '文件', '编辑', '显示', '窗口',
+      'LING', '文件', '编辑', '显示', '窗口',
     ])
     expect(submenu(template[0]!).map(item => item.label).filter(Boolean)).toEqual([
-      '关于 DSH Desktop', '服务', '隐藏 DSH Desktop', '隐藏其他', '全部显示', '退出 DSH Desktop',
+      '关于 LING', '服务', '隐藏 LING', '隐藏其他', '全部显示', '退出 LING',
     ])
     expect(submenu(template[1]!)).toEqual([
       expect.objectContaining({ label: '关闭窗口', role: 'close' }),
@@ -41,20 +41,20 @@ describe('native macOS application menu', () => {
   })
 
   it('keeps the English fallback complete', () => {
-    const template = macApplicationMenuTemplate('DSH Desktop', 'en')
+    const template = macApplicationMenuTemplate('LING', 'en')
 
     expect(template.map(item => item.label)).toEqual([
-      'DSH Desktop', 'File', 'Edit', 'View', 'Window',
+      'LING', 'File', 'Edit', 'View', 'Window',
     ])
     expect(submenu(template[0]!)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: 'About DSH Desktop', role: 'about' }),
-      expect.objectContaining({ label: 'Quit DSH Desktop', role: 'quit' }),
+      expect.objectContaining({ label: 'About LING', role: 'about' }),
+      expect.objectContaining({ label: 'Quit LING', role: 'quit' }),
     ]))
   })
 
   it('places trusted desktop actions in the application submenu', () => {
     const invokeTerminal = vi.fn()
-    const template = macApplicationMenuTemplate('DSH Desktop', 'en', [{
+    const template = macApplicationMenuTemplate('LING', 'en', [{
       label: 'Open DSH Terminal',
       click: invokeTerminal,
     }, {

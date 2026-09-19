@@ -1,4 +1,4 @@
-/** Headless, confirmation-gated downloads for DSH Desktop installers. */
+/** Headless, confirmation-gated downloads for LING installers. */
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { chmod, lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
@@ -231,7 +231,7 @@ export function desktopUpdateFilename(
   validatedVersion(version, channel)
   const extension = platform === 'darwin' ? 'dmg' : 'exe'
   const platformName = platform === 'darwin' ? 'mac' : 'windows'
-  const product = channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'
+  const product = channel === 'beta' ? 'LING-Beta' : 'LING'
   return `${product}-${version}-${platformName}.${extension}`
 }
 

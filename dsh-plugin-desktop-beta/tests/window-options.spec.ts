@@ -30,7 +30,7 @@ const spec: DesktopShellSpec = {
     name: 'x-dsh-desktop-renderer',
     value: Buffer.alloc(32, 8).toString('base64url'),
   },
-  productName: 'DSH Desktop',
+  productName: 'LING',
   windowTitle: 'DeepSeek Harness Desktop',
   iconPath: '/tmp/app-icon.png',
   trayIcons: {

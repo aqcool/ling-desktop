@@ -91,7 +91,7 @@ describe('desktop update installer download', () => {
   it('pins a Beta artifact request to its channel and target version', async () => {
     const directory = await temporaryDirectory()
     const artifact = dmgArtifact()
-    const destination = join(directory, 'DSH-Desktop-Beta-2.0.6-beta.1-mac.dmg')
+    const destination = join(directory, 'LING-Beta-2.0.6-beta.1-mac.dmg')
     const result = await downloadDesktopUpdate({
       platform: 'darwin',
       version: '2.0.6-beta.1',
@@ -109,7 +109,7 @@ describe('desktop update installer download', () => {
     })
     expect(result).toBe(destination)
     expect(desktopUpdateFilename('darwin', '2.0.6-beta.1', 'beta'))
-      .toBe('DSH-Desktop-Beta-2.0.6-beta.1-mac.dmg')
+      .toBe('LING-Beta-2.0.6-beta.1-mac.dmg')
   })
 
   it('accepts a Beta artifact without response identity headers', async () => {
@@ -118,10 +118,10 @@ describe('desktop update installer download', () => {
       platform: 'darwin',
       version: '2.0.6-beta.1',
       channel: 'beta',
-      destinationPath: join(directory, 'DSH-Desktop-Beta-2.0.6-beta.1-mac.dmg'),
+      destinationPath: join(directory, 'LING-Beta-2.0.6-beta.1-mac.dmg'),
       request: async () => chunkedResponse([dmgArtifact()]),
     })
-    expect(result).toBe(join(directory, 'DSH-Desktop-Beta-2.0.6-beta.1-mac.dmg'))
+    expect(result).toBe(join(directory, 'LING-Beta-2.0.6-beta.1-mac.dmg'))
   })
 
   it('streams a macOS DMG from only the fixed endpoint and atomically completes it', async () => {
@@ -140,7 +140,7 @@ describe('desktop update installer download', () => {
       request,
     })
 
-    expect(result).toBe(join(directory, 'DSH-Desktop-2.1.0-mac.dmg'))
+    expect(result).toBe(join(directory, 'LING-2.1.0-mac.dmg'))
     expect(await readFile(result)).toEqual(Buffer.from(artifact))
     expect(calls).toHaveLength(1)
     expect(calls[0]?.url).toBe(DESKTOP_DOWNLOAD_URLS.darwin)
@@ -161,7 +161,7 @@ describe('desktop update installer download', () => {
       },
     })
 
-    expect(result).toBe(join(directory, 'DSH-Desktop-2.2.0-windows.exe'))
+    expect(result).toBe(join(directory, 'LING-2.2.0-windows.exe'))
     expect(await readFile(result)).toEqual(Buffer.from(artifact))
     await expectNoPartialFiles(directory)
   })
@@ -176,7 +176,7 @@ describe('desktop update installer download', () => {
       request: async () => chunkedResponse(
         [artifact],
         {},
-        'https://modelscope.cn/models/t4wefan/deepseek-harness-desktop/resolve/master/DSH-Desktop-2.2.1-universal.dmg',
+        'https://modelscope.cn/models/t4wefan/deepseek-harness-desktop/resolve/master/LING-2.2.1-universal.dmg',
       ),
     })
     expect(await readFile(result)).toEqual(Buffer.from(artifact))
@@ -299,7 +299,7 @@ describe('desktop update installer download', () => {
 
     expect(result).toBe(join(
       directory,
-      'DSH-Desktop-2.8.0+build-mac.dmg',
+      'LING-2.8.0+build-mac.dmg',
     ))
   })
 

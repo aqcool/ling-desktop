@@ -103,8 +103,8 @@ describe('published package surface', () => {
   it('sets a distinct Beta process identity before taking the single-instance lock', () => {
     expect(productIdentity).toContain("packageName: 'dsh-plugin-desktop-beta'")
     expect(productIdentity).toContain("packageName: 'dsh-plugin-desktop'")
-    expect(productIdentity).toContain("productName: 'DSH Desktop Beta'")
-    expect(productIdentity).toContain("appId: 'ai.deepseek.dsh.desktop.beta'")
+    expect(productIdentity).toContain("productName: 'LING Beta'")
+    expect(productIdentity).toContain("appId: 'com.ling.desktop.beta'")
     expect(productIdentity).toContain('DESKTOP_PRODUCT_IDENTITY = DESKTOP_RELEASE_IDENTITIES.beta')
     expect(productIdentity).toContain('OTHER_DESKTOP_PRODUCT_IDENTITY = DESKTOP_RELEASE_IDENTITIES.stable')
     expect(main).toContain('app.setAppUserModelId(DESKTOP_APP_ID)')
@@ -827,8 +827,8 @@ describe('published package surface', () => {
     })
     expect(manifest.bin).not.toHaveProperty('dsh-desktop')
     expect(manifest.bin).not.toHaveProperty('dsh-plugin-desktop')
-    expect(manifest.build?.productName).toBe('DSH Desktop Beta')
-    expect(manifest.build?.appId).toBe('ai.deepseek.dsh.desktop.beta')
+    expect(manifest.build?.productName).toBe('LING Beta')
+    expect(manifest.build?.appId).toBe('com.ling.desktop.beta')
     expect(manifest.build?.asar).toBe(false)
     expect(manifest.build).not.toHaveProperty('asarUnpack')
     for (const platform of ['mac', 'win', 'linux'] as const) {
@@ -861,7 +861,7 @@ describe('published package surface', () => {
       '!node_modules/fs-ext/build/**',
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
-    expect(manifest.build?.mac?.artifactName).toBe('DSH-Desktop-Beta-${version}-${arch}.${ext}')
+    expect(manifest.build?.mac?.artifactName).toBe('LING-Beta-${version}-${arch}.${ext}')
     expect(manifest.build?.mac?.mergeASARs).toBe(false)
     expect(manifest.build?.mac?.signIgnore).toEqual(['\\.(?:pak|dat|wasm)$'])
     expect(manifest.build?.win?.compression).toBe('normal')
@@ -870,7 +870,7 @@ describe('published package surface', () => {
       target: 'nsis',
       arch: ['x64'],
     }])
-    expect(manifest.build?.win?.artifactName).toBe('DSH-Desktop-Beta-${version}-${arch}-Portable.${ext}')
+    expect(manifest.build?.win?.artifactName).toBe('LING-Beta-${version}-${arch}-Portable.${ext}')
     expect(manifest.build?.nsis).toEqual({
       include: 'installer.nsh',
       license: 'THIRD_PARTY_NOTICES.md',
@@ -881,9 +881,9 @@ describe('published package surface', () => {
       createDesktopShortcut: true,
       createStartMenuShortcut: true,
       differentialPackage: false,
-      shortcutName: 'DSH Desktop Beta',
+      shortcutName: 'LING Beta',
       useZip: false,
-      artifactName: 'DSH-Desktop-Beta-${version}-${arch}-Setup.${ext}',
+      artifactName: 'LING-Beta-${version}-${arch}-Setup.${ext}',
     })
     expect(manifest.build?.linux?.icon).toBe('build/app-icon.png')
   })

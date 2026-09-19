@@ -63,7 +63,7 @@ function context(
     ...(arch === undefined ? {} : { arch }),
     packager: {
       ...(executableName === undefined ? {} : { executableName }),
-      appInfo: { productFilename: 'DSH Desktop' },
+      appInfo: { productFilename: 'LING' },
     },
   }
 }
@@ -334,13 +334,13 @@ describe('packaged desktop runtime verification', () => {
   it.each([
     [
       'darwin',
-      join('/build', 'DSH Desktop.app', 'Contents', 'Resources', 'app.asar'),
-      join('/build', 'DSH Desktop.app', 'Contents', 'MacOS', 'DSH Desktop'),
+      join('/build', 'LING.app', 'Contents', 'Resources', 'app.asar'),
+      join('/build', 'LING.app', 'Contents', 'MacOS', 'LING'),
     ],
     [
       'win32',
       join('/build', 'resources', 'app.asar'),
-      join('/build', 'DSH Desktop.exe'),
+      join('/build', 'LING.exe'),
     ],
   ])('inspects the %s selective ASAR layout', (platform, expectedPath, expectedExecutable) => {
     const runtimeContext = context('/build', platform)

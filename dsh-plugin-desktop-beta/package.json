@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-desktop-beta",
   "version": "2.0.13-beta.1",
-  "description": "DSH Desktop Beta: an Electron shell composed as a DeepSeek Harness Cordis plugin",
+  "description": "LING Beta: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
@@ -334,8 +334,8 @@
     "vitest": "4.1.8"
   },
   "build": {
-    "appId": "ai.deepseek.dsh.desktop.beta",
-    "productName": "DSH Desktop Beta",
+    "appId": "com.ling.desktop.beta",
+    "productName": "LING Beta",
     "asar": false,
     "npmRebuild": false,
     "afterPack": "./scripts/verify-packaged-runtime.ts",
@@ -365,7 +365,7 @@
       "!node_modules/fs-ext/build/**"
     ],
     "mac": {
-      "artifactName": "DSH-Desktop-Beta-${version}-${arch}.${ext}",
+      "artifactName": "LING-Beta-${version}-${arch}.${ext}",
       "target": [
         "dir"
       ],
@@ -398,7 +398,7 @@
           ]
         }
       ],
-      "artifactName": "DSH-Desktop-Beta-${version}-${arch}-Portable.${ext}",
+      "artifactName": "LING-Beta-${version}-${arch}-Portable.${ext}",
       "icon": "build/app-icon.png",
       "asar": false
     },
@@ -412,9 +412,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "differentialPackage": false,
-      "shortcutName": "DSH Desktop Beta",
+      "shortcutName": "LING Beta",
       "useZip": false,
-      "artifactName": "DSH-Desktop-Beta-${version}-${arch}-Setup.${ext}"
+      "artifactName": "LING-Beta-${version}-${arch}-Setup.${ext}"
     },
     "linux": {
       "target": [

@@ -20,7 +20,7 @@ const allowedDifferences = new Set([
   'profile.ts',
   'profile-manager.ts',
 ])
-const normalizeIdentity = source => source.toString().replaceAll('dsh-plugin-desktop-beta', 'dsh-plugin-desktop').replaceAll('DSH Desktop Beta', 'DSH Desktop')
+const normalizeIdentity = source => source.toString().replaceAll('dsh-plugin-desktop-beta', 'dsh-plugin-desktop').replaceAll('LING Beta', 'LING')
 // Allow only the alpha.2 bootstrap adapter calls, not arbitrary drift in these
 // large shared entrypoints. Stable's rc.2 runtime has no ProfileContext contract.
 const betaBootLines = new Set([

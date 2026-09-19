@@ -296,13 +296,13 @@ describe('desktop update Host plugin', () => {
     await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs)
     await vi.waitFor(() => {
       expect(harness.notifications).toEqual([{
-        title: 'DSH Desktop Update Available',
-        body: 'Version 2.1.0 is ready to download. Open DSH Desktop to continue.',
+        title: 'LING Update Available',
+        body: 'Version 2.1.0 is ready to download. Open LING to continue.',
       }])
     })
     expect(harness.confirmDownload).not.toHaveBeenCalled()
     expect(harness.downloadAndOpen).not.toHaveBeenCalled()
-    expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
+    expect(harness.tray.label()).toBe('LING 2.1.0 Available')
     await vi.waitFor(async () => {
       expect(JSON.parse(await readFile(harness.statePath, 'utf8'))).toEqual({
         version: 3,
@@ -337,14 +337,14 @@ describe('desktop update Host plugin', () => {
     expect(version).toBe('2.1.0')
     expect(signal).toBeInstanceOf(AbortSignal)
     expect(signal.aborted).toBe(false)
-    expect(harness.tray.label()).toBe('Downloading DSH Desktop 2.1.0…')
+    expect(harness.tray.label()).toBe('Downloading LING 2.1.0…')
     expect(harness.notifications).toEqual([])
 
     resolveDownload()
     await pending
-    await vi.waitFor(() => { expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available') })
+    await vi.waitFor(() => { expect(harness.tray.label()).toBe('LING 2.1.0 Available') })
     expect(harness.notifications).toEqual([])
-    expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
+    expect(harness.tray.label()).toBe('LING 2.1.0 Available')
   })
 
   it('passes the rechecked installer digests to the download adapter', async () => {
@@ -417,7 +417,7 @@ describe('desktop update Host plugin', () => {
     await harness.tray.invoke()
     expect(confirmDownload).toHaveBeenCalledOnce()
     expect(harness.downloadAndOpen).not.toHaveBeenCalled()
-    expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
+    expect(harness.tray.label()).toBe('LING 2.1.0 Available')
 
     await harness.tray.invoke()
     expect(confirmDownload).toHaveBeenCalledTimes(2)
@@ -441,7 +441,7 @@ describe('desktop update Host plugin', () => {
     expect(harness.confirmDownload).toHaveBeenCalledWith('2.1.0')
     expect(harness.downloadAndOpen).not.toHaveBeenCalled()
     expect(harness.showManualCheckResult).not.toHaveBeenCalled()
-    expect(harness.tray.label()).toBe('DSH Desktop 2.2.0 Available')
+    expect(harness.tray.label()).toBe('LING 2.2.0 Available')
   })
 
   it.each([
@@ -530,7 +530,7 @@ describe('desktop update Host plugin', () => {
 
     expect(harness.notifications).toEqual([])
     expect(harness.confirmDownload).not.toHaveBeenCalled()
-    expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
+    expect(harness.tray.label()).toBe('LING 2.1.0 Available')
   })
 
   it('does not prompt on a platform without a fixed download entry', async () => {
@@ -573,7 +573,7 @@ describe('desktop update Host plugin', () => {
     expect(harness.downloadAndOpen).toHaveBeenCalledOnce()
     expect(harness.notifications).toEqual([])
     expect(harness.warnings).toEqual([])
-    expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
+    expect(harness.tray.label()).toBe('LING 2.1.0 Available')
   })
 
   it('aborts checks and downloads and removes the tray item on effect disposal', async () => {

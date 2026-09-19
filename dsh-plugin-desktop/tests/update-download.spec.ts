@@ -102,7 +102,7 @@ describe('desktop update installer download', () => {
       request,
     })
 
-    expect(result).toBe(join(directory, 'DSH-Desktop-2.1.0-mac.dmg'))
+    expect(result).toBe(join(directory, 'LING-2.1.0-mac.dmg'))
     expect(await readFile(result)).toEqual(Buffer.from(artifact))
     expect(calls).toHaveLength(1)
     expect(calls[0]?.url).toBe(DESKTOP_DOWNLOAD_URLS.darwin)
@@ -123,7 +123,7 @@ describe('desktop update installer download', () => {
       },
     })
 
-    expect(result).toBe(join(directory, 'DSH-Desktop-2.2.0-windows.exe'))
+    expect(result).toBe(join(directory, 'LING-2.2.0-windows.exe'))
     expect(await readFile(result)).toEqual(Buffer.from(artifact))
     await expectNoPartialFiles(directory)
   })
@@ -138,7 +138,7 @@ describe('desktop update installer download', () => {
       request: async () => chunkedResponse(
         [artifact],
         {},
-        'https://modelscope.cn/models/t4wefan/deepseek-harness-desktop/resolve/master/DSH-Desktop-2.2.1-universal.dmg',
+        'https://modelscope.cn/models/t4wefan/deepseek-harness-desktop/resolve/master/LING-2.2.1-universal.dmg',
       ),
     })
     expect(await readFile(result)).toEqual(Buffer.from(artifact))
@@ -261,7 +261,7 @@ describe('desktop update installer download', () => {
 
     expect(result).toBe(join(
       directory,
-      'DSH-Desktop-2.8.0+build-mac.dmg',
+      'LING-2.8.0+build-mac.dmg',
     ))
   })
 
