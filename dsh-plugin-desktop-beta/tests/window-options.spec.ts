@@ -31,7 +31,7 @@ const spec: DesktopShellSpec = {
     value: Buffer.alloc(32, 8).toString('base64url'),
   },
   productName: 'LING',
-  windowTitle: 'DeepSeek Harness Desktop',
+  windowTitle: 'LING',
   iconPath: '/tmp/app-icon.png',
   trayIcons: {
     templatePath: '/tmp/tray-iconTemplate.png',
@@ -77,7 +77,7 @@ describe('compatibility BrowserWindow options', () => {
   it('uses an independent Windows frame with native controls on the left-side action layout', () => {
     const options = compatibilityWindowOptions(spec, {} as NativeImage, 'win32', preload)
 
-    expect(options.title).toBe('DeepSeek Harness Desktop')
+    expect(options.title).toBe('LING')
     expect(options.backgroundColor).toBe('#202124')
     expect(options.autoHideMenuBar).toBe(true)
     expect(options.titleBarStyle).toBe('hidden')

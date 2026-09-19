@@ -479,7 +479,7 @@ export function apply(ctx: Context, config: Config): void {
         authenticationUrl: ctx.connection.authenticatedUrl(new URL(url).origin),
         rendererAccessHeader: browserAccess.rendererHeader,
         productName: DESKTOP_PRODUCT_NAME,
-        windowTitle: 'DeepSeek Harness Desktop',
+        windowTitle: 'LING',
         iconPath,
         trayIcons,
         readLocalePreference: () => {
