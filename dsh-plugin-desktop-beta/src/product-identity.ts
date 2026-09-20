@@ -5,14 +5,14 @@ export const DESKTOP_RELEASE_IDENTITIES = Object.freeze({
     packageName: 'dsh-plugin-desktop',
     productName: 'LING',
     appId: 'com.ling.desktop',
-    homeDirectoryName: '.ling',
+    homeDirectoryName: '.dsh',
   }),
   beta: Object.freeze({
     releaseChannel: 'beta' as const,
     packageName: 'dsh-plugin-desktop-beta',
     productName: 'LING Beta',
     appId: 'com.ling.desktop.beta',
-    homeDirectoryName: '.ling-beta',
+    homeDirectoryName: '.dsh-beta',
   }),
 })
 
