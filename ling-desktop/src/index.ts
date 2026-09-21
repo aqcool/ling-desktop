@@ -19,4 +19,29 @@ export {
 } from './runtime/index.js'
 
 export { LingShell } from './ui/LingShell.js'
-export type { LingUiSlotName, LingUiSlots } from './ui/slots.js'
+export {
+  createLingUiPluginHost,
+  lingUiPluginHost,
+  type LingUiPluginContext,
+  type LingUiPluginDefinition,
+  type LingUiPluginHost,
+  type LingUiPluginRegistration,
+  type LingUiPluginSlots,
+} from './ui/plugin-host.js'
+export {
+  createLingUiExtensionRegistry,
+  lingUiExtensions,
+  mergeLingUiSlots,
+  useLingUiSlots,
+  type LingUiExtensionRegistry,
+  type LingUiListRegistration,
+  type LingUiRegistration,
+  type LingUiSingleRegistration,
+} from './ui/registry.js'
+export {
+  lingUiSlotKinds,
+  type LingUiListSlotName,
+  type LingUiSingleSlotName,
+  type LingUiSlotName,
+  type LingUiSlots,
+} from './ui/slots.js'

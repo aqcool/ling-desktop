@@ -32,3 +32,42 @@ export interface LingUiSlots {
 }
 
 export type LingUiSlotName = keyof LingUiSlots
+
+export const lingUiSlotKinds = {
+  'sidebar.toggle.badge': 'single',
+  'sidebar.brand.mark': 'single',
+  'sidebar.brand.name': 'single',
+  'sidebar.panellist': 'list',
+  'sidebar.workspaces': 'single',
+  'sidebar.settings': 'single',
+  'sidebar.footer.action': 'list',
+  'conversation.session.header.leading': 'single',
+  'conversation.session.header.lineage': 'single',
+  'conversation.session.header.actions': 'list',
+  'conversation.session.header.utilities': 'list',
+  'conversation.session.header.corner': 'single',
+  'conversation.view': 'list',
+  'conversation.hero.workspace': 'single',
+  'conversation.hero.brand.mark': 'single',
+  'conversation.hero.agentPreset': 'single',
+  'conversation.input.left': 'list',
+  'conversation.input.right': 'list',
+  'conversation.input.dock': 'list',
+  'conversation.input.overlay': 'list',
+  'conversation.composer.dock': 'list',
+  'conversation.composer.bar': 'single',
+  'conversation.input.attachments': 'single',
+  'conversation.input.plan': 'single',
+  'conversation.input.permission': 'single',
+  'conversation.input.model': 'single',
+  'rightbar.session': 'single',
+  'shell.overlay': 'list',
+} as const satisfies Record<LingUiSlotName, 'list' | 'single'>
+
+export type LingUiSingleSlotName = {
+  [Name in LingUiSlotName]: typeof lingUiSlotKinds[Name] extends 'single' ? Name : never
+}[LingUiSlotName]
+
+export type LingUiListSlotName = {
+  [Name in LingUiSlotName]: typeof lingUiSlotKinds[Name] extends 'list' ? Name : never
+}[LingUiSlotName]
