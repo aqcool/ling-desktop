@@ -42,7 +42,7 @@ The default data directory is `.desktop-next/home` inside this package, includin
 Official Web boot + DSH client module graph
                     |  replace uiRenderer
                LING Renderer
-                    |  sessions / workspaces
+                    |  sessions / workspaces / conversation
              Next Electron main
                     |  authenticated HTTP / WebSocket
              Electron Node-mode Host
@@ -62,4 +62,4 @@ Next is a profile bundle so shared plugin-manager reconciliation retains its cap
 
 ## Current limits
 
-This is a runnable development package without signed installers, automatic updates, or Stable/Beta data migration. The official distribution's offline Python/Office runtime and skill payloads are not yet integrated. DSH client plugins activate against the original services and Slot Registry; projecting their visual slot contributions into LING's renderer registry is the next compatibility layer. Headless Node/Electron checks do not qualify cross-platform installers or visual behavior.
+This is a runnable development package without signed installers, automatic updates, or Stable/Beta data migration. The official distribution's offline Python/Office runtime and skill payloads are not yet integrated. LING reuses DSH's assembled Chat projection for conversation data while owning the complete React presentation. DSH visual Slot contributions are not rendered by LING; no Slot compatibility bridge is planned. Headless Node/Electron checks do not qualify cross-platform installers or visual behavior.

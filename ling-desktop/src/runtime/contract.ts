@@ -34,12 +34,21 @@ export type LingTimelineItemKind =
   | 'tool-activity'
   | 'system-notice'
 
+export type LingTimelineItemStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+
 export interface LingTimelineItem {
   readonly itemId: string
   readonly taskId: string
   readonly kind: LingTimelineItemKind
+  readonly title?: string
   readonly text: string
+  readonly detail?: string
   readonly createdAt: string
+  readonly status?: LingTimelineItemStatus
   readonly streaming?: boolean
 }
 

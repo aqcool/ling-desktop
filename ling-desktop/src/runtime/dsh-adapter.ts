@@ -1,7 +1,6 @@
 import type {
   ISessions,
   SessionBinding,
-  SessionEventWindow,
   SessionListState,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
@@ -39,6 +38,12 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 export interface DshRuntimeFacades {
   readonly sessions: Pick<ISessions, 'create' | 'list' | 'refresh' | 'retain' | 'using'>
   readonly workspaces: Pick<IWorkspaces, 'list'>
+  readonly conversation: {
+    timeline(binding: SessionBinding): {
+      getSnapshot(): readonly LingTimelineItem[]
+      subscribe(listener: () => void): () => void
+    }
+  }
   readonly reconnect?: () => void | Promise<void>
 }
 
@@ -95,96 +100,6 @@ function snapshotProjection(facades: DshRuntimeFacades): LingRuntimeSnapshot {
     tasks: taskProjection(sessions, workspaces),
     workspaces: workspaceProjection(workspaces),
   }
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined
-}
-
-function contentText(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  return value.flatMap(block => {
-    const candidate = record(block)
-    if (candidate?.['type'] === 'text' && typeof candidate['text'] === 'string') return [candidate['text']]
-    return []
-  }).join('\n').trim()
-}
-
-function isoTime(value: unknown): string {
-  return new Date(typeof value === 'number' && Number.isFinite(value) ? value : Date.now()).toISOString()
-}
-
-function timelineProjection(taskId: string, window: SessionEventWindow): readonly LingTimelineItem[] {
-  const items: LingTimelineItem[] = []
-  const streaming = new Map<string, { text: string; time: number }>()
-
-  for (const entry of window.entries) {
-    const event = entry.event
-    const data = record(event.data)
-    const seq = typeof event.seq === 'number' ? String(event.seq) : String(items.length)
-    if (event.type === 'user/message') {
-      const text = contentText(data?.['content'])
-      const source = record(data?.['source'])
-      if (text && source?.['kind'] === 'user') {
-        items.push({
-          itemId: `${taskId}:${seq}:user`,
-          taskId,
-          kind: 'user-message',
-          text,
-          createdAt: isoTime(event.time),
-        })
-      }
-      continue
-    }
-    if (event.type === 'assistant/message') {
-      const message = record(data?.['message'])
-      const text = contentText(message?.['content'])
-      if (text) {
-        items.push({
-          itemId: `${taskId}:${seq}:assistant`,
-          taskId,
-          kind: 'assistant-message',
-          text,
-          createdAt: isoTime(event.time),
-        })
-      }
-      continue
-    }
-    if (event.type === 'tool/call') {
-      const name = typeof data?.['name'] === 'string' ? data['name'] : '工具'
-      items.push({
-        itemId: `${taskId}:${seq}:tool`,
-        taskId,
-        kind: 'tool-activity',
-        text: name,
-        createdAt: isoTime(event.time),
-      })
-      continue
-    }
-    if (event.type === 'assistant/live-chunk') {
-      const attemptId = String(data?.['attemptId'] ?? 'active')
-      const chunk = record(data?.['chunk'])
-      if (chunk?.['type'] !== 'text-delta' || typeof chunk['text'] !== 'string') continue
-      const previous = streaming.get(attemptId)
-      streaming.set(attemptId, {
-        text: (previous?.text ?? '') + chunk['text'],
-        time: typeof event.time === 'number' ? event.time : (previous?.time ?? Date.now()),
-      })
-    }
-  }
-
-  for (const [attemptId, value] of streaming) {
-    if (!value.text.trim()) continue
-    items.push({
-      itemId: `${taskId}:stream:${attemptId}`,
-      taskId,
-      kind: 'assistant-message',
-      text: value.text,
-      createdAt: isoTime(value.time),
-      streaming: true,
-    })
-  }
-  return items
 }
 
 function rejectionReason(code: string): LingCommandRejectionReason {
@@ -254,9 +169,9 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       return snapshotProjection(facades)
     },
     async getTaskTimeline(taskId) {
-      return await withSession(facades, taskId, ({ eventSource }) => (
-        timelineProjection(taskId, eventSource.getSnapshot())
-      ))
+      return await withSession(facades, taskId, binding => {
+        return facades.conversation.timeline(binding).getSnapshot()
+      })
     },
     async dispatch(command: LingRuntimeCommand) {
       try {
@@ -317,8 +232,9 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       let disposeEvents: (() => void) | undefined
       void reference.ready.then(binding => {
         if (abort.signal.aborted) return
-        const publish = () => { listener(timelineProjection(taskId, binding.eventSource.getSnapshot())) }
-        disposeEvents = binding.eventSource.subscribe(publish)
+        const source = facades.conversation.timeline(binding)
+        const publish = () => { listener(source.getSnapshot()) }
+        disposeEvents = source.subscribe(publish)
         publish()
       }).catch(() => {})
       return () => {

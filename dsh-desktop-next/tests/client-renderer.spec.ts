@@ -15,7 +15,7 @@ describe('LING renderer client entry', () => {
 
     apply(ctx)
 
-    expect(inject).toEqual(['sessions', 'workspaces'])
+    expect(inject).toEqual(['sessions', 'workspaces', 'uiConversation'])
     expect(effect).toHaveBeenCalledWith(expect.any(Function), 'LING renderer stylesheet')
     expect(provide).toHaveBeenCalledWith('uiRenderer', { mount: expect.any(Function) })
   })

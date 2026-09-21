@@ -11,8 +11,9 @@ interface.
 - DSH remains the runtime and host integration layer.
 - The renderer accesses runtime capabilities through a LING
   adapter contract.
-- Do not import `@deepseek-ai/dsh-client-ui-*`, `@deepseek-ai/dsh-web-app`, or
-  `@deepseek-ai/dsh-web-frontend` into this workspace.
+- The Next integration layer consumes DSH's public headless Conversation and
+  Chat projections. This workspace depends only on the LING-owned projection;
+  DSH React components, SlotRenderer, Web App, and Web Frontend remain outside.
 
 ## UI foundation
 
@@ -44,8 +45,9 @@ LING Renderer -> LING runtime adapter -> DSH Host / Agent Runtime
 
 `src/runtime/contract.ts` is the framework-independent port consumed by the
 Renderer. It exposes connection state, workspace and task summaries, timeline
-events, and task create/send/cancel commands. The offline adapter supports
+items, and task create/send/cancel commands. The offline adapter supports
 standalone UI development. `src/runtime/dsh-adapter.ts` projects the official
-Session and Workspace client services into the same port, and `src/client.tsx`
-is the reusable React mount used by LING Next's replaceable `uiRenderer`
-service.
+Session and Workspace services plus a LING timeline source supplied by the
+carrier. LING Next builds that source from DSH's assembled `chat` target instead
+of interpreting raw Session events again. `src/client.tsx` is the reusable
+React mount used by LING Next's replaceable `uiRenderer` service.

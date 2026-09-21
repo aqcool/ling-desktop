@@ -28,6 +28,13 @@ const statusLabels: Record<LingTaskStatus, string> = {
   cancelled: '已取消',
 }
 
+const timelineStatusLabels = {
+  running: '进行中',
+  completed: '已完成',
+  failed: '失败',
+  interrupted: '已停止',
+} as const
+
 interface LingShellProps {
   readonly connection: LingRuntimeConnection
   readonly environmentOpen: boolean
@@ -144,9 +151,27 @@ function Conversation({ slots, timeline }: { readonly slots: LingUiSlots; readon
   return (
     <div className="conversation-stream">
       {timeline.map(item => (
-        <article className={`timeline-item timeline-item--${item.kind}`} key={item.itemId}>
+        <article
+          className={`timeline-item timeline-item--${item.kind}`}
+          data-status={item.status}
+          key={item.itemId}
+        >
           {item.kind === 'tool-activity' ? <Icon name="terminal" size={16} /> : null}
-          <p>{item.text}</p>
+          <div className="timeline-item__body">
+            {item.title || item.status ? (
+              <div className="timeline-item__heading">
+                {item.title ? <strong>{item.title}</strong> : null}
+                {item.status ? <span>{timelineStatusLabels[item.status]}</span> : null}
+              </div>
+            ) : null}
+            {item.text ? <p>{item.text}</p> : null}
+            {item.detail ? (
+              <details className="timeline-item__detail">
+                <summary>思考过程</summary>
+                <p>{item.detail}</p>
+              </details>
+            ) : null}
+          </div>
           {item.streaming ? <span className="streaming-caret" aria-hidden="true" /> : null}
         </article>
       ))}

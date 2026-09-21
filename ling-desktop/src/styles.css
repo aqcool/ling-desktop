@@ -398,10 +398,53 @@ button { color: inherit; }
   gap: 0.55rem;
 }
 
-.timeline-item p {
+.timeline-item__body {
+  min-width: 0;
+}
+
+.timeline-item p,
+.timeline-item__detail p {
   margin: 0;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+.timeline-item__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.timeline-item__heading strong {
+  color: #444;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.timeline-item__heading span {
+  color: #999;
+  font-size: 0.7rem;
+}
+
+.timeline-item[data-status='failed'] .timeline-item__heading span { color: #b5473d; }
+
+.timeline-item__detail {
+  margin-top: 0.55rem;
+  color: #777;
+  font-size: 0.8rem;
+}
+
+.timeline-item__detail summary {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
+}
+
+.timeline-item__detail p {
+  margin-top: 0.35rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid #ddd;
 }
 
 .timeline-item--user-message {
@@ -422,6 +465,13 @@ button { color: inherit; }
 .timeline-item--system-notice {
   color: #777;
   font-size: 0.78rem;
+}
+
+.timeline-item--tool-activity {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #e7e7e7;
+  border-radius: 0.7rem;
+  background: #fafafa;
 }
 
 .streaming-caret {

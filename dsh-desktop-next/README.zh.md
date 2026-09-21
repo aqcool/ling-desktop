@@ -42,7 +42,7 @@ corepack yarn workspace dsh-desktop-next verify:host:electron
 官方 Web 启动层 + DSH 客户端模块图
               │  替换 uiRenderer
          LING Renderer
-              │  sessions / workspaces
+              │  sessions / workspaces / conversation
        Next Electron 主进程
               │  认证 HTTP / WebSocket
        Electron Node 模式 Host
@@ -62,4 +62,4 @@ Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置
 
 ## 当前边界
 
-这是可运行的开发包，尚无签名安装包、自动更新或 Stable/Beta 数据迁移。官方发布包内的 Python/Office 离线运行时和技能包也尚未集成。DSH 客户端插件会按原服务与 Slot Registry 激活；把它们的可视 Slot 贡献投射到 LING Renderer Registry，是下一层兼容工作。Node/Electron 的无图形检查不代表跨平台安装包和视觉验收完成。
+这是可运行的开发包，尚无签名安装包、自动更新或 Stable/Beta 数据迁移。官方发布包内的 Python/Office 离线运行时和技能包也尚未集成。LING 复用 DSH 已组装的 Chat 投影作为对话数据，并独立拥有完整 React 呈现。DSH 的可视 Slot 贡献不会由 LING 渲染，也不规划 Slot 兼容桥。Node/Electron 的无图形检查不代表跨平台安装包和视觉验收完成。

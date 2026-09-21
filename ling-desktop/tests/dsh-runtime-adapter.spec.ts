@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { LingTimelineItem } from '../src/runtime/contract.js'
 import { createDshRuntimeAdapter, type DshRuntimeFacades } from '../src/runtime/dsh-adapter.js'
 
 class Source<Value> {
@@ -52,36 +53,34 @@ function fixture() {
     subagentsByParent: {},
     jobsBySession: {},
   })
+  const timelineSource = new Source<readonly LingTimelineItem[]>([
+    {
+      itemId: 'session-1:user:1',
+      taskId: 'session-1',
+      kind: 'user-message',
+      text: '继续实现',
+      createdAt: '2025-09-21T00:00:00.000Z',
+    },
+    {
+      itemId: 'session-1:tool:2',
+      taskId: 'session-1',
+      kind: 'tool-activity',
+      title: 'terminal',
+      text: '构建通过',
+      createdAt: '2025-09-21T00:00:01.000Z',
+      status: 'completed',
+    },
+    {
+      itemId: 'session-1:assistant:3',
+      taskId: 'session-1',
+      kind: 'assistant-message',
+      text: '已经完成。',
+      createdAt: '2025-09-21T00:00:02.000Z',
+      status: 'completed',
+    },
+  ])
   const eventSource = new Source({
-    entries: [
-      {
-        type: 'event',
-        event: {
-          type: 'user/message',
-          seq: 1,
-          time: 1_758_412_800_000,
-          data: { source: { kind: 'user' }, content: [{ type: 'text', text: '继续实现' }] },
-        },
-      },
-      {
-        type: 'event',
-        event: {
-          type: 'tool/call',
-          seq: 2,
-          time: 1_758_412_801_000,
-          data: { name: 'terminal' },
-        },
-      },
-      {
-        type: 'event',
-        event: {
-          type: 'assistant/message',
-          seq: 3,
-          time: 1_758_412_802_000,
-          data: { message: { content: [{ type: 'text', text: '已经完成。' }] } },
-        },
-      },
-    ],
+    entries: [],
     hasMore: false,
     revision: 1,
     change: { kind: 'replace', entries: [] },
@@ -110,6 +109,9 @@ function fixture() {
   const facades = {
     sessions: { list: sessionList, create, refresh, retain, using },
     workspaces: { list: workspaceList },
+    conversation: {
+      timeline: vi.fn(() => timelineSource),
+    },
   } as unknown as DshRuntimeFacades
 
   return {
@@ -117,11 +119,11 @@ function fixture() {
     beginSubmission,
     cancel,
     create,
-    eventSource,
     prompt,
     release,
     retain,
     sessionList,
+    timelineSource,
     using,
     workspaceList,
   }
@@ -177,13 +179,13 @@ describe('DSH runtime adapter', () => {
     )
   })
 
-  it('reads and follows the retained DSH event source', async () => {
-    const { adapter, eventSource, release, retain } = fixture()
+  it('reads and follows the retained conversation projection', async () => {
+    const { adapter, release, retain, timelineSource } = fixture()
 
     await expect(adapter.getTaskTimeline('session-1')).resolves.toMatchObject([
       { kind: 'user-message', text: '继续实现' },
-      { kind: 'tool-activity', text: 'terminal' },
-      { kind: 'assistant-message', text: '已经完成。' },
+      { kind: 'tool-activity', title: 'terminal', text: '构建通过', status: 'completed' },
+      { kind: 'assistant-message', text: '已经完成。', status: 'completed' },
     ])
 
     const listener = vi.fn()
@@ -195,14 +197,34 @@ describe('DSH runtime adapter', () => {
     })
     expect(listener).toHaveBeenCalledOnce()
 
-    eventSource.set({
-      ...eventSource.getSnapshot(),
-      revision: 2,
-      entries: [],
-    })
+    timelineSource.set([])
     expect(listener).toHaveBeenLastCalledWith([])
 
     unsubscribe()
     expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('passes streaming projection fields through unchanged', async () => {
+    const { adapter, timelineSource } = fixture()
+    timelineSource.set([{
+      itemId: 'session-1:assistant:stream',
+      taskId: 'session-1',
+      kind: 'assistant-message',
+      text: '正在处理。',
+      detail: '检查测试结果',
+      createdAt: '2025-09-21T00:00:03.000Z',
+      status: 'running',
+      streaming: true,
+    }])
+
+    await expect(adapter.getTaskTimeline('session-1')).resolves.toMatchObject([
+      {
+        kind: 'assistant-message',
+        text: '正在处理。',
+        detail: '检查测试结果',
+        status: 'running',
+        streaming: true,
+      },
+    ])
   })
 })
