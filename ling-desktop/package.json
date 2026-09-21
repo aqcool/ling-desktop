@@ -11,10 +11,12 @@
   "scripts": {
     "build": "yarn typecheck",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/verify-boundary.mjs",
-    "check": "yarn build && yarn test"
+    "check:boundary": "node scripts/verify-boundary.mjs",
+    "test": "vitest run",
+    "check": "yarn build && yarn check:boundary && yarn test"
   },
   "devDependencies": {
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
   }
 }

@@ -15898,6 +15898,7 @@ __metadata:
   resolution: "ling-desktop@workspace:ling-desktop"
   dependencies:
     typescript: "npm:6.0.3"
+    vitest: "npm:4.1.8"
   languageName: unknown
   linkType: soft
 

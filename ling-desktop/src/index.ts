@@ -1,8 +1,19 @@
-/**
- * Entry point for LING-owned desktop presentation.
- *
- * This workspace intentionally starts without a dependency on the upstream
- * DSH UI. Runtime access will arrive through an explicit LING adapter rather
- * than through upstream client components or slots.
- */
+/** Entry point for LING-owned desktop presentation. */
 export const LING_DESKTOP_RENDERER_OWNER = 'LING' as const
+
+export {
+  createOfflineRuntimeAdapter,
+  type LingCommandRejectionReason,
+  type LingCommandResult,
+  type LingConnectionPhase,
+  type LingRuntimeAdapter,
+  type LingRuntimeCommand,
+  type LingRuntimeConnection,
+  type LingRuntimeEvent,
+  type LingRuntimeSnapshot,
+  type LingTaskStatus,
+  type LingTaskSummary,
+  type LingTimelineItem,
+  type LingTimelineItemKind,
+  type LingWorkspaceSummary,
+} from './runtime/index.js'

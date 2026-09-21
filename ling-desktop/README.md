@@ -16,10 +16,19 @@ interface.
 
 ## Initial scope
 
-This first commit intentionally selects no UI framework and starts no Electron
+This foundation intentionally selects no UI framework and starts no Electron
 process. It establishes an isolated workspace and an enforced presentation
 boundary before we design the runtime adapter and implement the Renderer.
 
 ```text
 LING Renderer -> LING runtime adapter -> DSH Host / Agent Runtime
 ```
+
+## Runtime adapter v1
+
+`src/runtime/contract.ts` is the framework-independent port consumed by the
+Renderer. It exposes safe connection state, workspace and task summaries,
+timeline events, and task create/send/cancel commands. The first implementation
+is an offline adapter so the Renderer can develop without a live Host. A future
+DSH adapter will translate between this contract and the runtime without
+leaking upstream presentation components into LING.
