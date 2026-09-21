@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A separate experimental package based on DeepSeek Harness **0.1.6-alpha.2**. The main window loads the official published `@deepseek-ai/dsh-web-frontend`, sharing the official Web application, plugin manager, and basic Desktop presentation. Next adds Profiles, recovery, Agents Anywhere remote control, and Community Market.
+A separate experimental package based on DeepSeek Harness **0.1.6-alpha.2**. The official Web artifact owns boot, transport setup, the module loader, and the complete client plugin roster. The `dsh-desktop-next` client entry replaces the final `uiRenderer` service with the LING renderer while retaining the DSH service graph. Next also owns Profiles, recovery, Agents Anywhere remote control, and Community Market.
 
 ## Development and verification
 
@@ -15,7 +15,7 @@ corepack yarn check:next
 corepack yarn dev:next
 ```
 
-`check:next` builds Market and Next, runs typechecks, unit tests, official-frontend and sandboxed-preload checks, and a real Host smoke in a temporary home. It never opens a graphical application. The smoke uses an offline local fixture plugin to exercise pnpm, Market removal and restart requests, authentication, profile switching, and recovery boot, then cleans up its processes and files.
+`check:next` builds LING, Market, and Next, runs typechecks, unit tests, boot/renderer asset and sandboxed-preload checks, and a real Host smoke in a temporary home. It never opens a graphical application. The smoke uses an offline local fixture plugin to exercise pnpm, Market removal and restart requests, authentication, profile switching, and recovery boot, then cleans up its processes and files.
 
 `dev:next` explicitly launches the graphical application. Use `corepack yarn start:next` with an existing build. An uncached Electron binary is downloaded on first use. To additionally exercise the real Electron executable in Node mode, build first and run:
 
@@ -24,15 +24,6 @@ corepack yarn workspace dsh-desktop-next verify:host:electron
 ```
 
 This check opens no Electron window. Window presentation, native dialogs, and a real phone connection still require manual acceptance.
-
-The macOS sidebar and titlebar regression runs the official frontend's Desktop boot branch in headless Chromium with a temporary home. It serves the same entry document as Next, supplies real Host injections through a simulated preload contract, and asserts that Desktop transport is active. It checks reopening the sidebar from the homepage and plugin manager, drag-region geometry, and clickable page actions. After building, install the test browser once and run:
-
-```sh
-corepack yarn workspace dsh-desktop-next exec playwright install chromium
-corepack yarn workspace dsh-desktop-next verify:window-controls
-```
-
-Set `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` to use an installed Google Chrome instead. Screenshots are saved under `dsh-desktop-next/.desktop-next/verification/`. Native macOS window movement still needs manual verification. These additive controls use official layout actions and do not modify the upstream frontend.
 
 ## Usage
 
@@ -48,20 +39,22 @@ The default data directory is `.desktop-next/home` inside this package, includin
 ## Architecture and provenance
 
 ```text
-Official Web frontend + official basic Desktop presentation
-                        |  dsh-app://app
-                 Next Electron main
-                        |  authenticated HTTP / WebSocket
-                 Electron Node-mode Host
-                        |  upstream shared runProfile
-                 Official Web bundles + Next bundle
-                        |- Community Market
-                        `- Agents Anywhere bridge
+Official Web boot + DSH client module graph
+                    |  replace uiRenderer
+               LING Renderer
+                    |  sessions / workspaces
+             Next Electron main
+                    |  authenticated HTTP / WebSocket
+             Electron Node-mode Host
+                    |  upstream shared runProfile
+             DSH bundles + Next bundle
+                    |- Community Market
+                    `- Agents Anywhere bridge
 ```
 
 Alpha.2 replaced alpha.1's portless pipes with WebServer. This package uses the real upstream WebServer rather than simulating HTTP routes. The server binds only to an OS-assigned `127.0.0.1` port so other editions can run concurrently. Main retains Host credentials and applies the same authentication to Market routes; Market mutations retain their origin checks.
 
-The main interface consumes official frontend artifacts without copying chat, settings, or plugin-manager pages. macOS window material, platform markers, the Windows caption menu, and native theme synchronization follow the official implementation. Next's small control window only manages the added Profiles, feature switches, and recovery, and remains accessible when the main Host fails.
+The main interface uses the official boot kernel and module graph without copying their implementation. LING owns the mounted React tree and its HeroUI presentation. macOS window material, platform markers, the Windows caption menu, and native theme synchronization continue through the Next carrier. The separate control window manages Profiles, feature switches, and recovery, and remains accessible when the main Host fails.
 
 Next is a profile bundle so shared plugin-manager reconciliation retains its capabilities. Development startup creates one managed link for Next itself under `home/profiles/node_modules`; alpha.2 runtime resolution owns all other dependency fallbacks. All upstream runtime dependencies come from published packages, without source links into or edits to `deepseek-harness/`.
 
@@ -69,4 +62,4 @@ Next is a profile bundle so shared plugin-manager reconciliation retains its cap
 
 ## Current limits
 
-This is a runnable development package without signed installers, automatic updates, or Stable/Beta data migration. The official distribution's offline Python/Office runtime and skill payloads are not yet integrated. Our enhanced windows, tray integration, and related features remain for later migration. Headless Node/Electron checks do not qualify cross-platform installers or visual behavior.
+This is a runnable development package without signed installers, automatic updates, or Stable/Beta data migration. The official distribution's offline Python/Office runtime and skill payloads are not yet integrated. DSH client plugins activate against the original services and Slot Registry; projecting their visual slot contributions into LING's renderer registry is the next compatibility layer. Headless Node/Electron checks do not qualify cross-platform installers or visual behavior.

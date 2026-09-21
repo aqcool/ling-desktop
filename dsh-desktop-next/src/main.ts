@@ -37,6 +37,7 @@ let failure = ''
 let windowsLanguage = 'zh-CN'
 const require = createRequire(NEXT_PACKAGE)
 const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'))
+const lingRoot = join(dirname(require.resolve('ling-desktop/package.json')), 'dist')
 
 function assertSender(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>, owner: BrowserWindow | undefined, origin: string): void {
   if (!owner || owner.isDestroyed() || event.sender !== owner.webContents
@@ -173,6 +174,13 @@ async function main(): Promise<void> {
       } })
     }
     if (url.hostname !== 'app') return new Response(null, { status: 404 })
+    if (url.pathname === '/ling-renderer.css') {
+      const stylesheetRequest = new Request('dsh-app://app/renderer.css', {
+        method: request.method,
+        headers: request.headers,
+      })
+      return serveWebDocument(stylesheetRequest, lingRoot)
+    }
     if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
       || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) return serveWebDocument(request, webRoot)
     if (!backend.host || !hostUrl || !hostCookie) return new Response(null, { status: 503 })

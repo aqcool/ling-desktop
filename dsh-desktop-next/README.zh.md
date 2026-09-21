@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-基于 DeepSeek Harness **0.1.6-alpha.2** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加 Profile、恢复、Agents Anywhere 手机远控和社区市场。
+基于 DeepSeek Harness **0.1.6-alpha.2** 的独立实验包。官方 Web 产物继续负责启动、传输初始化、模块加载和完整客户端插件名册；`dsh-desktop-next` 客户端入口只替换最终的 `uiRenderer` 服务，由 LING Renderer 接管 React 界面，同时保留 DSH 服务图。Next 还负责 Profile、恢复、Agents Anywhere 手机远控和社区市场。
 
 ## 开发与验证
 
@@ -15,7 +15,7 @@ corepack yarn check:next
 corepack yarn dev:next
 ```
 
-`check:next` 构建市场与 Next，执行类型检查、单元测试、官方前端与沙箱 preload 检查，以及临时目录中的真实 Host 检查，不打开图形应用。后者使用离线本地测试插件验证 pnpm、市场卸载与重启请求、鉴权、Profile 切换和恢复后启动，并清理测试进程与文件。
+`check:next` 构建 LING、市场与 Next，执行类型检查、单元测试、启动与渲染器资源检查、沙箱 preload 检查，以及临时目录中的真实 Host 检查，不打开图形应用。后者使用离线本地测试插件验证 pnpm、市场卸载与重启请求、鉴权、Profile 切换和恢复后启动，并清理测试进程与文件。
 
 `dev:next` 是显式的图形启动命令；已有构建可用 `corepack yarn start:next` 启动。Electron 二进制尚未缓存时会下载。需要额外检查真实 Electron Node 模式时，先完成构建，再运行：
 
@@ -24,15 +24,6 @@ corepack yarn workspace dsh-desktop-next verify:host:electron
 ```
 
 此检查不打开 Electron 窗口。主窗口呈现、原生对话框和真实手机连接仍需手动验收。
-
-macOS 侧栏和标题栏回归检查会用临时数据目录，在无界面的 Chromium 中运行官方前端的 Desktop 启动分支。测试使用与 Next 相同的入口文档，通过模拟的 preload 接口提供真实 Host 注入，并断言已进入 Desktop 传输模式；随后验证首页和插件页收起后重新展开侧栏、拖动区域的位置，以及页面按钮可正常点击。构建后，首次安装测试浏览器并运行：
-
-```sh
-corepack yarn workspace dsh-desktop-next exec playwright install chromium
-corepack yarn workspace dsh-desktop-next verify:window-controls
-```
-
-设置 `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` 可使用已安装的 Google Chrome。截图保存在 `dsh-desktop-next/.desktop-next/verification/`。macOS 原生窗口拖动仍需手工验证。补充的控件调用官方布局操作，不修改上游前端。
 
 ## 使用
 
@@ -48,20 +39,22 @@ corepack yarn workspace dsh-desktop-next verify:window-controls
 ## 架构与来源
 
 ```text
-官方 Web 前端 + 官方基础桌面适配
-              │  dsh-app://app
+官方 Web 启动层 + DSH 客户端模块图
+              │  替换 uiRenderer
+         LING Renderer
+              │  sessions / workspaces
        Next Electron 主进程
               │  认证 HTTP / WebSocket
        Electron Node 模式 Host
               │  上游共享 runProfile
-       官方 Web bundles + Next bundle
+       DSH bundles + Next bundle
               ├─ Community Market
               └─ Agents Anywhere bridge
 ```
 
 alpha.1 的无端口管道方案已被 alpha.2 的 WebServer 方案替代。本包使用真正的上游 WebServer，不实现模拟 HTTP 路由层。服务仅绑定 `127.0.0.1` 的系统分配端口，允许与其他版本并行运行。主进程保存 Host 凭据，并为市场接口补上同一套认证；市场写请求继续接受来源检查。
 
-主界面使用官方前端产物，不复制聊天、设置或插件管理页面。macOS 窗口材质、平台标记、Windows 标题栏菜单与主题同步参考官方实现。Next 自己的小型控制窗口只管理新增的 Profile、功能开关和恢复，在主 Host 启动失败时也可访问。
+主界面复用官方启动内核与模块图，不复制它们的实现；LING 自己持有最终挂载的 React 树和 HeroUI 呈现。macOS 窗口材质、平台标记、Windows 标题栏菜单与主题同步仍由 Next 载体处理。独立控制窗口只管理 Profile、功能开关和恢复，在主 Host 启动失败时也可访问。
 
 Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置时仍保留附加能力。开发目录启动时，只为 Next 自身在 `home/profiles/node_modules` 建立一个受管链接；其他依赖由 alpha.2 的 runtime resolver 解析。所有上游运行时依赖来自发布包，不链接或改写 `deepseek-harness/` 源码。
 
@@ -69,4 +62,4 @@ Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置
 
 ## 当前边界
 
-这是可运行的开发包，尚无签名安装包、自动更新或 Stable/Beta 数据迁移。官方发布包内的 Python/Office 离线运行时和技能包也尚未集成。我们自己的增强窗口、托盘等能力留待后续迁移。Node/Electron 的无图形检查不代表跨平台安装包和视觉验收完成。
+这是可运行的开发包，尚无签名安装包、自动更新或 Stable/Beta 数据迁移。官方发布包内的 Python/Office 离线运行时和技能包也尚未集成。DSH 客户端插件会按原服务与 Slot Registry 激活；把它们的可视 Slot 贡献投射到 LING Renderer Registry，是下一层兼容工作。Node/Electron 的无图形检查不代表跨平台安装包和视觉验收完成。

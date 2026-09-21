@@ -16,8 +16,12 @@ export default defineConfig([
   {
     entry: { client: 'src/client/index.ts' },
     outDir: 'lib', format: 'cjs', platform: 'browser', target: 'es2022',
+    define: { 'process.env.NODE_ENV': JSON.stringify('production') },
     fixedExtension: false, dts: false, clean: false,
-    deps: { neverBundle: ['react', '@deepseek-ai/dsh-client-ui-primitives'] },
+    deps: {
+      alwaysBundle: id => id !== '@deepseek-ai/cordis',
+      neverBundle: ['@deepseek-ai/cordis'],
+    },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: 'window.__ModuleLoader__.load({ id: "dsh-desktop-next", factory: (require) => {',

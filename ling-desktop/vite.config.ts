@@ -4,4 +4,13 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        assetFileNames: asset => asset.name?.endsWith('.css')
+          ? 'renderer.css'
+          : 'assets/[name]-[hash][extname]',
+      },
+    },
+  },
 })
