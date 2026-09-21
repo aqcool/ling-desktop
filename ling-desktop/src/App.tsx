@@ -60,6 +60,16 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const resolvedSlots = useLingUiSlots(extensions, slots)
 
   useEffect(() => {
+    const media = window.matchMedia('(max-width: 980px)')
+    const closeInspectorOnNarrowLayout = () => {
+      if (media.matches) setEnvironmentOpen(false)
+    }
+    closeInspectorOnNarrowLayout()
+    media.addEventListener('change', closeInspectorOnNarrowLayout)
+    return () => { media.removeEventListener('change', closeInspectorOnNarrowLayout) }
+  }, [])
+
+  useEffect(() => {
     if (!searchOpen) return
     const query = searchQuery.trim()
     if (!query) {

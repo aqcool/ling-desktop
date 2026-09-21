@@ -1,7 +1,7 @@
 import { Button } from '@heroui/react/button'
 import { Card } from '@heroui/react/card'
 import { TextArea } from '@heroui/react/textarea'
-import { Fragment, useEffect, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import type {
   LingFileDiff,
   LingRuntimeConnection,
@@ -39,6 +39,29 @@ const timelineStatusLabels = {
   failed: '失败',
   interrupted: '已停止',
 } as const
+
+const quickStarts = [
+  {
+    icon: 'terminal' as const,
+    label: '检查构建',
+    prompt: '检查当前项目的构建失败原因，修复后运行测试。',
+  },
+  {
+    icon: 'code' as const,
+    label: '实现功能',
+    prompt: '查看现有代码，实现我接下来描述的功能。',
+  },
+  {
+    icon: 'change' as const,
+    label: '审查变更',
+    prompt: '审查当前变更，指出风险并给出修改建议。',
+  },
+  {
+    icon: 'folder' as const,
+    label: '理解项目',
+    prompt: '阅读这个项目的结构，说明关键模块和开发入口。',
+  },
+] as const
 
 interface LingShellProps {
   readonly changeDiff?: LingFileDiff
@@ -161,15 +184,60 @@ function WorkspaceList({
   )
 }
 
-function Conversation({ slots, timeline }: { readonly slots: LingUiSlots; readonly timeline: readonly LingTimelineItem[] }) {
+function Conversation({
+  connection,
+  onPromptChange,
+  onReconnect,
+  slots,
+  timeline,
+  workspaceLabel,
+}: {
+  readonly connection: LingRuntimeConnection
+  readonly onPromptChange: (value: string) => void
+  readonly onReconnect: () => void
+  readonly slots: LingUiSlots
+  readonly timeline: readonly LingTimelineItem[]
+  readonly workspaceLabel: string
+}) {
   if (timeline.length === 0) {
     return (
       <div className="conversation-empty">
-        {slots['conversation.hero.brand.mark'] ?? <div className="conversation-empty__mark">L</div>}
-        <h1>新对话</h1>
-        <p>描述你想完成的工作。</p>
-        {slots['conversation.hero.workspace']}
-        {slots['conversation.hero.agentPreset']}
+        <div className="conversation-empty__entry">
+          {slots['conversation.hero.brand.mark'] ?? <div className="conversation-empty__mark">L</div>}
+          <div>
+            <div className="conversation-empty__label">
+              <span>工作区</span>
+              <strong>{workspaceLabel}</strong>
+            </div>
+            <h1>新任务</h1>
+            <p>在下方描述你想完成的代码工作。</p>
+            {connection.phase !== 'ready' ? (
+              <div className="conversation-empty__connection">
+                <span className={`connection-dot connection-dot--${connection.phase}`} />
+                <span>{connection.message ?? connectionLabels[connection.phase]}</span>
+                <Button onPress={onReconnect} size="sm" variant="ghost">重新连接</Button>
+              </div>
+            ) : null}
+            {slots['conversation.hero.workspace']}
+            {slots['conversation.hero.agentPreset']}
+          </div>
+        </div>
+        <section className="quick-starts" aria-label="快速开始">
+          <p>快速开始</p>
+          <div className="quick-starts__grid">
+            {quickStarts.map(item => (
+              <button
+                className="quick-starts__item"
+                key={item.label}
+                onClick={() => { onPromptChange(item.prompt) }}
+                type="button"
+              >
+                <Icon name={item.icon} size={16} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
       </div>
     )
   }
@@ -238,12 +306,9 @@ function EnvironmentPanel({
   const changedFiles = changes.reduce((total, change) => total + change.total, 0)
 
   return (
-    <Card className="environment-panel" variant="secondary">
+    <Card className="environment-panel" variant="transparent">
       <Card.Header className="environment-panel__header">
         <Card.Title>环境信息</Card.Title>
-        <Button aria-label="添加环境" isIconOnly size="sm" variant="ghost">
-          <Icon name="plus" size={19} />
-        </Button>
       </Card.Header>
       <Card.Content className="environment-panel__content">
         <div className="environment-row">
@@ -332,6 +397,14 @@ export function LingShell(props: LingShellProps) {
     timeline,
     workspaces,
   } = props
+  const activeWorkspace = workspaces.find(workspace => workspace.workspaceId === selectedTask?.workspaceId)
+  const workspaceLabel = activeWorkspace?.label ?? workspaces[0]?.label ?? 'ling-desktop'
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+
+  const applyQuickStart = (value: string) => {
+    onPromptChange(value)
+    window.requestAnimationFrame(() => { composerRef.current?.focus() })
+  }
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -346,14 +419,18 @@ export function LingShell(props: LingShellProps) {
         event.preventDefault()
         onSearchOpen()
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        onNewTask()
+      }
       if (event.key === 'Escape' && searchOpen) onSearchClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => { window.removeEventListener('keydown', handleKeyDown) }
-  }, [onSearchClose, onSearchOpen, searchOpen])
+  }, [onNewTask, onSearchClose, onSearchOpen, searchOpen])
 
   return (
-    <div className="desktop-shell">
+    <div className={`desktop-shell${environmentOpen ? ' desktop-shell--inspector-open' : ''}`}>
       <aside className="sidebar">
         <div className="window-controls">
           <span className="window-control window-control--close" />
@@ -417,7 +494,9 @@ export function LingShell(props: LingShellProps) {
           <div className="workspace-header__title">
             {slots['conversation.session.header.leading']}
             <Icon name="folder" size={18} />
-            {slots['conversation.session.header.lineage'] ?? <strong>{selectedTask?.title ?? '新对话'}</strong>}
+            <span className="workspace-header__workspace">{workspaceLabel}</span>
+            <span className="workspace-header__separator">/</span>
+            {slots['conversation.session.header.lineage'] ?? <strong>{selectedTask?.title ?? '新任务'}</strong>}
           </div>
           <div className="workspace-header__actions">
             <SlotItems items={slots['conversation.session.header.actions']} prefix="header-action" />
@@ -436,13 +515,20 @@ export function LingShell(props: LingShellProps) {
               onClick={onEnvironmentToggle}
               type="button"
             >
-              <Icon name="change" size={18} />
+              <Icon name="panel" size={18} />
             </button>
           </div>
         </header>
 
         <section className="conversation-canvas">
-          <Conversation slots={slots} timeline={timeline} />
+          <Conversation
+            connection={connection}
+            onPromptChange={applyQuickStart}
+            onReconnect={onReconnect}
+            slots={slots}
+            timeline={timeline}
+            workspaceLabel={workspaceLabel}
+          />
           <SlotItems items={slots['conversation.view']} prefix="conversation-view" />
         </section>
 
@@ -460,6 +546,7 @@ export function LingShell(props: LingShellProps) {
                   onChange={(event: ChangeEvent<HTMLTextAreaElement>) => { onPromptChange(event.target.value) }}
                   onKeyDown={handleComposerKeyDown}
                   placeholder="随心输入"
+                  ref={composerRef}
                   rows={2}
                   value={prompt}
                   variant="secondary"
@@ -491,8 +578,10 @@ export function LingShell(props: LingShellProps) {
           <SlotItems items={slots['conversation.composer.dock']} prefix="composer-dock" />
         </div>
 
-        {environmentOpen ? (
-          slots['rightbar.session'] ?? (
+      </main>
+      {environmentOpen ? (
+        <aside className="inspector" aria-label="环境信息">
+          {slots['rightbar.session'] ?? (
             <EnvironmentPanel
               changeDiff={changeDiff}
               changeDiffLoading={changeDiffLoading}
@@ -508,21 +597,21 @@ export function LingShell(props: LingShellProps) {
               selectedTask={selectedTask}
               workspaces={workspaces}
             />
-          )
-        ) : null}
-        <TaskSearch
-          hasMore={searchHasMore}
-          isLoading={searchLoading}
-          message={searchMessage}
-          onClose={onSearchClose}
-          onQueryChange={onSearchQueryChange}
-          onSelect={onSearchSelect}
-          open={searchOpen}
-          query={searchQuery}
-          results={searchResults}
-        />
-        <SlotItems items={slots['shell.overlay']} prefix="shell-overlay" />
-      </main>
+          )}
+        </aside>
+      ) : null}
+      <TaskSearch
+        hasMore={searchHasMore}
+        isLoading={searchLoading}
+        message={searchMessage}
+        onClose={onSearchClose}
+        onQueryChange={onSearchQueryChange}
+        onSelect={onSearchSelect}
+        open={searchOpen}
+        query={searchQuery}
+        results={searchResults}
+      />
+      <SlotItems items={slots['shell.overlay']} prefix="shell-overlay" />
     </div>
   )
 }
