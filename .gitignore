@@ -15,4 +15,5 @@ dsh-community-market/lib/
 
 .env.yarn
 dsh-desktop-next/lib/
+ling-desktop/dist/
 dsh-desktop-next/.desktop-next/

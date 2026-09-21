@@ -1,0 +1,408 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+:root,
+[data-theme='dark'] {
+  --background: oklch(0.185 0.018 260);
+  --foreground: oklch(0.93 0.012 83);
+  --surface: oklch(0.224 0.02 260);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.255 0.024 260);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.283 0.028 260);
+  --surface-tertiary-foreground: var(--foreground);
+  --field-background: oklch(0.205 0.019 260);
+  --field-foreground: var(--foreground);
+  --field-placeholder: oklch(0.66 0.019 260);
+  --accent: oklch(0.79 0.135 78);
+  --accent-foreground: oklch(0.23 0.022 260);
+  --border: oklch(0.36 0.026 260);
+  --separator: oklch(0.31 0.021 260);
+  --muted: oklch(0.68 0.019 260);
+  --focus: oklch(0.83 0.145 78);
+  --radius: 0.75rem;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+.ling-app {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: minmax(17rem, 24rem) minmax(0, 1fr);
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--accent) 7%, transparent) 1px, transparent 1px) 0 0 / 4.5rem 4.5rem,
+    var(--background);
+}
+
+.signal-rail {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 3.5rem;
+  padding: clamp(1.5rem, 4vw, 4rem) clamp(1.25rem, 3vw, 3rem);
+  border-right: 1px solid color-mix(in oklch, var(--border) 86%, transparent);
+  background: color-mix(in oklch, var(--background) 93%, var(--surface));
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-lockup__mark {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: ui-serif, Georgia, serif;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.brand-lockup__name,
+.brand-lockup__descriptor,
+.section-label,
+.signal-map__step small,
+.composer-card__meta {
+  margin: 0;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.brand-lockup__name {
+  font-size: 0.95rem;
+  font-weight: 750;
+  letter-spacing: 0.18em;
+}
+
+.brand-lockup__descriptor {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+}
+
+.section-label {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.signal-map {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.signal-map__steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signal-map__step {
+  position: relative;
+  display: grid;
+  min-height: 4.75rem;
+  grid-template-columns: 1rem 1fr;
+  gap: 0.85rem;
+  align-items: start;
+  color: var(--muted);
+}
+
+.signal-map__step:not(:last-child)::after {
+  position: absolute;
+  top: 1rem;
+  bottom: 0.1rem;
+  left: 0.45rem;
+  width: 1px;
+  background: var(--border);
+  content: '';
+}
+
+.signal-map__dot {
+  z-index: 1;
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--background);
+}
+
+.signal-map__step--active {
+  color: var(--foreground);
+}
+
+.signal-map__step--active .signal-map__dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 0.35rem color-mix(in oklch, var(--accent) 14%, transparent);
+}
+
+.signal-map__step strong,
+.signal-map__step small {
+  display: block;
+}
+
+.signal-map__step strong {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.signal-map__step small {
+  margin-top: 0.28rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+}
+
+.runtime-card {
+  margin-top: auto;
+}
+
+.runtime-card .card__header {
+  gap: 0.35rem;
+}
+
+.runtime-card .card__footer {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.69rem;
+}
+
+.connection-status__light {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.connection-status--ready .connection-status__light {
+  background: var(--success);
+}
+
+.connection-status--failed .connection-status__light {
+  background: var(--danger);
+}
+
+.connection-status--offline .connection-status__light {
+  background: var(--warning);
+}
+
+.task-desk {
+  display: grid;
+  width: min(100%, 64rem);
+  align-content: start;
+  gap: clamp(1.25rem, 3vw, 2.25rem);
+  padding: clamp(2rem, 5vw, 5rem) clamp(1.5rem, 8vw, 8rem);
+}
+
+.task-desk__intro {
+  max-width: 43rem;
+}
+
+.task-desk__intro h1,
+.empty-trajectory h2 {
+  margin: 0.7rem 0 0;
+  font-family: ui-serif, Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+}
+
+.task-desk__intro h1 {
+  font-size: clamp(2.7rem, 5.6vw, 4.75rem);
+  line-height: 0.94;
+}
+
+.task-desk__intro > p:last-child {
+  max-width: 34rem;
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.composer-card {
+  overflow: hidden;
+  border-color: color-mix(in oklch, var(--accent) 36%, var(--border));
+  box-shadow: 0 1.5rem 5rem color-mix(in oklch, var(--background) 75%, transparent);
+}
+
+.composer-card .card__header {
+  gap: 0.45rem;
+}
+
+.composer-card .card__title {
+  font-size: 1.1rem;
+}
+
+.composer-card__textarea {
+  min-height: 7.5rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in oklch, var(--border) 90%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in oklch, var(--field-background) 92%, black);
+  line-height: 1.65;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.composer-card__textarea:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 0.22rem color-mix(in oklch, var(--accent) 18%, transparent);
+}
+
+.composer-card__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.7rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+}
+
+.composer-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid color-mix(in oklch, var(--border) 72%, transparent);
+}
+
+.composer-card__notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.empty-trajectory {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
+  gap: 2rem;
+  padding: 1.5rem 0 0;
+  border-top: 1px solid var(--separator);
+}
+
+.empty-trajectory h2 {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  line-height: 1.1;
+}
+
+.empty-trajectory > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+@media (max-width: 760px) {
+  .ling-app {
+    grid-template-columns: 1fr;
+    background-size: 3rem 3rem;
+  }
+
+  .signal-rail {
+    min-height: auto;
+    gap: 1.75rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .signal-map__steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .signal-map__step {
+    min-height: 0;
+    grid-template-columns: 1rem 1fr;
+    gap: 0.45rem;
+  }
+
+  .signal-map__step:not(:last-child)::after {
+    display: none;
+  }
+
+  .signal-map__step strong {
+    font-size: 0.76rem;
+  }
+
+  .runtime-card {
+    margin-top: 0;
+  }
+
+  .task-desk {
+    align-content: start;
+  }
+
+  .empty-trajectory {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+}
+
+@media (min-width: 761px) and (max-height: 760px) {
+  .signal-rail {
+    gap: 2rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+  }
+
+  .task-desk {
+    gap: 1.25rem;
+    padding-top: 1.75rem;
+    padding-bottom: 1.75rem;
+  }
+
+  .task-desk__intro h1 {
+    font-size: clamp(2.7rem, 5vw, 4rem);
+  }
+
+  .composer-card__textarea {
+    min-height: 6.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
