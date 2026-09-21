@@ -13,6 +13,7 @@ const fail = message => { throw new Error(`verify-layout: ${message}`) }
 
 const workspace = readJson('package.json')
 const upstream = readJson('upstream.json')
+const lingDesktop = readJson('ling-desktop/package.json')
 const stablePlugin = readJson('dsh-plugin-desktop/package.json')
 const betaPlugin = readJson('dsh-plugin-desktop-beta/package.json')
 const nextDesktop = readJson('dsh-desktop-next/package.json')
@@ -30,20 +31,25 @@ if (workspace.packageManager !== 'yarn@4.18.0') {
   fail('the product workspace must pin yarn@4.18.0')
 }
 if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
+  'ling-desktop',
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
   'dsh-desktop-next',
   'dsh-community-market',
 ])) {
-  fail('the root Yarn workspace must contain the Desktop and community-market packages')
+  fail('the root Yarn workspace must contain the LING Desktop, DSH Desktop, and community-market packages')
 }
 for (const [name, manifest] of [
+  ['ling-desktop', lingDesktop],
   ['dsh-plugin-desktop', stablePlugin],
   ['dsh-plugin-desktop-beta', betaPlugin],
   ['dsh-desktop-next', nextDesktop],
   ['dsh-community-market', market],
 ]) {
   if (manifest.packageManager !== undefined) fail(`${name} must inherit the root Yarn release`)
+}
+if (lingDesktop.name !== 'ling-desktop' || lingDesktop.private !== true) {
+  fail('LING Desktop must remain a private workspace owned by this repository')
 }
 if (market.name !== 'dsh-community-market') fail('the market workspace must own dsh-community-market')
 const claudePath = resolve(root, 'CLAUDE.md')
@@ -82,6 +88,7 @@ if (typeof upstreamPackage.packageManager !== 'string' || !upstreamPackage.packa
 
 for (const [owner, manifest] of [
   ['root', workspace],
+  ['ling desktop', lingDesktop],
   ['stable desktop', stablePlugin],
   ['beta desktop', betaPlugin],
   ['next desktop', nextDesktop],

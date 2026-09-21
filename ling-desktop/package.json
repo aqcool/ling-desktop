@@ -1,0 +1,20 @@
+{
+  "name": "ling-desktop",
+  "version": "0.0.0-dev.0",
+  "private": true,
+  "description": "LING-owned desktop renderer foundation",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "yarn typecheck",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/verify-boundary.mjs",
+    "check": "yarn build && yarn test"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}
