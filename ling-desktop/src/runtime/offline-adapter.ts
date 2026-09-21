@@ -27,6 +27,30 @@ export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRunt
     async getTaskTimeline(_taskId: string): Promise<readonly LingTimelineItem[]> {
       return []
     },
+    async searchTasks() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
+    async getTaskChanges() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
+    async getTaskFileDiff() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
     async dispatch(command: LingRuntimeCommand): Promise<LingCommandResult> {
       return {
         accepted: false,

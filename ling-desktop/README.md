@@ -46,12 +46,14 @@ LING Renderer -> LING runtime adapter -> DSH Host / Agent Runtime
 `src/runtime/contract.ts` is the framework-independent port consumed by the
 Renderer. It exposes connection state, workspace and task summaries, timeline
 items, pending approvals and questions, attachment submission, Workspace
-lifecycle operations, and task create/send/steer/cancel/rename/archive/history
-and slash-command operations. The offline adapter supports
+lifecycle operations, task search and Fork, per-turn changed-file summaries and
+Diff reads, and task create/send/steer/cancel/rename/archive/history and
+slash-command operations. The offline adapter supports
 standalone UI development. `src/runtime/dsh-adapter.ts` projects the official
 Session and Workspace services plus a LING timeline source supplied by the
 carrier. LING Next builds that source from DSH's assembled `chat` target instead
 of interpreting raw Session events again. Pending interactions are projected
 from the public Session status source, and files use DSH's staged upload receipt
-flow before Session admission. `src/client.tsx` is the reusable React mount used
+flow before Session admission. Changed files reuse DSH's published Turn data and
+authenticated summary/Diff routes. `src/client.tsx` is the reusable React mount used
 by LING Next's replaceable `uiRenderer` service.

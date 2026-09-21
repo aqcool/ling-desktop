@@ -62,4 +62,4 @@ Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置
 
 ## 当前边界
 
-这是可运行的开发包，尚无签名安装包、自动更新或 Stable/Beta 数据迁移。官方发布包内的 Python/Office 离线运行时和技能包也尚未集成。LING 复用 DSH 已组装的 Chat 投影作为对话数据，并通过公开 Session 状态载体处理审批与用户提问，同时独立拥有完整 React 呈现。附件文件继续使用 DSH 的暂存上传 receipt 流程。DSH 的可视 Slot 贡献不会由 LING 渲染，也不规划 Slot 兼容桥。Node/Electron 的无图形检查不代表跨平台安装包和视觉验收完成。
+这是可运行的开发包，尚无签名安装包、自动更新或 Stable/Beta 数据迁移。官方发布包内的 Python/Office 离线运行时和技能包也尚未集成。LING 复用 DSH 已组装的 Chat 投影作为对话数据，复用公开 Session 服务完成搜索与 Fork，并通过公开 Turn 数据和认证路由读取每轮文件变更与 Diff，同时独立拥有完整 React 呈现。审批与用户提问继续使用公开 Session 状态载体，附件文件继续使用 DSH 的暂存上传 receipt 流程。DSH 的可视 Slot 贡献不会由 LING 渲染，也不规划 Slot 兼容桥。Node/Electron 的无图形检查不代表跨平台安装包和视觉验收完成。

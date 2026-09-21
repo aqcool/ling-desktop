@@ -111,6 +111,14 @@ function fixture() {
   const retain = vi.fn(() => reference)
   const using = vi.fn(async (_target, _options, operation) => await operation(reference))
   const create = vi.fn(async () => 'session-created')
+  const fork = vi.fn(async () => 'session-forked')
+  const search = vi.fn(async () => ({
+    ok: true as const,
+    value: {
+      items: [{ sessionId: 'session-1', snippet: '…继续实现 renderer…' }],
+      hasMore: false,
+    },
+  }))
   const refresh = vi.fn(async () => {})
   const createWorkspace = vi.fn(async () => ({}))
   const renameWorkspace = vi.fn(async () => ({}))
@@ -120,8 +128,26 @@ function fixture() {
   const interactionSource = new Source<readonly LingPendingInteraction[]>([])
   const respond = vi.fn(async () => true)
   const prepareAttachments = vi.fn(async () => ({ content: [], pending: [] }))
+  const listChanges = vi.fn(async () => [{
+    taskId: 'session-1',
+    turn: 1,
+    seq: 8,
+    files: [{ path: 'src/app.ts', display: 'src/app.ts', added: 3, deleted: 1 }],
+    total: 1,
+    added: 3,
+    deleted: 1,
+  }])
+  const readDiff = vi.fn(async () => ({
+    kind: 'text' as const,
+    path: 'src/app.ts',
+    display: 'src/app.ts',
+    before: true,
+    after: true,
+    hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 3, lines: ['-old', '+new'] }],
+    coarse: false,
+  }))
   const facades = {
-    sessions: { list: sessionList, create, refresh, retain, using },
+    sessions: { list: sessionList, create, fork, refresh, retain, search, using },
     workspaces: {
       list: workspaceList,
       create: createWorkspace,
@@ -133,6 +159,7 @@ function fixture() {
     conversation: {
       timeline: vi.fn(() => timelineSource),
     },
+    changes: { list: listChanges, diff: readDiff },
     attachments: { prepare: prepareAttachments },
     interactions: {
       list: interactionSource,
@@ -145,19 +172,23 @@ function fixture() {
     beginSubmission,
     cancel,
     create,
+    fork,
     createWorkspace,
     deleteWorkspace,
     archiveSession,
     interactionSource,
+    listChanges,
     loadOlder,
     prompt,
     prepareAttachments,
+    readDiff,
     renameTask,
     renameWorkspace,
     release,
     retain,
     respond,
     runCommand,
+    search,
     sessionList,
     timelineSource,
     using,
@@ -235,7 +266,11 @@ describe('DSH runtime adapter', () => {
       requestId: 'request-1',
       workspaceId: 'workspace-1',
       prompt: '检查构建',
-    })).resolves.toEqual({ accepted: true, requestId: 'request-1' })
+    })).resolves.toEqual({
+      accepted: true,
+      requestId: 'request-1',
+      output: { taskId: 'session-created' },
+    })
 
     expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
     expect(using).toHaveBeenCalledWith(
@@ -279,6 +314,63 @@ describe('DSH runtime adapter', () => {
 
     unsubscribe()
     expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('searches tasks through the host index and enriches catalog metadata', async () => {
+    const { adapter, search } = fixture()
+    const abort = new AbortController()
+
+    await expect(adapter.searchTasks(' renderer ', abort.signal)).resolves.toEqual({
+      ok: true,
+      value: {
+        items: [{
+          taskId: 'session-1',
+          snippet: '…继续实现 renderer…',
+          title: '实现 Renderer',
+          workspaceId: 'workspace-1',
+        }],
+        hasMore: false,
+      },
+    })
+    expect(search).toHaveBeenCalledWith('renderer', abort.signal)
+  })
+
+  it('forks a task through the session service and returns the new task identity', async () => {
+    const { adapter, fork } = fixture()
+
+    await expect(adapter.dispatch({
+      type: 'task.fork',
+      requestId: 'fork-1',
+      taskId: 'session-1',
+      atSeq: 7,
+      increaseTitle: true,
+    })).resolves.toEqual({
+      accepted: true,
+      requestId: 'fork-1',
+      output: { taskId: 'session-forked' },
+    })
+    expect(fork).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      atSeq: 7,
+      increaseTitle: true,
+    })
+  })
+
+  it('reads turn changes and file diffs through the changes projection', async () => {
+    const { adapter, listChanges, readDiff } = fixture()
+    const abort = new AbortController()
+
+    await expect(adapter.getTaskChanges('session-1', abort.signal)).resolves.toMatchObject({
+      ok: true,
+      value: [{ taskId: 'session-1', turn: 1, seq: 8, total: 1, added: 3, deleted: 1 }],
+    })
+    expect(listChanges).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }), abort.signal)
+
+    await expect(adapter.getTaskFileDiff('session-1', 8, 0, abort.signal)).resolves.toMatchObject({
+      ok: true,
+      value: { kind: 'text', display: 'src/app.ts', coarse: false },
+    })
+    expect(readDiff).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }), 8, 0, abort.signal)
   })
 
   it('prepares attachments before registering the local submission echo', async () => {

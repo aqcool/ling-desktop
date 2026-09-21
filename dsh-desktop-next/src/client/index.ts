@@ -9,6 +9,7 @@ import { mountLingRenderer } from 'ling-desktop/client'
 import { createDshAttachmentPreparation } from './attachment-preparation.js'
 import { createDshConversationProjection } from './conversation-projection.js'
 import { createDshInteractionProjection } from './interaction-projection.js'
+import { createDshWorkspaceChangesProjection } from './workspace-changes-projection.js'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
@@ -33,6 +34,7 @@ export function apply(ctx: Context): void {
   const conversation = createDshConversationProjection(ctx.uiConversation)
   const interactions = createDshInteractionProjection(ctx.uiSession)
   const attachments = createDshAttachmentPreparation(ctx.fileUpload)
+  const changes = createDshWorkspaceChangesProjection(ctx.uiConversation)
   ctx.effect(installStylesheet, 'LING renderer stylesheet')
   ctx.reflect.provide('uiRenderer', {
     mount: (container: HTMLElement) => mountLingRenderer(container, {
@@ -41,6 +43,7 @@ export function apply(ctx: Context): void {
       conversation,
       interactions,
       attachments,
+      changes,
     }),
   })
 }

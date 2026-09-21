@@ -10,13 +10,17 @@ import type {
 import type {
   LingCommandRejectionReason,
   LingCommandResult,
+  LingFileDiff,
   LingPendingInteraction,
   LingPromptAttachment,
+  LingReadResult,
   LingRuntimeAdapter,
   LingRuntimeCommand,
   LingRuntimeEvent,
   LingRuntimeSnapshot,
   LingTaskStatus,
+  LingTaskChanges,
+  LingTaskSearchPage,
   LingTaskSummary,
   LingTimelineItem,
   LingWorkspaceSummary,
@@ -27,10 +31,6 @@ interface DshRemoteFailure {
   readonly message?: string
 }
 
-type DshRemoteResult<Value> =
-  | { readonly ok: true; readonly value: Value }
-  | { readonly ok: false; readonly error: DshRemoteFailure }
-
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
     lingRenderer: unknown
@@ -38,7 +38,7 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 }
 
 export interface DshRuntimeFacades {
-  readonly sessions: Pick<ISessions, 'create' | 'list' | 'refresh' | 'retain' | 'using'>
+  readonly sessions: Pick<ISessions, 'create' | 'fork' | 'list' | 'refresh' | 'retain' | 'search' | 'using'>
   readonly workspaces: Pick<IWorkspaces,
     'archiveSession' | 'create' | 'delete' | 'list' | 'rename' | 'unarchiveSession'>
   readonly conversation: {
@@ -46,6 +46,10 @@ export interface DshRuntimeFacades {
       getSnapshot(): readonly LingTimelineItem[]
       subscribe(listener: () => void): () => void
     }
+  }
+  readonly changes: {
+    list(binding: SessionBinding, signal: AbortSignal): Promise<readonly LingTaskChanges[]>
+    diff(binding: SessionBinding, seq: number, index: number, signal: AbortSignal): Promise<LingFileDiff | undefined>
   }
   readonly attachments: {
     prepare(taskId: string, attachments: readonly LingPromptAttachment[]): Promise<{
@@ -142,6 +146,24 @@ function rejected(requestId: string, error: DshRemoteFailure): LingCommandResult
   }
 }
 
+function readRejected<Value>(error: DshRemoteFailure): LingReadResult<Value> {
+  return {
+    ok: false,
+    reason: rejectionReason(error.code),
+    message: error.message?.trim() || '读取未能完成。',
+    retryable: /transport|connection|timeout|unavailable/i.test(error.code),
+  }
+}
+
+function unavailableRead<Value>(message: string): LingReadResult<Value> {
+  return {
+    ok: false,
+    reason: 'runtime-unavailable',
+    message,
+    retryable: true,
+  }
+}
+
 async function withSession<Value>(
   facades: DshRuntimeFacades,
   taskId: string,
@@ -203,6 +225,75 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
         return facades.conversation.timeline(binding).getSnapshot()
       })
     },
+    async searchTasks(query, signal = new AbortController().signal) {
+      const value = query.trim()
+      if (!value) {
+        return {
+          ok: false,
+          reason: 'invalid-command',
+          message: '请输入搜索内容。',
+          retryable: false,
+        }
+      }
+      try {
+        const result = await facades.sessions.search(value, signal)
+        if (!result.ok) return readRejected<LingTaskSearchPage>(result.error)
+        const snapshot = snapshotProjection(facades)
+        const tasks = new Map(snapshot.tasks.map(task => [task.taskId, task]))
+        return {
+          ok: true,
+          value: {
+            hasMore: result.value.hasMore,
+            items: result.value.items.map((item: { sessionId: string; snippet: string }) => {
+              const task = tasks.get(String(item.sessionId))
+              return {
+                taskId: String(item.sessionId),
+                snippet: item.snippet,
+                ...(task === undefined ? {} : {
+                  title: task.title,
+                  ...(task.workspaceId === undefined ? {} : { workspaceId: task.workspaceId }),
+                }),
+              }
+            }),
+          },
+        }
+      } catch {
+        return unavailableRead('无法搜索任务。')
+      }
+    },
+    async getTaskChanges(taskId, signal = new AbortController().signal) {
+      try {
+        const value = await withSession(facades, taskId, binding => facades.changes.list(binding, signal))
+        return { ok: true, value }
+      } catch {
+        return unavailableRead('无法读取文件变更。')
+      }
+    },
+    async getTaskFileDiff(taskId, seq, index, signal = new AbortController().signal) {
+      if (!Number.isSafeInteger(seq) || seq < 0 || !Number.isSafeInteger(index) || index < 0) {
+        return {
+          ok: false,
+          reason: 'invalid-command',
+          message: '文件变更坐标无效。',
+          retryable: false,
+        }
+      }
+      try {
+        const value = await withSession(facades, taskId, binding => {
+          return facades.changes.diff(binding, seq, index, signal)
+        })
+        return value === undefined
+          ? {
+              ok: false,
+              reason: 'task-not-found',
+              message: '这项文件变更已经不可用。',
+              retryable: false,
+            }
+          : { ok: true, value }
+      } catch {
+        return unavailableRead('无法读取文件差异。')
+      }
+    },
     async dispatch(command: LingRuntimeCommand) {
       try {
         if (command.type === 'runtime.reconnect') {
@@ -214,7 +305,7 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
           const taskId = await facades.sessions.create({
             ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
           })
-          return await sendPrompt(
+          const result = await sendPrompt(
             facades,
             command.requestId,
             taskId,
@@ -222,6 +313,21 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             'queue',
             command.attachments,
           )
+          return result.accepted
+            ? { ...result, output: { taskId: String(taskId) } }
+            : result
+        }
+        if (command.type === 'task.fork') {
+          const taskId = await facades.sessions.fork({
+            sessionId: command.taskId,
+            ...(command.atSeq === undefined ? {} : { atSeq: command.atSeq }),
+            ...(command.increaseTitle === undefined ? {} : { increaseTitle: command.increaseTitle }),
+          })
+          return {
+            accepted: true,
+            requestId: command.requestId,
+            output: { taskId: String(taskId) },
+          }
         }
         if (command.type === 'task.send-message') {
           return await sendPrompt(

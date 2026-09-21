@@ -139,10 +139,22 @@ export function useLingRuntime(runtime: LingRuntimeAdapter) {
     requestId: requestId(),
   })
 
+  const forkTask = async (taskId: string, atSeq?: number): Promise<LingCommandResult> => runtime.dispatch({
+    type: 'task.fork',
+    requestId: requestId(),
+    taskId,
+    ...(atSeq === undefined ? {} : { atSeq }),
+    increaseTitle: true,
+  })
+
   return {
     connection,
+    forkTask,
+    getTaskChanges: runtime.getTaskChanges.bind(runtime),
+    getTaskFileDiff: runtime.getTaskFileDiff.bind(runtime),
     pendingInteractions,
     reconnect,
+    searchTasks: runtime.searchTasks.bind(runtime),
     selectedTask,
     selectTask,
     startNewTask,

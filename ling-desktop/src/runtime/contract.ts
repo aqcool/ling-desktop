@@ -29,6 +29,18 @@ export interface LingTaskSummary {
   readonly preview?: string
 }
 
+export interface LingTaskSearchMatch {
+  readonly taskId: string
+  readonly snippet: string
+  readonly title?: string
+  readonly workspaceId?: string
+}
+
+export interface LingTaskSearchPage {
+  readonly items: readonly LingTaskSearchMatch[]
+  readonly hasMore: boolean
+}
+
 export type LingTimelineItemKind =
   | 'user-message'
   | 'assistant-message'
@@ -88,6 +100,49 @@ export interface LingQuestionAnswer {
   readonly selected: readonly string[]
   readonly custom?: string
 }
+
+export interface LingChangedFile {
+  readonly path: string
+  readonly display: string
+  readonly added: number
+  readonly deleted: number
+  readonly binary?: true
+  readonly oversized?: true
+}
+
+export interface LingTaskChanges {
+  readonly taskId: string
+  readonly turn: number
+  readonly seq: number
+  readonly files: readonly LingChangedFile[]
+  readonly total: number
+  readonly added: number
+  readonly deleted: number
+}
+
+export interface LingDiffHunk {
+  readonly oldStart: number
+  readonly oldLines: number
+  readonly newStart: number
+  readonly newLines: number
+  readonly lines: readonly string[]
+}
+
+export type LingFileDiff =
+  | {
+      readonly kind: 'text'
+      readonly path: string
+      readonly display: string
+      readonly before: boolean
+      readonly after: boolean
+      readonly hunks: readonly LingDiffHunk[]
+      readonly coarse: boolean
+    }
+  | {
+      readonly kind: 'binary' | 'oversized'
+      readonly path: string
+      readonly display: string
+    }
 
 export type LingImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
 
@@ -151,6 +206,12 @@ export type LingRuntimeCommand =
       readonly title: string
     })
   | (LingRuntimeCommandBase & {
+      readonly type: 'task.fork'
+      readonly taskId: string
+      readonly atSeq?: number
+      readonly increaseTitle?: boolean
+    })
+  | (LingRuntimeCommandBase & {
       readonly type: 'task.archive' | 'task.unarchive'
       readonly taskId: string
     })
@@ -202,6 +263,9 @@ export type LingCommandResult =
   | {
       readonly accepted: true
       readonly requestId: string
+      readonly output?: {
+        readonly taskId: string
+      }
     }
   | {
       readonly accepted: false
@@ -211,9 +275,29 @@ export type LingCommandResult =
       readonly retryable: boolean
     }
 
+export type LingReadResult<Value> =
+  | {
+      readonly ok: true
+      readonly value: Value
+    }
+  | {
+      readonly ok: false
+      readonly reason: LingCommandRejectionReason
+      readonly message: string
+      readonly retryable: boolean
+    }
+
 export interface LingRuntimeAdapter {
   getSnapshot(): Promise<LingRuntimeSnapshot>
   getTaskTimeline(taskId: string): Promise<readonly LingTimelineItem[]>
+  searchTasks(query: string, signal?: AbortSignal): Promise<LingReadResult<LingTaskSearchPage>>
+  getTaskChanges(taskId: string, signal?: AbortSignal): Promise<LingReadResult<readonly LingTaskChanges[]>>
+  getTaskFileDiff(
+    taskId: string,
+    seq: number,
+    index: number,
+    signal?: AbortSignal,
+  ): Promise<LingReadResult<LingFileDiff>>
   dispatch(command: LingRuntimeCommand): Promise<LingCommandResult>
   subscribe(listener: (event: LingRuntimeEvent) => void): () => void
   subscribeTaskTimeline(taskId: string, listener: (items: readonly LingTimelineItem[]) => void): () => void
