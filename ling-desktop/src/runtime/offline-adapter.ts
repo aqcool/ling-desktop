@@ -9,10 +9,6 @@ import type {
 
 const OFFLINE_MESSAGE = 'LING runtime is not connected yet.'
 
-/**
- * Provides a deterministic, credential-free starting point for Renderer work.
- * A production Host adapter will implement the same port later.
- */
 export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRuntimeAdapter {
   const snapshot: LingRuntimeSnapshot = {
     connection: {
@@ -40,6 +36,13 @@ export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRunt
       }
     },
     subscribe(_listener: (event: LingRuntimeEvent) => void): () => void {
+      return () => {}
+    },
+    subscribeTaskTimeline(
+      _taskId: string,
+      listener: (items: readonly LingTimelineItem[]) => void,
+    ): () => void {
+      listener([])
       return () => {}
     },
   }

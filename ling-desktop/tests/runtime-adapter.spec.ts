@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createOfflineRuntimeAdapter } from '../src/runtime/offline-adapter.js'
 
 describe('offline runtime adapter', () => {
@@ -35,8 +35,12 @@ describe('offline runtime adapter', () => {
   it('gives callers an unsubscribe handle even while the adapter is offline', () => {
     const adapter = createOfflineRuntimeAdapter()
     const unsubscribe = adapter.subscribe(() => {})
+    const timelineListener = vi.fn()
+    const unsubscribeTimeline = adapter.subscribeTaskTimeline('unknown-task', timelineListener)
 
     expect(unsubscribe).toBeTypeOf('function')
+    expect(timelineListener).toHaveBeenCalledWith([])
     expect(() => { unsubscribe() }).not.toThrow()
+    expect(() => { unsubscribeTimeline() }).not.toThrow()
   })
 })

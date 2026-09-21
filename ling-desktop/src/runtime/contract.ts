@@ -1,13 +1,10 @@
-/** A user-safe view of the runtime connection. */
 export type LingConnectionPhase = 'offline' | 'connecting' | 'ready' | 'failed'
 
 export interface LingRuntimeConnection {
   readonly phase: LingConnectionPhase
-  /** Safe to render; never include credentials, tokens, or raw host errors. */
   readonly message?: string
 }
 
-/** A workspace the user can associate with a task. */
 export interface LingWorkspaceSummary {
   readonly workspaceId: string
   readonly label: string
@@ -22,7 +19,6 @@ export type LingTaskStatus =
   | 'failed'
   | 'cancelled'
 
-/** The task-list projection required by the first LING Renderer screens. */
 export interface LingTaskSummary {
   readonly taskId: string
   readonly title: string
@@ -38,7 +34,6 @@ export type LingTimelineItemKind =
   | 'tool-activity'
   | 'system-notice'
 
-/** A normalized, renderer-safe item in a task timeline. */
 export interface LingTimelineItem {
   readonly itemId: string
   readonly taskId: string
@@ -48,14 +43,12 @@ export interface LingTimelineItem {
   readonly streaming?: boolean
 }
 
-/** The initial data required to render the task rail and connection affordance. */
 export interface LingRuntimeSnapshot {
   readonly connection: LingRuntimeConnection
   readonly workspaces: readonly LingWorkspaceSummary[]
   readonly tasks: readonly LingTaskSummary[]
 }
 
-/** Incremental changes emitted after the Renderer has read its initial snapshot. */
 export type LingRuntimeEvent =
   | { readonly type: 'connection.changed'; readonly connection: LingRuntimeConnection }
   | { readonly type: 'task.upsert'; readonly task: LingTaskSummary }
@@ -64,7 +57,6 @@ export type LingRuntimeEvent =
   | { readonly type: 'snapshot.replaced'; readonly snapshot: LingRuntimeSnapshot }
 
 interface LingRuntimeCommandBase {
-  /** Caller-generated ID used to reconcile optimistic renderer state. */
   readonly requestId: string
 }
 
@@ -102,15 +94,14 @@ export type LingCommandResult =
       readonly accepted: false
       readonly requestId: string
       readonly reason: LingCommandRejectionReason
-      /** Safe to render; never include credentials, tokens, or raw host errors. */
       readonly message: string
       readonly retryable: boolean
     }
 
-/** The only runtime surface consumed by the LING Renderer. */
 export interface LingRuntimeAdapter {
   getSnapshot(): Promise<LingRuntimeSnapshot>
   getTaskTimeline(taskId: string): Promise<readonly LingTimelineItem[]>
   dispatch(command: LingRuntimeCommand): Promise<LingCommandResult>
   subscribe(listener: (event: LingRuntimeEvent) => void): () => void
+  subscribeTaskTimeline(taskId: string, listener: (items: readonly LingTimelineItem[]) => void): () => void
 }

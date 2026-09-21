@@ -1,4 +1,8 @@
 export { createOfflineRuntimeAdapter } from './offline-adapter.js'
+export {
+  createDshRuntimeAdapter,
+  type DshRuntimeFacades,
+} from './dsh-adapter.js'
 export type {
   LingCommandRejectionReason,
   LingCommandResult,

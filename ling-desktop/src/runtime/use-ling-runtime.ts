@@ -101,11 +101,12 @@ export function useLingRuntime(runtime: LingRuntimeAdapter) {
     }
 
     let active = true
-    void runtime.getTaskTimeline(selectedTaskId).then(items => {
+    const unsubscribe = runtime.subscribeTaskTimeline(selectedTaskId, items => {
       if (active) setTimeline(items)
     })
     return () => {
       active = false
+      unsubscribe()
     }
   }, [runtime, selectedTaskId])
 
