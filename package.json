@@ -11,7 +11,6 @@
     "dsh-plugin-desktop",
     "dsh-plugin-desktop-beta",
     "dsh-desktop-next",
-    "dsh-community-fabric",
     "dsh-community-market"
   ],
   "resolutions": {
@@ -1181,7 +1180,7 @@
     "check:vendored-runtime": "node scripts/sync-vendored-runtime.mjs --check --channel stable && node scripts/sync-vendored-runtime.mjs --check --channel beta",
     "check:desktop-variants": "node scripts/verify-desktop-variants.mjs",
     "check:layout": "yarn test:aa-release && yarn check:bilingual-docs && yarn check:architecture && yarn check:vendored-runtime && yarn check:desktop-variants && node scripts/verify-layout.mjs",
-    "check": "yarn check:layout && yarn workspace dsh-community-fabric check && yarn workspace dsh-community-market check && yarn workspace dsh-plugin-desktop check && yarn workspace dsh-plugin-desktop-beta check && yarn workspace dsh-desktop-next check",
+    "check": "yarn check:layout && yarn workspace dsh-community-market check && yarn workspace dsh-plugin-desktop check && yarn workspace dsh-plugin-desktop-beta check && yarn workspace dsh-desktop-next check",
     "dev": "yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop dev",
     "start": "yarn workspace dsh-plugin-desktop start",
     "package:dir": "yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop package:dir",

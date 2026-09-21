@@ -17,7 +17,6 @@ const stablePlugin = readJson('dsh-plugin-desktop/package.json')
 const betaPlugin = readJson('dsh-plugin-desktop-beta/package.json')
 const nextDesktop = readJson('dsh-desktop-next/package.json')
 const nextReference = readJson('dsh-desktop-next/upstream-reference.json')
-const fabric = readJson('dsh-community-fabric/package.json')
 const market = readJson('dsh-community-market/package.json')
 const upstreamPackage = readJson('deepseek-harness/package.json')
 
@@ -34,21 +33,18 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
   'dsh-desktop-next',
-  'dsh-community-fabric',
   'dsh-community-market',
 ])) {
-  fail('the root Yarn workspace must contain the desktop, community-fabric, and community-market packages')
+  fail('the root Yarn workspace must contain the Desktop and community-market packages')
 }
 for (const [name, manifest] of [
   ['dsh-plugin-desktop', stablePlugin],
   ['dsh-plugin-desktop-beta', betaPlugin],
   ['dsh-desktop-next', nextDesktop],
-  ['dsh-community-fabric', fabric],
   ['dsh-community-market', market],
 ]) {
   if (manifest.packageManager !== undefined) fail(`${name} must inherit the root Yarn release`)
 }
-if (fabric.name !== 'dsh-community-fabric') fail('the Fabric workspace must own dsh-community-fabric')
 if (market.name !== 'dsh-community-market') fail('the market workspace must own dsh-community-market')
 const claudePath = resolve(root, 'CLAUDE.md')
 const claudeStat = lstatSync(claudePath)
@@ -69,8 +65,6 @@ for (const legacyFile of [
   'dsh-plugin-desktop-beta/pnpm-workspace.yaml',
   'dsh-desktop-next/pnpm-lock.yaml',
   'dsh-desktop-next/pnpm-workspace.yaml',
-  'dsh-community-fabric/pnpm-lock.yaml',
-  'dsh-community-fabric/pnpm-workspace.yaml',
   'dsh-community-market/pnpm-lock.yaml',
   'dsh-community-market/pnpm-workspace.yaml',
 ]) {
@@ -91,7 +85,6 @@ for (const [owner, manifest] of [
   ['stable desktop', stablePlugin],
   ['beta desktop', betaPlugin],
   ['next desktop', nextDesktop],
-  ['fabric', fabric],
   ['market', market],
 ]) {
   for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'resolutions']) {
@@ -137,4 +130,4 @@ for (const [name, version] of Object.entries(nextDesktop.dependencies)) {
   if ((name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')) && version !== nextReference.version) fail(`Next ${name} must match the pinned upstream family`)
 }
 
-process.stdout.write(`verify-layout: Desktop workspaces including Next and upstream ${activeUpstream.commit.slice(0, 10)} are consistent\n`)
+process.stdout.write(`verify-layout: LING Desktop workspaces including Next and upstream ${activeUpstream.commit.slice(0, 10)} are consistent\n`)
