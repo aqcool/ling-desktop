@@ -33,6 +33,20 @@ describe('offline runtime adapter', () => {
     })
   })
 
+  it('keeps read capabilities safe while the runtime is offline', async () => {
+    const adapter = createOfflineRuntimeAdapter('Host connection is pending.')
+    const rejection = {
+      ok: false,
+      reason: 'runtime-unavailable',
+      message: 'Host connection is pending.',
+      retryable: false,
+    }
+
+    await expect(adapter.searchTasks('renderer')).resolves.toEqual(rejection)
+    await expect(adapter.getTaskChanges('task-1')).resolves.toEqual(rejection)
+    await expect(adapter.getTaskFileDiff('task-1', 2, 0)).resolves.toEqual(rejection)
+  })
+
   it('gives callers an unsubscribe handle even while the adapter is offline', () => {
     const adapter = createOfflineRuntimeAdapter()
     const unsubscribe = adapter.subscribe(() => {})

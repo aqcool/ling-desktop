@@ -1,16 +1,21 @@
 import { Button } from '@heroui/react/button'
 import { Card } from '@heroui/react/card'
 import { TextArea } from '@heroui/react/textarea'
-import { Fragment, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import type {
+  LingFileDiff,
   LingRuntimeConnection,
+  LingTaskChanges,
+  LingTaskSearchMatch,
   LingTaskStatus,
   LingTaskSummary,
   LingTimelineItem,
   LingWorkspaceSummary,
 } from '../runtime/contract.js'
+import { ChangeReview, type ChangeSelection } from './ChangeReview.js'
 import { Icon } from './Icon.js'
 import type { LingUiSlots } from './slots.js'
+import { TaskSearch } from './TaskSearch.js'
 
 const connectionLabels: Record<LingRuntimeConnection['phase'], string> = {
   offline: '未连接',
@@ -36,16 +41,37 @@ const timelineStatusLabels = {
 } as const
 
 interface LingShellProps {
+  readonly changeDiff?: LingFileDiff
+  readonly changeDiffLoading: boolean
+  readonly changeDiffMessage?: string
+  readonly changes: readonly LingTaskChanges[]
+  readonly changesLoading: boolean
+  readonly changesMessage?: string
   readonly connection: LingRuntimeConnection
   readonly environmentOpen: boolean
+  readonly forkPending: boolean
   readonly notice: string
+  readonly onChangeDiffClose: () => void
+  readonly onChangeSelect: (selection: ChangeSelection) => void
   readonly onEnvironmentToggle: () => void
+  readonly onFork: () => void
   readonly onNewTask: () => void
   readonly onPromptChange: (value: string) => void
   readonly onReconnect: () => void
+  readonly onSearchClose: () => void
+  readonly onSearchOpen: () => void
+  readonly onSearchQueryChange: (value: string) => void
+  readonly onSearchSelect: (taskId: string) => void
   readonly onSelectTask: (taskId: string) => void
   readonly onSubmit: () => void
   readonly prompt: string
+  readonly searchHasMore: boolean
+  readonly searchLoading: boolean
+  readonly searchMessage?: string
+  readonly searchOpen: boolean
+  readonly searchQuery: string
+  readonly searchResults: readonly LingTaskSearchMatch[]
+  readonly selectedChange?: ChangeSelection
   readonly selectedTask?: LingTaskSummary
   readonly slots?: LingUiSlots
   readonly tasks: readonly LingTaskSummary[]
@@ -180,13 +206,36 @@ function Conversation({ slots, timeline }: { readonly slots: LingUiSlots; readon
 }
 
 function EnvironmentPanel({
+  changeDiff,
+  changeDiffLoading,
+  changeDiffMessage,
+  changes,
+  changesLoading,
+  changesMessage,
   connection,
+  onChangeDiffClose,
+  onChangeSelect,
   onReconnect,
+  selectedChange,
   selectedTask,
-  tasks,
   workspaces,
-}: Pick<LingShellProps, 'connection' | 'onReconnect' | 'selectedTask' | 'tasks' | 'workspaces'>) {
+}: {
+  readonly changeDiff?: LingFileDiff
+  readonly changeDiffLoading: boolean
+  readonly changeDiffMessage?: string
+  readonly changes: readonly LingTaskChanges[]
+  readonly changesLoading: boolean
+  readonly changesMessage?: string
+  readonly connection: LingRuntimeConnection
+  readonly onChangeDiffClose: () => void
+  readonly onChangeSelect: (selection: ChangeSelection) => void
+  readonly onReconnect: () => void
+  readonly selectedChange?: ChangeSelection
+  readonly selectedTask?: LingTaskSummary
+  readonly workspaces: readonly LingWorkspaceSummary[]
+}) {
   const activeWorkspace = workspaces.find(workspace => workspace.workspaceId === selectedTask?.workspaceId)
+  const changedFiles = changes.reduce((total, change) => total + change.total, 0)
 
   return (
     <Card className="environment-panel" variant="secondary">
@@ -200,7 +249,7 @@ function EnvironmentPanel({
         <div className="environment-row">
           <Icon name="change" size={18} />
           <strong>变更</strong>
-          <span>{String(tasks.length)}</span>
+          <span>{String(changedFiles)}</span>
         </div>
         <div className="environment-row">
           <Icon name="panel" size={18} />
@@ -222,6 +271,23 @@ function EnvironmentPanel({
             <span />
           </div>
         ) : null}
+        <div className="environment-panel__changes">
+          <div className="environment-panel__changes-heading">
+            <span>文件变更</span>
+            {selectedTask ? <small>{selectedTask.title}</small> : null}
+          </div>
+          <ChangeReview
+            changes={changes}
+            diff={changeDiff}
+            diffLoading={changeDiffLoading}
+            diffMessage={changeDiffMessage}
+            loading={changesLoading}
+            message={changesMessage}
+            onCloseDiff={onChangeDiffClose}
+            onSelect={onChangeSelect}
+            selection={selectedChange}
+          />
+        </div>
       </Card.Content>
     </Card>
   )
@@ -229,16 +295,37 @@ function EnvironmentPanel({
 
 export function LingShell(props: LingShellProps) {
   const {
+    changeDiff,
+    changeDiffLoading,
+    changeDiffMessage,
+    changes,
+    changesLoading,
+    changesMessage,
     connection,
     environmentOpen,
+    forkPending,
     notice,
+    onChangeDiffClose,
+    onChangeSelect,
     onEnvironmentToggle,
+    onFork,
     onNewTask,
     onPromptChange,
     onReconnect,
+    onSearchClose,
+    onSearchOpen,
+    onSearchQueryChange,
+    onSearchSelect,
     onSelectTask,
     onSubmit,
     prompt,
+    searchHasMore,
+    searchLoading,
+    searchMessage,
+    searchOpen,
+    searchQuery,
+    searchResults,
+    selectedChange,
     selectedTask,
     slots = {},
     tasks,
@@ -252,6 +339,18 @@ export function LingShell(props: LingShellProps) {
       onSubmit()
     }
   }
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        onSearchOpen()
+      }
+      if (event.key === 'Escape' && searchOpen) onSearchClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
+  }, [onSearchClose, onSearchOpen, searchOpen])
 
   return (
     <div className="desktop-shell">
@@ -275,7 +374,7 @@ export function LingShell(props: LingShellProps) {
             <Icon name="chevronDown" size={14} />
           </button>
           <div className="sidebar-brand__actions">
-            <button aria-label="搜索" className="icon-button" type="button"><Icon name="search" size={18} /></button>
+            <button aria-label="搜索" className="icon-button" onClick={onSearchOpen} type="button"><Icon name="search" size={18} /></button>
             <button aria-label="通知" className="icon-button" type="button"><Icon name="bell" size={18} /></button>
           </div>
         </div>
@@ -324,6 +423,11 @@ export function LingShell(props: LingShellProps) {
             <SlotItems items={slots['conversation.session.header.actions']} prefix="header-action" />
             <SlotItems items={slots['conversation.session.header.utilities']} prefix="header-utility" />
             {slots['conversation.session.header.corner']}
+            {selectedTask ? (
+              <Button className="workspace-header__fork" isPending={forkPending} onPress={onFork} size="sm" variant="ghost">
+                {forkPending ? '正在分叉' : <><Icon name="fork" size={16} /> 分叉</>}
+              </Button>
+            ) : null}
             <button aria-label="更多" className="icon-button workspace-header__more" type="button">···</button>
             <button className="workspace-header__share" type="button"><Icon name="external" size={16} />分享</button>
             <button
@@ -390,14 +494,33 @@ export function LingShell(props: LingShellProps) {
         {environmentOpen ? (
           slots['rightbar.session'] ?? (
             <EnvironmentPanel
+              changeDiff={changeDiff}
+              changeDiffLoading={changeDiffLoading}
+              changeDiffMessage={changeDiffMessage}
+              changes={changes}
+              changesLoading={changesLoading}
+              changesMessage={changesMessage}
               connection={connection}
+              onChangeDiffClose={onChangeDiffClose}
+              onChangeSelect={onChangeSelect}
               onReconnect={onReconnect}
+              selectedChange={selectedChange}
               selectedTask={selectedTask}
-              tasks={tasks}
               workspaces={workspaces}
             />
           )
         ) : null}
+        <TaskSearch
+          hasMore={searchHasMore}
+          isLoading={searchLoading}
+          message={searchMessage}
+          onClose={onSearchClose}
+          onQueryChange={onSearchQueryChange}
+          onSelect={onSearchSelect}
+          open={searchOpen}
+          query={searchQuery}
+          results={searchResults}
+        />
         <SlotItems items={slots['shell.overlay']} prefix="shell-overlay" />
       </main>
     </div>

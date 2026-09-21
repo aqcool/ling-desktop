@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   LingCommandResult,
   LingRuntimeAdapter,
@@ -112,49 +112,77 @@ export function useLingRuntime(runtime: LingRuntimeAdapter) {
     }
   }, [runtime, selectedTaskId])
 
-  const startNewTask = () => {
+  const startNewTask = useCallback(() => {
     setSelectedTaskId(undefined)
     setTimeline([])
-  }
+  }, [])
 
-  const selectTask = (taskId: string) => {
+  const selectTask = useCallback((taskId: string) => {
     setSelectedTaskId(taskId)
-  }
+  }, [])
 
-  const submit = async (text: string): Promise<LingCommandResult> => selectedTask
-    ? runtime.dispatch({
-      type: 'task.send-message',
-      requestId: requestId(),
-      taskId: selectedTask.taskId,
-      text,
-    })
-    : runtime.dispatch({
-      type: 'task.create',
-      requestId: requestId(),
-      prompt: text,
-    })
+  const selectCreatedTask = useCallback(async (result: LingCommandResult) => {
+    if (!result.accepted || result.output === undefined) return result
+    try {
+      const nextSnapshot = await runtime.getSnapshot()
+      setSnapshot(nextSnapshot)
+      setSelectedTaskId(result.output.taskId)
+    } catch {}
+    return result
+  }, [runtime])
 
-  const reconnect = async (): Promise<LingCommandResult> => runtime.dispatch({
+  const submit = useCallback(async (text: string): Promise<LingCommandResult> => {
+    const result = await (selectedTask
+      ? runtime.dispatch({
+        type: 'task.send-message',
+        requestId: requestId(),
+        taskId: selectedTask.taskId,
+        text,
+      })
+      : runtime.dispatch({
+        type: 'task.create',
+        requestId: requestId(),
+        prompt: text,
+      }))
+    return await selectCreatedTask(result)
+  }, [runtime, selectCreatedTask, selectedTask])
+
+  const reconnect = useCallback(async (): Promise<LingCommandResult> => runtime.dispatch({
     type: 'runtime.reconnect',
     requestId: requestId(),
-  })
+  }), [runtime])
 
-  const forkTask = async (taskId: string, atSeq?: number): Promise<LingCommandResult> => runtime.dispatch({
-    type: 'task.fork',
-    requestId: requestId(),
-    taskId,
-    ...(atSeq === undefined ? {} : { atSeq }),
-    increaseTitle: true,
-  })
+  const forkTask = useCallback(async (taskId: string, atSeq?: number): Promise<LingCommandResult> => {
+    const result = await runtime.dispatch({
+      type: 'task.fork',
+      requestId: requestId(),
+      taskId,
+      ...(atSeq === undefined ? {} : { atSeq }),
+      increaseTitle: true,
+    })
+    return await selectCreatedTask(result)
+  }, [runtime, selectCreatedTask])
+
+  const searchTasks = useCallback((query: string, signal?: AbortSignal) => {
+    return runtime.searchTasks(query, signal)
+  }, [runtime])
+
+  const getTaskChanges = useCallback((taskId: string, signal?: AbortSignal) => {
+    return runtime.getTaskChanges(taskId, signal)
+  }, [runtime])
+
+  const getTaskFileDiff = useCallback((taskId: string, seq: number, index: number, signal?: AbortSignal) => {
+    return runtime.getTaskFileDiff(taskId, seq, index, signal)
+  }, [runtime])
 
   return {
     connection,
     forkTask,
-    getTaskChanges: runtime.getTaskChanges.bind(runtime),
-    getTaskFileDiff: runtime.getTaskFileDiff.bind(runtime),
+    getTaskChanges,
+    getTaskFileDiff,
     pendingInteractions,
     reconnect,
-    searchTasks: runtime.searchTasks.bind(runtime),
+    searchTasks,
     selectedTask,
     selectTask,
     startNewTask,

@@ -56,4 +56,6 @@ of interpreting raw Session events again. Pending interactions are projected
 from the public Session status source, and files use DSH's staged upload receipt
 flow before Session admission. Changed files reuse DSH's published Turn data and
 authenticated summary/Diff routes. `src/client.tsx` is the reusable React mount used
-by LING Next's replaceable `uiRenderer` service.
+by LING Next's replaceable `uiRenderer` service. The Renderer presents those reads as
+task search, a task Fork action, and a right-side change review with per-file Diff;
+they are LING interfaces built on the adapter contract rather than reused DSH views.
