@@ -9,6 +9,7 @@ import type {
 
 const EMPTY_TASKS: LingRuntimeSnapshot['tasks'] = []
 const EMPTY_WORKSPACES: LingRuntimeSnapshot['workspaces'] = []
+const EMPTY_INTERACTIONS: LingRuntimeSnapshot['pendingInteractions'] = []
 
 function applyRuntimeEvent(
   snapshot: LingRuntimeSnapshot | undefined,
@@ -78,6 +79,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter) {
 
   const tasks = snapshot?.tasks ?? EMPTY_TASKS
   const workspaces = snapshot?.workspaces ?? EMPTY_WORKSPACES
+  const pendingInteractions = snapshot?.pendingInteractions ?? EMPTY_INTERACTIONS
   const connection = snapshot?.connection ?? {
     phase: 'connecting' as const,
     message: '正在连接…',
@@ -139,6 +141,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter) {
 
   return {
     connection,
+    pendingInteractions,
     reconnect,
     selectedTask,
     selectTask,

@@ -12,6 +12,7 @@ describe('offline runtime adapter', () => {
       },
       workspaces: [],
       tasks: [],
+      pendingInteractions: [],
     })
     await expect(adapter.getTaskTimeline('unknown-task')).resolves.toEqual([])
   })

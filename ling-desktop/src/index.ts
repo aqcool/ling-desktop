@@ -8,6 +8,12 @@ export {
   type LingCommandRejectionReason,
   type LingCommandResult,
   type LingConnectionPhase,
+  type LingImageMediaType,
+  type LingPendingInteraction,
+  type LingPromptAttachment,
+  type LingQuestion,
+  type LingQuestionAnswer,
+  type LingQuestionOption,
   type LingRuntimeAdapter,
   type LingRuntimeCommand,
   type LingRuntimeConnection,
@@ -17,6 +23,7 @@ export {
   type LingTaskSummary,
   type LingTimelineItem,
   type LingTimelineItemKind,
+  type LingTimelineItemStatus,
   type LingWorkspaceSummary,
 } from './runtime/index.js'
 

@@ -17,6 +17,7 @@ export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRunt
     },
     workspaces: [],
     tasks: [],
+    pendingInteractions: [],
   }
 
   return {

@@ -10,6 +10,8 @@ import type {
 import type {
   LingCommandRejectionReason,
   LingCommandResult,
+  LingPendingInteraction,
+  LingPromptAttachment,
   LingRuntimeAdapter,
   LingRuntimeCommand,
   LingRuntimeEvent,
@@ -37,12 +39,28 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 
 export interface DshRuntimeFacades {
   readonly sessions: Pick<ISessions, 'create' | 'list' | 'refresh' | 'retain' | 'using'>
-  readonly workspaces: Pick<IWorkspaces, 'list'>
+  readonly workspaces: Pick<IWorkspaces,
+    'archiveSession' | 'create' | 'delete' | 'list' | 'rename' | 'unarchiveSession'>
   readonly conversation: {
     timeline(binding: SessionBinding): {
       getSnapshot(): readonly LingTimelineItem[]
       subscribe(listener: () => void): () => void
     }
+  }
+  readonly attachments: {
+    prepare(taskId: string, attachments: readonly LingPromptAttachment[]): Promise<{
+      readonly content: Parameters<SessionBinding['session']['prompt']>[0]
+      readonly pending: Parameters<SessionBinding['session']['beginSubmission']>[0]['attachments']
+    }>
+  }
+  readonly interactions: {
+    readonly list: {
+      getSnapshot(): readonly LingPendingInteraction[]
+      subscribe(listener: () => void): () => void
+    }
+    respond(command: Extract<LingRuntimeCommand, {
+      type: 'interaction.answer-approval' | 'interaction.answer-question' | 'interaction.cancel'
+    }>): Promise<boolean>
   }
   readonly reconnect?: () => void | Promise<void>
 }
@@ -55,7 +73,8 @@ function workspaceProjection(snapshot: WorkspaceSnapshot): readonly LingWorkspac
   }))
 }
 
-function taskStatus(summary: SessionListState['byId'][string]): LingTaskStatus {
+function taskStatus(summary: SessionListState['byId'][string], waitingForInput: boolean): LingTaskStatus {
+  if (waitingForInput) return 'waiting-for-input'
   if (summary.running) return 'running'
   return summary.blank ? 'queued' : 'completed'
 }
@@ -63,6 +82,7 @@ function taskStatus(summary: SessionListState['byId'][string]): LingTaskStatus {
 function taskProjection(
   sessions: SessionListState,
   workspaces: WorkspaceSnapshot,
+  interactions: readonly LingPendingInteraction[],
 ): readonly LingTaskSummary[] {
   const workspaceByTask = new Map<string, string>()
   for (const workspace of workspaces.items) {
@@ -76,7 +96,8 @@ function taskProjection(
     return [{
       taskId,
       title: summary.displayTitle,
-      status: taskStatus(summary),
+      status: taskStatus(summary, interactions.some(interaction => interaction.taskId === taskId)),
+      archived: workspaces.archivedSessionIds.includes(taskId),
       updatedAt: new Date(summary.updatedAt).toISOString(),
       ...(workspaceId ? { workspaceId } : {}),
     }]
@@ -95,10 +116,12 @@ function connectionProjection(
 function snapshotProjection(facades: DshRuntimeFacades): LingRuntimeSnapshot {
   const sessions = facades.sessions.list.getSnapshot()
   const workspaces = facades.workspaces.list.getSnapshot()
+  const pendingInteractions = facades.interactions.list.getSnapshot()
   return {
     connection: connectionProjection(sessions, workspaces),
-    tasks: taskProjection(sessions, workspaces),
+    tasks: taskProjection(sessions, workspaces, pendingInteractions),
     workspaces: workspaceProjection(workspaces),
+    pendingInteractions,
   }
 }
 
@@ -136,11 +159,18 @@ async function sendPrompt(
   requestId: string,
   taskId: string,
   text: string,
+  mode: 'queue' | 'steer' = 'queue',
+  attachments: readonly LingPromptAttachment[] = [],
 ): Promise<LingCommandResult> {
   return await withSession(facades, taskId, async ({ session }) => {
-    const submission = session.beginSubmission({ mode: 'queue', text, attachments: [] })
+    const prepared = await facades.attachments.prepare(taskId, attachments)
+    const submission = session.beginSubmission({ mode, text, attachments: prepared.pending })
     try {
-      const result = await session.prompt([{ type: 'text', text }], 'queue', undefined, submission.requestId)
+      const content = [
+        ...(text ? [{ type: 'text' as const, text }] : []),
+        ...prepared.content,
+      ]
+      const result = await session.prompt(content, mode, undefined, submission.requestId)
       return result.ok ? { accepted: true, requestId } : rejected(requestId, result.error)
     } catch {
       submission.abandon()
@@ -184,12 +214,81 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
           const taskId = await facades.sessions.create({
             ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
           })
-          return await sendPrompt(facades, command.requestId, taskId, command.prompt)
+          return await sendPrompt(
+            facades,
+            command.requestId,
+            taskId,
+            command.prompt,
+            'queue',
+            command.attachments,
+          )
         }
         if (command.type === 'task.send-message') {
-          return await sendPrompt(facades, command.requestId, command.taskId, command.text)
+          return await sendPrompt(
+            facades,
+            command.requestId,
+            command.taskId,
+            command.text,
+            command.mode,
+            command.attachments,
+          )
+        }
+        if (command.type === 'workspace.create') {
+          await facades.workspaces.create({ path: command.path })
+          return { accepted: true, requestId: command.requestId }
+        }
+        if (command.type === 'workspace.rename') {
+          await facades.workspaces.rename(command.workspaceId, command.title)
+          return { accepted: true, requestId: command.requestId }
+        }
+        if (command.type === 'workspace.delete') {
+          await facades.workspaces.delete(command.workspaceId)
+          return { accepted: true, requestId: command.requestId }
+        }
+        if (command.type === 'interaction.answer-approval'
+          || command.type === 'interaction.answer-question'
+          || command.type === 'interaction.cancel') {
+          const accepted = await facades.interactions.respond(command)
+          return accepted
+            ? { accepted: true, requestId: command.requestId }
+            : {
+                accepted: false,
+                requestId: command.requestId,
+                reason: 'interaction-stale',
+                message: '这项请求已经结束。',
+                retryable: false,
+              }
+        }
+        if (command.type === 'task.archive' || command.type === 'task.unarchive') {
+          await (command.type === 'task.archive'
+            ? facades.workspaces.archiveSession(command.taskId)
+            : facades.workspaces.unarchiveSession(command.taskId))
+          return { accepted: true, requestId: command.requestId }
         }
         return await withSession(facades, command.taskId, async ({ session }) => {
+          if (command.type === 'task.rename') {
+            const result = await session.rename(command.title)
+            return result.ok
+              ? { accepted: true, requestId: command.requestId }
+              : rejected(command.requestId, result.error)
+          }
+          if (command.type === 'task.load-older') {
+            await session.loadOlder()
+            return { accepted: true, requestId: command.requestId }
+          }
+          if (command.type === 'task.run-command') {
+            const result = await session.command(command.line)
+            if (!result.ok) return rejected(command.requestId, result.error)
+            return result.value.matched
+              ? { accepted: true, requestId: command.requestId }
+              : {
+                  accepted: false,
+                  requestId: command.requestId,
+                  reason: 'invalid-command',
+                  message: '没有可执行这条指令的命令。',
+                  retryable: false,
+                }
+          }
           const result = await session.cancel()
           return result.ok
             ? { accepted: true, requestId: command.requestId }
@@ -210,9 +309,11 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       if (listeners.size === 1) {
         const disposeWorkspaces = facades.workspaces.list.subscribe(publishSnapshot)
         const disposeSessions = facades.sessions.list.subscribe(publishSnapshot)
+        const disposeInteractions = facades.interactions.list.subscribe(publishSnapshot)
         disposeSources = () => {
           disposeWorkspaces()
           disposeSessions()
+          disposeInteractions()
         }
       }
       return () => {

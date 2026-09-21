@@ -11,11 +11,14 @@ describe('LING renderer client entry', () => {
       reflect: { provide },
       sessions: {},
       workspaces: {},
+      fileUpload: {},
+      uiConversation: {},
+      uiSession: { sessionStatus: {} },
     } as unknown as Context
 
     apply(ctx)
 
-    expect(inject).toEqual(['sessions', 'workspaces', 'uiConversation'])
+    expect(inject).toEqual(['sessions', 'workspaces', 'fileUpload', 'uiConversation', 'uiSession'])
     expect(effect).toHaveBeenCalledWith(expect.any(Function), 'LING renderer stylesheet')
     expect(provide).toHaveBeenCalledWith('uiRenderer', { mount: expect.any(Function) })
   })

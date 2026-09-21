@@ -23,6 +23,7 @@ export interface LingTaskSummary {
   readonly taskId: string
   readonly title: string
   readonly status: LingTaskStatus
+  readonly archived: boolean
   readonly updatedAt: string
   readonly workspaceId?: string
   readonly preview?: string
@@ -52,10 +53,64 @@ export interface LingTimelineItem {
   readonly streaming?: boolean
 }
 
+export interface LingQuestionOption {
+  readonly label: string
+  readonly description?: string
+}
+
+export interface LingQuestion {
+  readonly questionId: string
+  readonly prompt: string
+  readonly detail?: string
+  readonly header?: string
+  readonly options: readonly LingQuestionOption[]
+  readonly multiple: boolean
+}
+
+export type LingPendingInteraction =
+  | {
+      readonly interactionId: string
+      readonly taskId: string
+      readonly kind: 'approval'
+      readonly toolName: string
+      readonly callId?: string
+      readonly reason?: string
+    }
+  | {
+      readonly interactionId: string
+      readonly taskId: string
+      readonly kind: 'question' | 'plan-review'
+      readonly questions: readonly LingQuestion[]
+    }
+
+export interface LingQuestionAnswer {
+  readonly questionId: string
+  readonly selected: readonly string[]
+  readonly custom?: string
+}
+
+export type LingImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
+export type LingPromptAttachment =
+  | {
+      readonly kind: 'image'
+      readonly mediaType: LingImageMediaType
+      readonly data: string
+      readonly name?: string
+      readonly width?: number
+      readonly height?: number
+    }
+  | {
+      readonly kind: 'file'
+      readonly data: Uint8Array
+      readonly name?: string
+    }
+
 export interface LingRuntimeSnapshot {
   readonly connection: LingRuntimeConnection
   readonly workspaces: readonly LingWorkspaceSummary[]
   readonly tasks: readonly LingTaskSummary[]
+  readonly pendingInteractions: readonly LingPendingInteraction[]
 }
 
 export type LingRuntimeEvent =
@@ -77,21 +132,70 @@ export type LingRuntimeCommand =
       readonly type: 'task.create'
       readonly prompt: string
       readonly workspaceId?: string
+      readonly attachments?: readonly LingPromptAttachment[]
     })
   | (LingRuntimeCommandBase & {
       readonly type: 'task.send-message'
       readonly taskId: string
       readonly text: string
+      readonly mode?: 'queue' | 'steer'
+      readonly attachments?: readonly LingPromptAttachment[]
     })
   | (LingRuntimeCommandBase & {
       readonly type: 'task.cancel'
       readonly taskId: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'task.rename'
+      readonly taskId: string
+      readonly title: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'task.archive' | 'task.unarchive'
+      readonly taskId: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'task.load-older'
+      readonly taskId: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'task.run-command'
+      readonly taskId: string
+      readonly line: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'workspace.create'
+      readonly path: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'workspace.rename'
+      readonly workspaceId: string
+      readonly title: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'workspace.delete'
+      readonly workspaceId: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'interaction.answer-approval'
+      readonly interactionId: string
+      readonly decision: 'allowed-once' | 'rejected'
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'interaction.answer-question'
+      readonly interactionId: string
+      readonly answers: readonly LingQuestionAnswer[]
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'interaction.cancel'
+      readonly interactionId: string
     })
 
 export type LingCommandRejectionReason =
   | 'runtime-unavailable'
   | 'invalid-command'
   | 'task-not-found'
+  | 'interaction-stale'
   | 'permission-denied'
 
 export type LingCommandResult =
