@@ -1,11 +1,15 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const workspaceRoot = resolve(import.meta.dirname, '..')
 const repositoryRoot = resolve(workspaceRoot, '..')
 const manifest = JSON.parse(readFileSync(resolve(workspaceRoot, 'package.json'), 'utf8'))
 const stylesheet = readFileSync(resolve(workspaceRoot, 'src/styles.css'), 'utf8')
-const appSource = readFileSync(resolve(workspaceRoot, 'src/App.tsx'), 'utf8')
+const sourceRoot = resolve(workspaceRoot, 'src')
+const rendererSources = readdirSync(sourceRoot, { recursive: true })
+  .filter(path => typeof path === 'string' && path.endsWith('.tsx'))
+  .map(path => readFileSync(resolve(sourceRoot, path), 'utf8'))
+  .join('\n')
 const mcpConfigPath = resolve(repositoryRoot, '.codex/config.toml')
 const skillPath = resolve(repositoryRoot, '.agents/skills/heroui-react/SKILL.md')
 const requiredDependencies = ['@heroui/react', '@heroui/styles', 'react', 'react-dom', 'tailwindcss']
@@ -22,7 +26,7 @@ if (tailwindImport === -1 || heroUiImport === -1 || tailwindImport > heroUiImpor
   throw new Error('verify-heroui-setup: styles.css must import Tailwind CSS before HeroUI styles')
 }
 
-if (!appSource.includes("from '@heroui/react/")) {
+if (!rendererSources.includes("from '@heroui/react/")) {
   throw new Error('verify-heroui-setup: the Renderer must use HeroUI React components')
 }
 

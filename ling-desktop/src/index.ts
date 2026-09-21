@@ -17,3 +17,6 @@ export {
   type LingTimelineItemKind,
   type LingWorkspaceSummary,
 } from './runtime/index.js'
+
+export { LingShell } from './ui/LingShell.js'
+export type { LingUiSlotName, LingUiSlots } from './ui/slots.js'
