@@ -5,9 +5,11 @@ const workspaceRoot = resolve(import.meta.dirname, '..')
 const repositoryRoot = resolve(workspaceRoot, '..')
 const manifest = JSON.parse(readFileSync(resolve(workspaceRoot, 'package.json'), 'utf8'))
 const stylesheet = readFileSync(resolve(workspaceRoot, 'src/styles.css'), 'utf8')
+const tailwindHelperPath = resolve(workspaceRoot, 'src/ui/tailwind.ts')
 const sourceRoot = resolve(workspaceRoot, 'src')
-const rendererSources = readdirSync(sourceRoot, { recursive: true })
+const rendererSourcePaths = readdirSync(sourceRoot, { recursive: true })
   .filter(path => typeof path === 'string' && path.endsWith('.tsx'))
+const rendererSources = rendererSourcePaths
   .map(path => readFileSync(resolve(sourceRoot, path), 'utf8'))
   .join('\n')
 const mcpConfigPath = resolve(repositoryRoot, '.codex/config.toml')
@@ -30,6 +32,31 @@ if (!rendererSources.includes("from '@heroui/react/")) {
   throw new Error('verify-heroui-setup: the Renderer must use HeroUI React components')
 }
 
+if (/^\s*\.[a-z_-][^{]*\{/imu.test(stylesheet)) {
+  throw new Error('verify-heroui-setup: styles.css must not contain component class rules; colocate Tailwind utilities in JSX')
+}
+
+if (!existsSync(tailwindHelperPath)) {
+  throw new Error('verify-heroui-setup: missing the Tailwind class-name helper')
+}
+
+const tailwindHelper = readFileSync(tailwindHelperPath, 'utf8')
+if (tailwindHelper.includes('tailwindRecipes') || tailwindHelper.length > 2_000) {
+  throw new Error('verify-heroui-setup: component styles must stay inline; tailwind.ts may only merge class names')
+}
+
+if (/\[(?:&_|\.dark_&)/u.test(rendererSources)) {
+  throw new Error('verify-heroui-setup: descendant styling is forbidden; style each element or HeroUI slot directly')
+}
+
+for (const sourcePath of rendererSourcePaths) {
+  const source = readFileSync(resolve(sourceRoot, sourcePath), 'utf8')
+  const hasRawClassName = /className\s*=\s*(?:["'`]|\{\s*(?!tw\())/u.test(source)
+  if (hasRawClassName) {
+    throw new Error(`verify-heroui-setup: ${sourcePath} must route className values through tw()`)
+  }
+}
+
 if (!existsSync(mcpConfigPath)) {
   throw new Error('verify-heroui-setup: missing project-scoped HeroUI MCP configuration')
 }
@@ -45,4 +72,4 @@ if (!existsSync(skillPath)) {
   throw new Error('verify-heroui-setup: missing project-scoped HeroUI React skill')
 }
 
-process.stdout.write('verify-heroui-setup: HeroUI v3 packages, styles, MCP configuration, and project skill are configured\n')
+process.stdout.write('verify-heroui-setup: HeroUI v3 uses colocated Tailwind utilities and a theme-only stylesheet\n')

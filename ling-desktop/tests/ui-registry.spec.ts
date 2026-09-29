@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createLingUiExtensionRegistry,
   mergeLingUiSlots,
+  type LingUiRegistration,
 } from '../src/ui/registry.js'
 import { createLingUiPluginHost } from '../src/ui/plugin-host.js'
 
@@ -48,6 +49,16 @@ describe('LING UI extension registry', () => {
     expect(registry.getSnapshot()['sidebar.panellist']).toEqual(['first-fallback', 'second', 'third'])
   })
 
+  it('rejects a slot name the shell does not render', () => {
+    const registry = createLingUiExtensionRegistry()
+
+    expect(() => registry.register(
+      { name: 'sidebar.brand.mark' } as unknown as LingUiRegistration,
+      'orphan',
+    )).toThrow('unknown UI slot')
+    expect(registry.getSnapshot()).toEqual({})
+  })
+
   it('publishes stable snapshots and disposes all entries from one registrant', () => {
     const registry = createLingUiExtensionRegistry()
     const listener = vi.fn()
@@ -60,7 +71,7 @@ describe('LING UI extension registry', () => {
       registrant: 'community.example',
     }, 'action')
     registry.register({
-      name: 'sidebar.brand.mark',
+      name: 'rightbar.session',
       registrant: 'community.example',
     }, 'mark')
 
@@ -73,13 +84,13 @@ describe('LING UI extension registry', () => {
 
   it('keeps static owner content while registered single slots take precedence', () => {
     expect(mergeLingUiSlots({
-      'conversation.input.left': ['owner'],
+      'sidebar.panellist': ['owner'],
       'rightbar.session': 'owner',
     }, {
-      'conversation.input.left': ['plugin'],
+      'sidebar.panellist': ['plugin'],
       'rightbar.session': 'plugin',
     })).toEqual({
-      'conversation.input.left': ['owner', 'plugin'],
+      'sidebar.panellist': ['owner', 'plugin'],
       'rightbar.session': 'plugin',
     })
   })
@@ -92,14 +103,14 @@ describe('LING UI extension registry', () => {
       id: 'community.example',
       setup: ({ slots }) => {
         slots.register({ id: 'example-action', name: 'sidebar.footer.action' }, 'action')
-        slots.register({ name: 'conversation.hero.brand.mark' }, 'brand')
+        slots.register({ name: 'rightbar.session' }, 'brand')
         return cleanup
       },
     })
 
     expect(host.has('community.example')).toBe(true)
     expect(registry.getSnapshot()).toEqual({
-      'conversation.hero.brand.mark': 'brand',
+      'rightbar.session': 'brand',
       'sidebar.footer.action': ['action'],
     })
     expect(() => host.install({ id: 'community.example', setup: () => {} })).toThrow('already installed')

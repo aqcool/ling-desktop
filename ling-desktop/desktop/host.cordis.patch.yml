@@ -1,0 +1,13 @@
+- id: webserver
+  disabled: true
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: first-search
+- insert:
+    - id: ling-desktop-webserver
+      name: ling-desktop-host/webserver
+      inject: [webStartup]
+      config:
+        host: 127.0.0.1
+        port: 0

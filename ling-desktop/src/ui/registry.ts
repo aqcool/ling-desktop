@@ -59,8 +59,11 @@ class LingUiExtensionRegistryCore implements LingUiExtensionRegistry {
   }
 
   readonly register = (registration: LingUiRegistration, content: ReactNode): (() => void) => {
-    const kind = lingUiSlotKinds[registration.name]
+    const kind: 'list' | 'single' | undefined = lingUiSlotKinds[registration.name]
     const priority = registration.priority ?? 0
+    if (!kind) {
+      throw new Error(`unknown UI slot "${registration.name}"`)
+    }
     const id = kind === 'list' ? (registration as LingUiListRegistration).id : undefined
 
     if (content === undefined) {

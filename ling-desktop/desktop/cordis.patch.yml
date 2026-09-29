@@ -1,0 +1,7 @@
+- insert:
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+    - id: ling-desktop-host
+      name: ling-desktop-host
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'

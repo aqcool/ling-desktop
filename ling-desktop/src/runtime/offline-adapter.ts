@@ -18,11 +18,21 @@ export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRunt
     workspaces: [],
     tasks: [],
     pendingInteractions: [],
+    backgroundJobs: {},
+    subagents: {},
   }
 
   return {
     async getSnapshot(): Promise<LingRuntimeSnapshot> {
       return snapshot
+    },
+    async getModelSettings() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      } as const
     },
     async getTaskTimeline(_taskId: string): Promise<readonly LingTimelineItem[]> {
       return []
@@ -51,6 +61,38 @@ export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRunt
         retryable: false,
       }
     },
+    async promptTaskSubagent() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
+    async interruptTaskSubagent() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
+    async getLocalePreference() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
+    async setLocalePreference() {
+      return {
+        ok: false,
+        reason: 'runtime-unavailable',
+        message,
+        retryable: false,
+      }
+    },
     async dispatch(command: LingRuntimeCommand): Promise<LingCommandResult> {
       return {
         accepted: false,
@@ -61,6 +103,9 @@ export function createOfflineRuntimeAdapter(message = OFFLINE_MESSAGE): LingRunt
       }
     },
     subscribe(_listener: (event: LingRuntimeEvent) => void): () => void {
+      return () => {}
+    },
+    subscribeModelSettings(_listener: () => void): () => void {
       return () => {}
     },
     subscribeTaskTimeline(

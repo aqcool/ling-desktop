@@ -2,6 +2,7 @@
 export const LING_DESKTOP_RENDERER_OWNER = 'LING' as const
 
 export {
+  createDemoRuntimeAdapter,
   createDshRuntimeAdapter,
   createOfflineRuntimeAdapter,
   type DshRuntimeFacades,
