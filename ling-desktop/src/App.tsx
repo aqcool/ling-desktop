@@ -1,3 +1,4 @@
+import { acceptDraft, type ComposerDraft as Draft } from './ui/composer-draft.js'
 import { useBehavior } from './ui/behavior-preferences.js'
 import { useBehaviorNotifications } from './ui/behavior-notifications.js'
 import { nativeBehavior } from './ui/BehaviorSettings.js'
@@ -20,9 +21,11 @@ import type {
   LingTaskSchedule,
   LingTaskSearchMatch,
   LingTaskSummary,
+  LingTimelineItem,
 } from './runtime/contract.js'
 import { useLingRuntime } from './runtime/use-ling-runtime.js'
 import { readyServerHome } from './runtime/server-preflight.js'
+import { resendMessage } from './runtime/message-resend.js'
 import { modelVisibilityKey, readDisabledModels, replacementDefaultModel, saveDisabledModels, withModelVisibility } from './model-visibility.js'
 import {
   browserStorageKey,
@@ -66,16 +69,11 @@ function sameLocation(left: NavigationLocation, right: NavigationLocation): bool
     : right.screen === 'workspace' && left.taskId === right.taskId)
 }
 
-interface Draft {
-  readonly text: string
-  readonly attachments: readonly ComposerAttachment[]
-}
-
 const emptyDraft: Draft = { attachments: [], text: '' }
 
 function readStoredDrafts(): Record<string, Draft> {
-  const texts = parseStoredDrafts(window.localStorage.getItem(draftStorageKey))
-  return Object.fromEntries(Object.entries(texts).map(([key, text]) => [key, { attachments: [], text }]))
+  const stored = parseStoredDrafts(window.localStorage.getItem(draftStorageKey))
+  return Object.fromEntries(Object.entries(stored).map(([key, draft]) => [key, { ...draft, attachments: [] }]))
 }
 
 function storedBrowserOpen(): boolean {
@@ -108,6 +106,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const [notice, setNotice] = useState('')
   const [retryAction, setRetryAction] = useState<RetryRunner>()
   const [drafts, setDrafts] = useState<Record<string, Draft>>(readStoredDrafts)
+  const [composerFocusKey, setComposerFocusKey] = useState(0)
   const appearance = useAppearance()
   const theme = appearance.mode
   const setTheme = (mode: LingTheme) => { updateAppearance({ mode }) }
@@ -127,6 +126,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const [changeDiffMessage, setChangeDiffMessage] = useState<string>()
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [busy, setBusy] = useState(false)
+  const resending = useRef(false)
+  const submitAttempts = useRef(new Map<string, { draft: Draft; text: string; run: RetryRunner }>())
   const [modelSettings, setModelSettings] = useState<LingModelSettings>()
   const [disabledModelKeys, setDisabledModelKeys] = useState<readonly string[]>(readDisabledModels)
   const visibleModelSettings = useMemo(
@@ -233,11 +234,16 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     }))
   }, [])
 
-  const clearDraft = useCallback((key: string) => {
+  const clearDraft = useCallback((key: string, submitted?: Draft) => {
     setDrafts(current => {
-      for (const attachment of current[key]?.attachments ?? []) releaseComposerAttachment(attachment)
+      const previous = current[key]
+      const remaining = submitted && previous ? acceptDraft(previous, submitted) : undefined
+      for (const attachment of previous?.attachments ?? []) {
+        if (!remaining?.attachments.includes(attachment)) releaseComposerAttachment(attachment)
+      }
       const next = { ...current }
-      delete next[key]
+      if (remaining) next[key] = remaining
+      else delete next[key]
       return next
     })
   }, [])
@@ -282,9 +288,9 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [appearance.mode, appearance.palette, appearance.resolved])
 
   useEffect(() => {
-    const native = (window as Window & { __LING_THEME__?: { set: (mode: LingTheme) => Promise<void> } }).__LING_THEME__
-    void native?.set(theme).catch(() => {})
-  }, [theme])
+    const native = (window as Window & { __LING_THEME__?: { set: (appearance: { mode: LingTheme; palette: string }) => Promise<void> } }).__LING_THEME__
+    void native?.set({ mode: appearance.mode, palette: appearance.palette }).catch(() => {})
+  }, [appearance.mode, appearance.palette])
 
   useEffect(() => {
     if (!searchOpen) return
@@ -659,14 +665,21 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     if (presetPending) return
     const text = (textOverride ?? draft.text).trim()
     const attachments = draft.attachments
-    if (!text && attachments.length === 0) return
-    if (/^\/(goal|plan)(?:\s|$)/u.test(text) && attachments.length > 0) {
+    if (!text && attachments.length === 0 && !draft.recordedAttachments?.attachments.length) return
+    if (/^\/(goal|plan)(?:\s|$)/u.test(text) && (attachments.length > 0 || !!draft.recordedAttachments?.attachments.length)) {
       showNotice('目标与计划指令暂不支持附件，请移除附件后重试。')
       return
     }
+    const previousAttempt = submitAttempts.current.get(draftKey)
+    if (previousAttempt?.draft === draft && previousAttempt.text === text) {
+      try { await previousAttempt.run() } catch { showNotice('无法发送，请检查运行状态后重试。') }
+      return
+    }
     const payload = attachments.map(attachment => attachment.attachment)
+    const attemptId = crypto.randomUUID()
+    let inFlight: Promise<LingCommandResult> | undefined
     try {
-      const action: RetryRunner = async () => {
+      const execute: RetryRunner = async () => {
         // DSH claims registered commands only. /skill-name remains a user prompt,
         // so tool-skill can resolve and inject its real instructions server-side.
         let commandMatch = false
@@ -674,10 +687,17 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
           const catalog = await getTaskCommands(selectedTask.taskId)
           if (!catalog.ok) throw new Error(catalog.message)
           commandMatch = isComposerCommand(text, catalog.value)
+          if (commandMatch && (payload.length || draft.recordedAttachments?.attachments.length)) {
+            const rejected: LingCommandResult = { accepted: false, requestId: attemptId, reason: 'invalid-command', message: '该指令暂不支持附件，请移除附件后重试。', retryable: false }
+            report(rejected, '')
+            return rejected
+          }
         }
         const result = selectedTask && commandMatch
-          ? await runCommand(selectedTask.taskId, text, runtime.supportsGoalLimit ? behavior.goalRounds : undefined)
+          ? await runCommand(selectedTask.taskId, text, runtime.supportsGoalLimit ? behavior.goalRounds : undefined, attemptId)
           : await submitRuntime(text, {
+            requestId: attemptId,
+            ...(draft.recordedAttachments?.attachments.length ? { recordedAttachments: { seq: draft.recordedAttachments.seq, attachmentIds: draft.recordedAttachments.attachments.map(a => a.attachmentId) } } : {}),
             ...(runtime.supportsGoalLimit ? { maxGoalRounds: behavior.goalRounds } : {}),
             ...(selectedTask && running ? { mode: behavior.sendMode } : {}),
             ...(payload.length > 0 ? { attachments: payload } : {}),
@@ -689,7 +709,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
           })
         report(result, '', action)
         if (result.accepted) {
-          clearDraft(draftKey)
+          if (submitAttempts.current.get(draftKey)?.run === action) submitAttempts.current.delete(draftKey)
+          clearDraft(draftKey, draft)
           onAccepted?.()
           if (!selectedTask) setNewTaskAgentPreset(undefined)
           setNewTaskWorkspaceId(undefined)
@@ -700,11 +721,13 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
         }
         return result
       }
+      const action: RetryRunner = () => inFlight ??= execute().finally(() => { inFlight = undefined })
+      submitAttempts.current.set(draftKey, { draft, text, run: action })
       await action()
     } catch {
       showNotice('无法发送，请检查运行状态后重试。')
     }
-  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.sendMode, behavior.goalRounds, runtime.supportsGoalLimit, clearDraft, draft.attachments, draft.text, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
+  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.sendMode, behavior.goalRounds, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
 
   const stop = useCallback(async () => {
     if (!selectedTask) return
@@ -816,6 +839,13 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       setBusy(false)
     }
   }, [busy, forkTask, report])
+
+  const resend = useCallback(async (item: LingTimelineItem) => {
+    if (resending.current) throw new Error('正在重发消息，请稍候。')
+    resending.current = true
+    try { await resendMessage(runtime, item) }
+    finally { resending.current = false }
+  }, [runtime])
 
   const rename = useCallback(async (taskId: string, title: string) => {
     const result = await renameTask(taskId, title)
@@ -1124,6 +1154,9 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       composerPresetPending={presetPending}
       agentPresetControl={supportsExtensions ? <AgentPresetPicker catalog={presetCatalog} value={selectedTask ? undefined : composerAgentPreset} editable={!selectedTask || selectedTask.blank === true} loading={presetState.loading || presetState.taskId !== selectedTask?.taskId} pending={presetPending} error={presetState.taskId === selectedTask?.taskId ? presetState.error : undefined} onSelect={id => { void chooseComposerPreset(id) }} onRetry={() => setPresetRevision(value => value + 1)} /> : undefined}
       attachments={draft.attachments}
+      recordedAttachments={draft.recordedAttachments?.attachments}
+      onRemoveRecordedAttachment={id => writeDraft(draftKey, { recordedAttachments: draft.recordedAttachments ? { ...draft.recordedAttachments, attachments: draft.recordedAttachments.attachments.filter(a => a.attachmentId !== id) } : undefined })}
+      composerFocusKey={composerFocusKey}
       changeDiff={changeDiff}
       changeDiffLoading={changeDiffLoading}
       changeDiffMessage={changeDiffMessage}
@@ -1214,6 +1247,12 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       onBrowserToggle={toggleBrowser}
       onGoalAction={(action, goal) => { void applyGoalAction(action, goal) }}
       onFork={fork}
+      onEditMessage={item => {
+        writeDraft(item.taskId, { text: item.text, recordedAttachments: item.seq !== undefined && item.attachments?.length ? { seq: item.seq, attachments: item.attachments } : undefined })
+        setComposerFocusKey(key => key + 1)
+        showNotice('')
+      }}
+      onRetryMessage={item => resend(item)}
       onLoadOlder={() => { void loadOlderHistory() }}
       onModelDefaultSelect={saveDefaultModel}
       onModelEnabledChange={changeModelEnabled}
@@ -1232,7 +1271,10 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       onNavigateBack={() => { navigateHistory(-1) }}
       onNavigateForward={() => { navigateHistory(1) }}
       onNoticeRetry={retryAction ? retryNotice : undefined}
-      onPromptChange={value => { writeDraft(draftKey, { text: value }); showNotice('') }}
+      onPromptChange={value => {
+        writeDraft(draftKey, { text: value, ...(!value && !draft.recordedAttachments?.attachments.length && !draft.attachments.length ? { recordedAttachments: undefined } : {}) })
+        showNotice('')
+      }}
       onProviderCreate={addCustomProvider}
       onProviderDelete={discardProvider}
       onProviderAuthorize={loginProvider}

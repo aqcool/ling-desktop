@@ -41,7 +41,7 @@ function projectTerminal(info: WebTerminalInfo): LingTaskTerminal {
   }
 }
 
-export function createDshTerminalProjection(remote: ClientRemote, models?: ClientTerminals) {
+export function createDshTerminalProjection(remote: Pick<ClientRemote, 'terminal'>, models?: ClientTerminals) {
   const projection = {
     service: undefined as LingTerminalService | undefined,
     async list(taskId: string): Promise<LingReadResult<readonly LingTaskTerminal[]>> {

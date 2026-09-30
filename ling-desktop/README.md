@@ -36,8 +36,10 @@ Electron's OS-backed safe storage. Connection tests run from the credential
 window and enforce that fingerprint. Directory browsing is currently a broker
 capability without a Settings entry point. Existing SSH aliases remain available
 through system OpenSSH. Task-scoped remote workspaces, local-to-remote deployment
-and server operations are implemented by the LING server plugin. Ordinary inspection
-commands run directly; changing or unclassified commands require review with a
+and server operations are implemented by the LING server plugin, using the pinned
+DSH remote filesystem, subprocess, PTY and sandbox providers. LING automatically
+prepares the matching helper and Node runtime when needed. The same session
+permission mode applies to remote tools; restricted changes require review with a
 plain-language purpose, target, impact and full command. Command output is displayed
 while running and retained after failure; private terminal I/O remains separate. The current same-user Electron process is not an OS-enforced
 isolation boundary against an unrestricted local shell.
@@ -45,7 +47,7 @@ LING's server feature is a first-party plugin whose product contract is to
 manage those workflows in the app without exposing passwords or private keys
 through the task Remote. `~/.ssh/config` is an option, not the required setup path.
 See [SSH_PLUGIN.md](docs/SSH_PLUGIN.md) for the intended workflows, boundaries,
-acceptance criteria, and the prototype's exact limits.
+acceptance criteria, native DSH composition and verified boundaries.
 
 ## Desktop UI conventions
 

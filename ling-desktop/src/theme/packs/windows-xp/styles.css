@@ -1,0 +1,231 @@
+[data-palette='windows-xp'] { --windows-xp-wallpaper: url('./assets/windows-xp-sky.webp'); }
+
+/* Luna presentation only: existing shell geometry and hit targets stay intact. */
+[data-palette='windows-xp'] {
+  --xp-control-top: #ffffff;
+  --xp-control-bottom: #e8e5d7;
+  --xp-control-middle: #ece9d8;
+  --xp-control-edge: #7893ae;
+  --xp-control-highlight: #ffffff;
+  --xp-control-foreground: #15336c;
+  --xp-control-secondary: #375989;
+  --xp-control-muted: #58719a;
+  --xp-sidebar-top: #d6e3fa;
+  --xp-sidebar-bottom: #edf3ff;
+  --xp-info-surface: #f4f2e8;
+  --xp-icon-surface: #dce9fc;
+  --xp-toolbar-edge: #dedbce;
+  --xp-wallpaper-overlay: #bdd0e222;
+  --xp-hover-edge: #e9b34c;
+  --xp-pressed: #d6d1bd;
+  --xp-action-top: #397d2d;
+  --xp-selection: #316ac5;
+  --xp-selection-text: #ffffff;
+}
+[data-palette='windows-xp'][data-theme='dark'] {
+  --xp-control-top: #38577f;
+  --xp-control-bottom: #233858;
+  --xp-control-middle: #243b5f;
+  --xp-control-edge: #6b8bb5;
+  --xp-control-highlight: #6581a7;
+  --xp-control-foreground: #f3f7ff;
+  --xp-control-secondary: #c5d7f1;
+  --xp-control-muted: #a8bddb;
+  --xp-sidebar-top: #243b5f;
+  --xp-sidebar-bottom: #172941;
+  --xp-info-surface: #1a2c4b;
+  --xp-icon-surface: #2c4974;
+  --xp-toolbar-edge: #3b5270;
+  --xp-wallpaper-overlay: #091b3d99;
+  --xp-hover-edge: #d3a957;
+  --xp-pressed: #14253f;
+  --xp-action-top: #b8ee9e;
+  --xp-selection: #365f96;
+}
+/* Window-caption chrome belongs to the workspace; the sidebar is one continuous pane. */
+[data-palette='windows-xp'] .workspace-header {
+  --foreground: var(--chrome-foreground);
+  --text-secondary: var(--chrome-foreground);
+  --text-tertiary: var(--chrome-foreground);
+  --surface-hover: var(--chrome-hover);
+  --surface-selected: var(--chrome-hover);
+  --surface: var(--chrome-start);
+  --surface-secondary: var(--chrome-end);
+  --surface-tertiary: var(--chrome-hover);
+  --panel-border: #ffffff26;
+  color: var(--chrome-foreground);
+  background: linear-gradient(180deg, #ffffff26, transparent 25%, #00000008 95%), linear-gradient(180deg, var(--chrome-start), var(--chrome-end));
+  box-shadow: inset 0 1px #ffffff40;
+}
+[data-palette='windows-xp'] .workspace-header__title {
+  font-family: "Trebuchet MS", Tahoma, "Microsoft YaHei", "PingFang SC", sans-serif;
+  text-shadow: 0 1px 1px #103b8e80;
+}
+[data-palette='windows-xp'] :is(.desktop-shell, .sidebar) {
+  background: linear-gradient(160deg, var(--xp-sidebar-top), var(--xp-sidebar-bottom));
+}
+[data-palette='windows-xp'] .sidebar-projects__heading {
+  color: var(--link);
+}
+[data-palette='windows-xp'] .workspace {
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+[data-palette='windows-xp'] .workspace-content:not(.workspace-content--task):has(.conversation-empty) {
+  background-image: linear-gradient(var(--xp-wallpaper-overlay), var(--xp-wallpaper-overlay)), var(--windows-xp-wallpaper);
+  background-position: center;
+  background-size: cover;
+}
+[data-palette='windows-xp'] .workspace-content:not(.workspace-content--task) .conversation-empty h1 {
+  color: #ffffff;
+  text-shadow: 0 1px 3px #173c6d99;
+}
+[data-palette='windows-xp'] .workspace-monitor {
+  --surface: var(--xp-info-surface);
+  --surface-tertiary: var(--xp-icon-surface);
+  background: var(--xp-info-surface);
+}
+[data-palette='windows-xp'] .composer {
+  border-color: var(--xp-control-edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 1px 3px #173c6d14;
+}
+[data-palette='windows-xp'] .composer__footer {
+  border-radius: 0 0 var(--radius) var(--radius);
+  border-top-style: solid;
+  border-top-color: var(--xp-toolbar-edge);
+  background: var(--surface-secondary);
+}
+[data-palette='windows-xp'] .workspace-content:not(.workspace-content--task):has(.conversation-empty) .composer-context {
+  --foreground: #ffffff;
+  --text-secondary: #ffffff;
+  --text-tertiary: #ffffff;
+  --surface-hover: #ffffff26;
+  --surface-selected: #ffffff26;
+  color: #ffffff;
+  background: transparent;
+  text-shadow: 0 1px 2px #173c6d99;
+}
+[data-palette='windows-xp'] :is(.settings-layout, [role='menu'], .dropdown__popover) {
+  background-color: var(--surface-secondary);
+}
+[data-palette='windows-xp'] :is([role='menu'], .ling-menu__list, .dropdown__popover, .select__popover) {
+  --foreground: var(--xp-control-foreground);
+  --text-secondary: var(--xp-control-secondary);
+  --text-tertiary: var(--xp-control-muted);
+  --surface-hover: var(--surface-tertiary);
+  --surface-selected: var(--xp-selection);
+  color: var(--foreground);
+  text-shadow: none;
+}
+[data-palette='windows-xp'] :is(.ling-menu__list, .dropdown__popover, .select__popover) {
+  border-radius: var(--radius);
+  border-color: var(--panel-border);
+  box-shadow: inset 0 1px var(--xp-control-highlight), 1px 2px 4px var(--shadow-color);
+}
+
+[data-palette='windows-xp'] [aria-label='工作模式'],
+[data-palette='windows-xp'] [aria-label='工作模式'] button {
+  border-radius: var(--radius);
+}
+[data-palette='windows-xp'] :is(.button--secondary, .button--tertiary, .button--outline, .composer__add, .select__trigger) {
+  --foreground: var(--xp-control-foreground);
+  --text-secondary: var(--xp-control-secondary);
+  color: var(--foreground);
+  border-color: transparent;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--xp-control-top), var(--xp-control-middle) 85%, var(--xp-control-bottom));
+  outline: 1px solid var(--xp-control-edge);
+  outline-offset: -1px;
+  box-shadow: inset 0 1px var(--xp-control-highlight);
+}
+[data-palette='windows-xp'] :is(.button--secondary, .button--tertiary, .button--outline, .composer__add, .select__trigger):not(:disabled):not([data-disabled='true']):is(:hover, [data-hovered='true']) {
+  box-shadow: inset 0 1px var(--xp-hover-edge), inset 0 -1px var(--xp-hover-edge);
+}
+[data-palette='windows-xp'] :is(.button--secondary, .button--tertiary, .button--outline, .composer__add, .select__trigger):not(:disabled):not([data-disabled='true']):is(:active, [data-pressed='true']) {
+  background: linear-gradient(180deg, var(--xp-pressed), var(--xp-control-middle));
+  box-shadow: inset 0 0 0 1px var(--xp-control-edge), inset 1px 2px 2px var(--shadow-color);
+  transform: none;
+}
+[data-palette='windows-xp'] :is(.button, .composer__add, .select__trigger):is(:focus-visible, [data-focus-visible='true']) {
+  outline: 1px dotted var(--focus);
+  outline-offset: -4px;
+}
+[data-palette='windows-xp'] :is(.sidebar-nav__item, .sidebar-rail__item, .sidebar-bottom__item, .icon-button):not(:disabled):hover {
+  box-shadow: inset 0 0 0 1px var(--xp-hover-edge);
+}
+[data-palette='windows-xp'] .composer__send:not(:disabled) {
+  border: 1px solid #285f28;
+  border-radius: var(--radius);
+  background-image: linear-gradient(180deg, #ffffff40, transparent 35%), linear-gradient(180deg, var(--xp-action-top), var(--action));
+  box-shadow: inset 0 1px #ffffff80;
+}
+[data-palette='windows-xp'] .composer__send:not(:disabled):hover {
+  box-shadow: inset 0 0 0 1px var(--xp-hover-edge);
+}
+[data-palette='windows-xp'] .composer__send:not(:disabled):active {
+  background-image: none;
+  box-shadow: inset 1px 2px 2px #17471e70;
+}
+[data-palette='windows-xp']:is([aria-label='外观设置'] *) > span:last-child {
+  background-image: var(--windows-xp-wallpaper);
+  background-position: center;
+  background-size: cover;
+}
+/* The same focus and selection treatment for native menus and HeroUI lists. */
+[data-palette='windows-xp'] :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']) {
+  border-radius: var(--radius);
+}
+[data-palette='windows-xp'] :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']):not(:disabled):not([data-disabled='true']):not([aria-disabled='true']):is(:hover, :focus-visible, [data-focused='true'], [data-selected='true'], [aria-selected='true'], [aria-checked='true']),
+[data-palette='windows-xp'] :is(.sidebar-task--active, .settings-sidebar__item[aria-current='page']) {
+  --foreground: var(--xp-selection-text);
+  --text-secondary: var(--xp-selection-text);
+  --text-tertiary: var(--xp-selection-text);
+  --default-foreground: var(--xp-selection-text);
+  --surface-hover: var(--xp-selection);
+  color: var(--xp-selection-text);
+  background: var(--xp-selection);
+}
+[data-palette='windows-xp'] :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']):is(:focus-visible, [data-focus-visible='true']) {
+  outline: 1px dotted currentColor;
+  outline-offset: -3px;
+}
+[data-palette='windows-xp'] :is(.switch__control, .switch__thumb) {
+  border-radius: var(--radius);
+}
+[data-palette='windows-xp'] .switch__control {
+  box-shadow: inset 0 0 0 1px var(--xp-control-edge), inset 0 1px 2px var(--shadow-color);
+}
+[data-palette='windows-xp'] .switch__thumb {
+  background: linear-gradient(180deg, var(--xp-control-top), var(--xp-control-bottom));
+  box-shadow: 0 1px 2px var(--shadow-color);
+}
+[data-palette='windows-xp'] .composer__send:disabled {
+  background: var(--disabled-background);
+  color: var(--disabled-foreground);
+  box-shadow: none;
+}
+/* Theme artwork occupies the original icon boxes; accessible labels stay on controls. */
+[data-palette='windows-xp'] [data-icon='settings'] { background-image: url('./assets/icons/settings.svg'); }
+[data-palette='windows-xp'] [data-icon='globe'] { background-image: url('./assets/icons/globe.svg'); }
+[data-palette='windows-xp'] [data-icon='arrowLeft'] { background-image: url('./assets/icons/arrowLeft.svg'); }
+[data-palette='windows-xp'] [data-icon='arrowRight'] { background-image: url('./assets/icons/arrowRight.svg'); }
+[data-palette='windows-xp'] [data-icon='folder'] { background-image: url('./assets/icons/folder.svg'); }
+[data-palette='windows-xp'] [data-icon='folderOpen'] { background-image: url('./assets/icons/folderOpen.svg'); }
+[data-palette='windows-xp'] [data-icon='desktop'] { background-image: url('./assets/icons/desktop.svg'); }
+[data-palette='windows-xp'] [data-icon='search'] { background-image: url('./assets/icons/search.svg'); }
+[data-palette='windows-xp'] [data-icon='book'] { background-image: url('./assets/icons/book.svg'); }
+[data-palette='windows-xp'] [data-icon='calendarClock'] { background-image: url('./assets/icons/calendarClock.svg'); }
+[data-palette='windows-xp'] [data-icon='grid'] { background-image: url('./assets/icons/grid.svg'); }
+[data-palette='windows-xp'] [data-icon='compose'] { background-image: url('./assets/icons/compose.svg'); }
+[data-palette='windows-xp'] :is([data-icon='folder'], [data-icon='folderOpen'], [data-icon='desktop'], [data-icon='search'], [data-icon='book'], [data-icon='calendarClock'], [data-icon='grid'], [data-icon='compose'], [data-icon='settings'], [data-icon='globe'], [data-icon='arrowLeft'], [data-icon='arrowRight']) { background-size: contain; background-position: center; background-repeat: no-repeat; }
+[data-palette='windows-xp'] :is([data-icon='folder'], [data-icon='folderOpen'], [data-icon='desktop'], [data-icon='search'], [data-icon='book'], [data-icon='calendarClock'], [data-icon='grid'], [data-icon='compose'], [data-icon='settings'], [data-icon='globe'], [data-icon='arrowLeft'], [data-icon='arrowRight']) > * { visibility: hidden; }
+@media (forced-colors: active) {
+  [data-palette='windows-xp'] :is([data-icon='folder'], [data-icon='folderOpen'], [data-icon='desktop'], [data-icon='search'], [data-icon='book'], [data-icon='calendarClock'], [data-icon='grid'], [data-icon='compose'], [data-icon='settings'], [data-icon='globe'], [data-icon='arrowLeft'], [data-icon='arrowRight']) { background-image: none; }
+  [data-palette='windows-xp'] :is([data-icon='folder'], [data-icon='folderOpen'], [data-icon='desktop'], [data-icon='search'], [data-icon='book'], [data-icon='calendarClock'], [data-icon='grid'], [data-icon='compose'], [data-icon='settings'], [data-icon='globe'], [data-icon='arrowLeft'], [data-icon='arrowRight']) > * { visibility: visible; }
+}
+
+/* Explicit workspace icon colors are user choices and take precedence over the pack. */
+[data-palette='windows-xp'] :is(.sidebar-project__icon, .workspace-preview__icon)[style] [data-icon] { background-image: none; }
+[data-palette='windows-xp'] :is(.sidebar-project__icon, .workspace-preview__icon)[style] [data-icon] > * { visibility: visible; }

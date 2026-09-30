@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { join, posix } from 'node:path'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { RemotePolicy } from '../ssh/runtime.ts'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -27,16 +29,18 @@ declare module '@deepseek-ai/cordis' {
 
 /** First-party Host plugin. The model has no tool entry for these operations. */
 export class LingServersController extends TypertRemoteService {
-  static inject = ['typert', 'agents', 'tools', 'systemPrompt']
+  static inject = ['typert', 'agents', 'tools', 'systemPrompt', 'sandboxPolicy']
   private readonly store: ServerStore
   private readonly sessions: ServerSessions
   private readonly operations: ServerSessions
   private readonly audit: ServerAudit
   private readonly executionRecorder: ServerExecutionRecorder
-  private readonly home: string
+  private readonly executionPolicies = new WeakMap<object, RemotePolicy>()
   private readonly installed = new Map<string, () => void>()
   private readonly installedOperations = new Map<string, () => void>()
   private readonly taskTerminals = new Map<string, Set<string>>()
+  private readonly draftTerminalBindings = new Map<string, ServerSessionBinding>()
+  private readonly draftTerminalScopes = new Map<string, Promise<{ ownerId: string }>>()
   private readonly terminalUiRequests = new Set<string>()
   private readonly gitQueues = new Map<string, Promise<unknown>>()
   private readonly deploymentPlans = new Map<string, { taskId: string; serverId: string; root: string; source: string;
@@ -52,7 +56,6 @@ export class LingServersController extends TypertRemoteService {
     super(ctx, 'lingServers')
     const home = process.env.DSH_HOME
     if (!home) throw new Error('LING server plugin requires DSH_HOME')
-    this.home = home
     this.store = new ServerStore(join(home, 'ling-servers.json'))
     this.sessions = new ServerSessions(join(home, 'ling-server-sessions.json'))
     this.operations = new ServerSessions(join(home, 'ling-operation-sessions.json'))
@@ -76,9 +79,12 @@ export class LingServersController extends TypertRemoteService {
       const taskId = String(exec.agent.id)
       const remote = this.installed.has(taskId)
       const operations = this.installedOperations.has(taskId)
-      const decision = serverToolDecision(exec.name, exec.arguments, { remote, operations }, previous)
+      const binding = remote || operations ? await (remote ? this.sessions : this.operations).get(taskId) : undefined
+      const mode = this.ctx.get('sandboxPolicy')?.resolve({ session: exec.agent.session }).mode ?? 'workspace-write'
+      const decision = serverToolDecision(exec.name, exec.arguments, { remote, operations, mode, cwd: binding?.cwd }, previous)
+      if (binding) this.executionPolicies.set(exec, { workspaceRoot: binding.cwd,
+        mode: decision.kind === 'ask' && mode !== 'read-only' ? 'danger-full-access' : mode })
       if (decision.kind !== 'ask' || !['server_exec', 'remote_run', 'remote_write', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply'].includes(exec.name)) return decision
-      const binding = await (remote ? this.sessions : this.operations).get(taskId)
       if (!binding) return decision
       const server = await this.server(binding.serverId)
       const args = exec.arguments && typeof exec.arguments === 'object' ? exec.arguments as Record<string, unknown> : {}
@@ -155,8 +161,26 @@ export class LingServersController extends TypertRemoteService {
     return await this.operations.get(taskId) ?? null
   }
 
+  async terminalScope(serverId: string, placement: 'side' | 'bottom', signal: AbortSignal): Promise<{ ownerId: string }> {
+    await this.server(serverId)
+    const key = JSON.stringify([serverId, placement])
+    const existing = this.draftTerminalScopes.get(key)
+    if (existing) return existing
+    const pending = (async () => {
+      const server = await this.server(serverId)
+      const { home } = await probeServer(server, signal)
+      signal.throwIfAborted()
+      const ownerId = `ling-draft-terminal:${randomUUID()}`
+      this.draftTerminalBindings.set(ownerId, { serverId, cwd: home })
+      return { ownerId }
+    })().catch(error => { this.draftTerminalScopes.delete(key); throw error })
+    this.draftTerminalScopes.set(key, pending)
+    return pending
+  }
+
   private async terminalOwner(taskId: string, terminalId?: string): Promise<ServerSessionBinding> {
-    const binding = await this.sessions.get(taskId) ?? await this.operations.get(taskId)
+    const draft = taskId.startsWith('ling-draft-terminal:') ? this.draftTerminalBindings.get(taskId) : undefined
+    const binding = draft ?? await this.sessions.get(taskId) ?? await this.operations.get(taskId)
     if (!binding) throw new RemoteError('gateway/bad-request', '此任务未绑定远端服务器。', {})
     if (terminalId && !this.taskTerminals.get(taskId)?.has(terminalId))
       throw new RemoteError('gateway/bad-request', '此终端不属于当前任务。', {})
@@ -214,49 +238,40 @@ export class LingServersController extends TypertRemoteService {
 
   async filesList(taskId: string, path: string, signal: AbortSignal) {
     const { binding, resolved } = await this.remoteFilePath(taskId, path || '.')
-    const manifest = await getServerBridge().manifest(binding.serverId, resolved, signal, true)
-    if (!manifest.exists) throw new Error('远端目录不存在。')
-    const entries = manifest.entries.filter(entry => !entry.path.includes('/')).map(entry => ({
-      name: entry.path, type: entry.type === 'symlink' ? 'other' as const : entry.type,
-    }))
-    entries.sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1)
+    const result = await getServerBridge().file({ action: 'list', serverId: binding.serverId, path: resolved }, signal)
+    if (!('entries' in result)) throw new Error('远端目录返回无效结果。')
+    const entries = [...result.entries].sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1)
     return { path: path === '.' ? '' : path, entries }
   }
-
   async filesRead(taskId: string, path: string, signal: AbortSignal) {
     const { binding, resolved } = await this.remoteFilePath(taskId, path)
-    const status = await getServerBridge().run(binding.serverId, binding.cwd, remoteFileHashCommand(resolved), signal)
-    if (status.exitCode !== 0) throw new Error(status.stderr.trim() || '远端文件无法读取。')
-    const sha256 = parseRemoteFileHash(status.stdout)
-    if (!sha256) throw new Error('远端文件不存在。')
-    const directory = join(this.home, 'ling-remote-reads')
-    await mkdir(directory, { recursive: true, mode: 0o700 })
-    const name = randomUUID()
-    try {
-      await getServerBridge().download(binding.serverId, directory, resolved, name, sha256, null, signal)
-      const contents = await readFile(join(directory, name))
-      if (contents.includes(0)) throw new Error('该文件不是文本文件。')
-      let text: string
-      try { text = new TextDecoder('utf-8', { fatal: true }).decode(contents) }
-      catch { throw new Error('该文件不是 UTF-8 文本。') }
-      return { path, text, sha256, truncated: false }
-    } finally { await rm(join(directory, name), { force: true }) }
+    const result = await getServerBridge().file({ action: 'read', serverId: binding.serverId, path: resolved }, signal)
+    if (!('text' in result)) throw new Error('远端文件返回无效结果。')
+    return { ...result, path }
   }
-
-  async filesSave(taskId: string, path: string, text: string, expectedSha256: string | null, signal: AbortSignal) {
+  async filesSave(taskId: string, path: string, text: string, expectedSha256: string | null, signal: AbortSignal, policy?: RemotePolicy) {
     const { binding, resolved } = await this.remoteFilePath(taskId, path)
-    if (expectedSha256 !== null && !/^[a-f0-9]{64}$/.test(expectedSha256)) throw new Error('请重新读取远端文件后保存。')
-    const directory = join(this.home, 'ling-remote-edits')
-    await mkdir(directory, { recursive: true, mode: 0o700 })
-    const file = `${randomUUID()}.txt`
-    const location = join(directory, file)
-    await writeFile(location, text, { flag: 'wx', mode: 0o600 })
-    try {
-      const sha256 = (await localDeploymentFile(directory, file)).sha256
-      const result = await this.audit.perform(taskId, binding.serverId, 'deploy-file', `${path}\0${sha256}`,
-        () => getServerBridge().upload(binding.serverId, directory, file, resolved, sha256, expectedSha256, signal))
-      return { path, sha256: result.sha256 }
-    } finally { await rm(location, { force: true }) }
+    // Renderer saves are explicit human operations; agent writes always pass session policy.
+    const result = await this.audit.perform(taskId, binding.serverId, 'deploy-file', path,
+      () => getServerBridge().file({ action: 'write', serverId: binding.serverId, path: resolved, text, expected: expectedSha256,
+        policy: policy ?? { mode: 'danger-full-access', workspaceRoot: binding.cwd } }, signal))
+    if (!('sha256' in result)) throw new Error('远端文件返回无效结果。')
+    return { path, sha256: result.sha256 }
+  }
+  private executionPolicy(exec: ToolExecution, cwd: string): RemotePolicy {
+    const approved = this.executionPolicies.get(exec)
+    if (approved && approved.workspaceRoot !== cwd) throw new Error('远端工作目录已变化，请重新执行该操作。')
+    return approved ?? { workspaceRoot: cwd,
+      mode: this.ctx.get('sandboxPolicy')?.resolve(exec.agent ? { session: exec.agent.session } : {}).mode ?? 'read-only' }
+  }
+  private installTerminalTool(agent: Agent, taskId: string, dispose: Array<() => void>) {
+    dispose.push(agent.ctx.tools.register(defineTool({
+      name: 'server_show_terminal', description: 'Open the bound server terminal for private user interaction. Its input and output never enter the model transcript.',
+      parameters: {}, output: { schema: { type: 'object', additionalProperties: false, properties: { opened: { type: 'boolean', required: true } } },
+        render: () => [{ type: 'text', text: '已请求在右侧打开服务器终端。' }] },
+      execute: async () => { await this.terminalOwner(taskId); this.terminalUiRequests.add(taskId); return { opened: true } },
+      presentCall: () => ({ card: 'generic', title: '打开服务器终端', kind: 'read' }),
+    })))
   }
 
   async gitRequest(taskId: string, request: LingGitRequest, signal: AbortSignal) {
@@ -299,23 +314,11 @@ export class LingServersController extends TypertRemoteService {
     }
     try {
       dispose.push(agent.ctx.systemPrompt.section({ name: 'ling:operations-server', order: agent.ctx.systemPrompt.getSectionOrder('PLAN_POLICY'),
-        text: 'This is a local-workspace task with a separate operations target. Local file, Git, build and shell tools remain local. Use server_exec for ordinary remote operations on the attached server; its output enters the agent context and ordinary read-only inspections run directly; commands that change state or cannot be safely classified require approval. Always supply a concise description in the user’s language explaining the purpose and intended change, not just the shell syntax. For credential viewing, entry, reset, or other sensitive interactive work, call server_show_terminal and let the user work in the terminal pane. Its input and output do not enter the agent context. Never run credential-revealing commands with server_exec or ask the user to paste credentials into chat. For local file or directory deployment, call the corresponding server_deploy_plan or server_deploy_directory_plan and then its apply tool with the exact returned plan ID, source and destination. For a remote file, call server_download_plan and then server_download_apply. Directory deployment previews and replaces the complete destination tree, including removal of remote-only paths; use approved server_exec for release switching and health checks. Do not use local shell tools to reach that server.',
+        text: 'This is a local-workspace task with a separate operations target. Local file, Git, build and shell tools remain local. Use server_exec for ordinary remote operations on the attached server; its output enters the agent context and the session permission mode applies: read-only forbids mutations, workspace-write requests approval for server changes, full access permits them without extra SSH prompts. Always supply a concise description in the user’s language explaining the purpose and intended change, not just the shell syntax. For credential viewing, entry, reset, or other sensitive interactive work, call server_show_terminal and let the user work in the terminal pane. Its input and output do not enter the agent context. Never run credential-revealing commands with server_exec or ask the user to paste credentials into chat. For local file or directory deployment, call the corresponding server_deploy_plan or server_deploy_directory_plan and then its apply tool with the exact returned plan ID, source and destination. For a remote file, call server_download_plan and then server_download_apply. Directory deployment previews and replaces the complete destination tree, including removal of remote-only paths; use approved server_exec for release switching and health checks. Do not use local shell tools to reach that server.',
       }))
+      this.installTerminalTool(agent, taskId, dispose)
       dispose.push(agent.ctx.tools.register(defineTool({
-        name: 'server_show_terminal', description: 'Open the attached server’s interactive SSH terminal in the right pane for the user. Terminal output is shown only in that pane, not returned to the agent.',
-        parameters: {},
-        output: { schema: { type: 'object', additionalProperties: false, properties: {
-          opened: { type: 'boolean', required: true },
-        } }, render: () => [{ type: 'text', text: '已请求在右侧打开服务器终端。' }] },
-        execute: async () => {
-          await current()
-          this.terminalUiRequests.add(taskId)
-          return { opened: true }
-        },
-        presentCall: () => ({ card: 'generic', title: `打开服务器终端 · ${server.name}`, kind: 'read' }),
-      })))
-      dispose.push(agent.ctx.tools.register(defineTool({
-        name: 'server_exec', description: 'Run an ordinary shell command on the server attached to this local task. Its output enters the agent context; for credentials or other secret-bearing output, open the private server terminal instead. Use for deployment, service management, logs, containers, processes and diagnostics. Read-only inspections run directly; state-changing or unclassified commands require approval. Include a plain-language description of the purpose and intended change. The server and credentials cannot be changed by this tool.',
+        name: 'server_exec', description: 'Run an ordinary shell command on the server attached to this local task. Its output enters the agent context; for credentials or other secret-bearing output, open the private server terminal instead. Use for deployment, service management, logs, containers, processes and diagnostics. The current session permission mode applies; restricted sessions require approval for state changes. Include a plain-language description of the purpose and intended change. The server and credentials cannot be changed by this tool.',
         parameters: { command: { type: 'string', required: true, description: 'Remote shell command to run on the attached server.' }, description: { type: 'string', required: true, description: 'In the user’s language, briefly explain what this does and why. Describe any intended changes.' } }, output,
         execute: async (args, exec) => {
           if (!args.command.trim() || args.command.length > 16384 || args.command.includes('\0')) throw new Error('远端命令无效。')
@@ -323,7 +326,7 @@ export class LingServersController extends TypertRemoteService {
           return this.audit.perform(taskId, target.serverId, 'exec', args.command,
             () => this.executionRecorder.run(taskId, { callId: String(exec.callId), summary: args.description,
               server: server.name, cwd: target.cwd, command: args.command }, exec.signal,
-              output => getServerBridge().run(target.serverId, target.cwd, args.command, exec.signal, undefined, output)))
+              output => getServerBridge().run(target.serverId, target.cwd, args.command, exec.signal, undefined, output, this.executionPolicy(exec, target.cwd))))
         },
         presentCall: args => ({ card: 'generic', title: `远端执行 · ${server.name} · ${args.description}`, kind: 'execute' }),
       })))
@@ -356,7 +359,7 @@ export class LingServersController extends TypertRemoteService {
         presentCall: args => ({ card: 'generic', title: `部署预览 · ${args.source} → ${args.destination}`, kind: 'read' }),
       })))
       dispose.push(agent.ctx.tools.register(defineTool({
-        name: 'server_deploy_apply', description: 'Deploy exactly one previously previewed local workspace file to the attached server. Requires user approval and fails if either file changed after preview.',
+        name: 'server_deploy_apply', description: 'Deploy exactly one previously previewed local workspace file to the attached server. Follows session permissions and fails if either file changed after preview.',
         parameters: {
           planId: { type: 'string', required: true, description: 'Plan ID returned by server_deploy_plan.' },
           source: { type: 'string', required: true, description: 'Exact source path from the preview.' },
@@ -412,7 +415,7 @@ export class LingServersController extends TypertRemoteService {
         presentCall: args => ({ card: 'generic', title: `目录部署预览 · ${args.source} → ${args.destination}`, kind: 'read' }),
       })))
       dispose.push(agent.ctx.tools.register(defineTool({
-        name: 'server_deploy_directory_apply', description: 'Replace the entire previewed remote directory, including deletion of remote-only paths, after user approval. Stage and verify all files before switching the destination.',
+        name: 'server_deploy_directory_apply', description: 'Replace the entire previewed remote directory, including deletion of remote-only paths, according to session permissions. Stage and verify all files before switching the destination.',
         parameters: {
           planId: { type: 'string', required: true }, source: { type: 'string', required: true },
           destination: { type: 'string', required: true },
@@ -463,7 +466,7 @@ export class LingServersController extends TypertRemoteService {
         presentCall: args => ({ card: 'generic', title: `取回预览 · ${args.source} → ${args.destination}`, kind: 'read' }),
       })))
       dispose.push(agent.ctx.tools.register(defineTool({
-        name: 'server_download_apply', description: 'Copy exactly one previewed remote file into the local workspace. Requires user approval and fails if the remote file or local target changed.',
+        name: 'server_download_apply', description: 'Copy exactly one previewed remote file into the local workspace. Follows session permissions and fails if the remote file or local target changed.',
         parameters: {
           planId: { type: 'string', required: true }, source: { type: 'string', required: true },
           destination: { type: 'string', required: true },
@@ -498,15 +501,16 @@ export class LingServersController extends TypertRemoteService {
       'job_output', 'job_list', 'job_kill'])
     const dispose: Array<() => void> = []
     try {
+    this.installTerminalTool(agent, taskId, dispose)
     dispose.push(agent.ctx.tools.guard(exec => localOnlyTools.has(exec.name) ? '此任务使用远端服务器，请使用远端工具。' : undefined))
     const globalLocalTools = [...localOnlyTools].filter(name => this.ctx.tools.get(name) !== undefined)
     if (globalLocalTools.length) dispose.push(agent.ctx.tools.restrict({ deny: globalLocalTools }))
     dispose.push(agent.ctx.systemPrompt.section({ name: 'ling:remote-server', order: agent.ctx.systemPrompt.getSectionOrder('PLAN_POLICY'),
-      text: 'This task is bound to a remote server. Use remote_list, remote_read and remote_write for project files, and remote_run for Git, builds, tests and shell commands. remote_cd changes the shared remote working directory used by these tools and new terminals. Writes and state-changing or unclassified commands require approval; ordinary read-only inspections run directly. Supply a concise purpose and intended change in the user’s language with each command. Local filesystem and shell tools do not target the selected server. Credentials are held by LING and must never be requested or printed.',
+      text: 'This task is bound to a remote server. Use remote_list, remote_read and remote_write for project files, and remote_run for Git, builds, tests and shell commands. remote_cd changes the shared remote working directory used by these tools and new terminals. Follow the session permission mode: read-only forbids mutations, workspace-write confines operations to the remote workspace and approves wider effects, full access permits operations without additional SSH prompts. For private input/output call server_show_terminal; never put secrets in ordinary tool results. Supply a concise purpose and intended change in the user’s language with each command. Local filesystem and shell tools do not target the selected server. Credentials are held by LING and must never be requested or printed.',
     }))
     dispose.push(agent.ctx.tools.register(defineTool({
       name: 'remote_run',
-      description: 'Run a command on the server selected for this task, in its current remote directory. Read-only inspections run directly; state-changing or unclassified commands require approval. Include a plain-language description of the purpose and intended change. The server and credentials cannot be changed by this tool.',
+      description: 'Run a command on the server selected for this task, in its current remote directory. The current session permission mode applies; restricted sessions require approval for state changes. Include a plain-language description of the purpose and intended change. The server and credentials cannot be changed by this tool.',
       parameters: { command: { type: 'string', required: true, description: 'Shell command to run on the selected server.' }, description: { type: 'string', required: true, description: 'In the user’s language, briefly explain what this does and why. Describe any intended changes.' } },
       output: {
         schema: { type: 'object', additionalProperties: false, properties: {
@@ -522,7 +526,7 @@ export class LingServersController extends TypertRemoteService {
         const server = await this.server(current.serverId)
         const result = await this.executionRecorder.run(taskId, { callId: String(exec.callId), summary: args.description,
           server: server.name, cwd: current.cwd, command: args.command }, exec.signal,
-          output => getServerBridge().run(current.serverId, current.cwd, args.command, exec.signal, undefined, output))
+          output => getServerBridge().run(current.serverId, current.cwd, args.command, exec.signal, undefined, output, this.executionPolicy(exec, current.cwd)))
         return { cwd: current.cwd, ...result }
       },
       presentCall: args => ({ card: 'generic', title: `远端执行 · ${args.description}`, kind: 'execute' }),
@@ -550,13 +554,17 @@ export class LingServersController extends TypertRemoteService {
       presentCall: args => ({ card: 'generic', title: `远端读取 · ${args.path}`, kind: 'read' }),
     })))
     dispose.push(agent.ctx.tools.register(defineTool({
-      name: 'remote_write', description: 'Atomically create or replace one text file on the selected server. Pass null version only for a new file; otherwise pass the exact SHA-256 returned by remote_read. Requires user approval.',
+      name: 'remote_write', description: 'Atomically create or replace one text file on the selected server. Pass null version only for a new file; otherwise pass the exact SHA-256 returned by remote_read. Follows session permissions.',
       parameters: { path: { type: 'string', required: true }, text: { type: 'string', required: true },
         expectedSha256: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] } },
       output: { schema: { type: 'object', additionalProperties: false, properties: {
         path: { type: 'string', required: true }, sha256: { type: 'string', required: true },
       } }, render: (_args, value) => [{ type: 'text', text: `Saved ${value.path} · SHA-256 ${value.sha256}` }] },
-      execute: async (args, exec) => this.filesSave(taskId, args.path, args.text, args.expectedSha256, exec.signal),
+      execute: async (args, exec) => {
+        const current = await this.sessions.get(taskId)
+        if (!current || current.serverId !== binding.serverId) throw new Error('远端服务器绑定已变化。')
+        return this.filesSave(taskId, posix.resolve(current.cwd, args.path), args.text, args.expectedSha256, exec.signal, this.executionPolicy(exec, current.cwd))
+      },
       presentCall: args => ({ card: 'generic', title: `远端写入 · ${args.path}`, kind: 'execute' }),
     })))
     dispose.push(agent.ctx.tools.register(defineTool({
@@ -597,7 +605,7 @@ const decorate = Remote as unknown as (implementation: (...args: never[]) => unk
   name: string; private: boolean; static: boolean; addInitializer(initializer: (this: LingServersController) => void): void
 }) => void
 for (const name of ['executions', 'list', 'add', 'configure', 'forget', 'probe', 'directories', 'bindTask', 'taskBinding', 'attachOperations', 'operationsBinding',
-  'takeTerminalUiRequest', 'terminalList', 'terminalOpen', 'terminalPoll', 'terminalWrite', 'terminalResize', 'terminalClose',
+  'takeTerminalUiRequest', 'terminalScope', 'terminalList', 'terminalOpen', 'terminalPoll', 'terminalWrite', 'terminalResize', 'terminalClose',
   'filesList', 'filesRead', 'filesSave', 'gitRequest'] as const) {
   decorate(prototype[name] as (...args: never[]) => unknown, {
     name, private: false, static: false, addInitializer(initializer) { initializer.call(receiver) },

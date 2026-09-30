@@ -56,6 +56,7 @@ export interface LingServersRemote {
   operationsBinding(taskId: string): Promise<RemoteResult<{ readonly serverId: string; readonly cwd: string } | null>>
   takeTerminalUiRequest(taskId: string): Promise<RemoteResult<{ readonly open: boolean }>>
   terminalList(taskId: string): Promise<RemoteResult<readonly string[]>>
+  terminalScope(serverId: string, placement: 'side' | 'bottom', signal?: AbortSignal): Promise<RemoteResult<{ readonly ownerId: string }>>
   terminalOpen(taskId: string, cols: number, rows: number, signal?: AbortSignal): Promise<RemoteResult<{ readonly terminalId: string }>>
   terminalPoll(taskId: string, terminalId: string, offset: number, signal?: AbortSignal): Promise<RemoteResult<LingServerTerminalSnapshot>>
   terminalWrite(taskId: string, terminalId: string, data: string, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
@@ -83,6 +84,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'lingServers/operationsBinding': LingServersRemote['operationsBinding']
     'lingServers/takeTerminalUiRequest': LingServersRemote['takeTerminalUiRequest']
     'lingServers/terminalList': LingServersRemote['terminalList']
+    'lingServers/terminalScope': LingServersRemote['terminalScope']
     'lingServers/terminalOpen': LingServersRemote['terminalOpen']
     'lingServers/terminalPoll': LingServersRemote['terminalPoll']
     'lingServers/terminalWrite': LingServersRemote['terminalWrite']
@@ -123,6 +125,7 @@ const descriptors: readonly InvocationDescriptor[] = [
   descriptor('operationsBinding', [parameter('operationsBinding', 'taskId', z.string().min(1).max(128))], z.object({ serverId: z.string().uuid(), cwd: z.string() }).strict().nullable()),
   descriptor('takeTerminalUiRequest', [parameter('takeTerminalUiRequest', 'taskId', z.string().min(1).max(128))], z.object({ open: z.boolean() }).strict()),
   descriptor('terminalList', [parameter('terminalList', 'taskId', z.string().min(1).max(128))], z.array(z.string().uuid())),
+  descriptor('terminalScope', [parameter('terminalScope', 'serverId', z.string().uuid()), parameter('terminalScope', 'placement', z.enum(['side', 'bottom']))], z.object({ ownerId: z.string().min(1).max(128) }).strict(), true),
   descriptor('terminalOpen', [parameter('terminalOpen', 'taskId', z.string().min(1).max(128)), parameter('terminalOpen', 'cols', z.number().int().min(2).max(500)), parameter('terminalOpen', 'rows', z.number().int().min(1).max(200))], z.object({ terminalId: z.string().uuid() }).strict(), true),
   descriptor('terminalPoll', [parameter('terminalPoll', 'taskId', z.string().min(1).max(128)), parameter('terminalPoll', 'terminalId', z.string().uuid()), parameter('terminalPoll', 'offset', z.number().int().min(0))], z.object({ terminalId: z.string().uuid(), offset: z.number().int().min(0), data: z.string(), closed: z.boolean(), truncated: z.boolean().optional(), exitCode: z.number().int().optional(), error: z.string().optional() }).strict(), true),
   descriptor('terminalWrite', [parameter('terminalWrite', 'taskId', z.string().min(1).max(128)), parameter('terminalWrite', 'terminalId', z.string().uuid()), parameter('terminalWrite', 'data', z.string().max(64 * 1024))], z.object({ ok: z.literal(true) }).strict(), true),

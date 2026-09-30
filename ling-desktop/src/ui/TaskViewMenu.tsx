@@ -27,14 +27,14 @@ export function TaskViewMenu({ className, view, workspaces, onChange }: TaskView
   return (
     <span className={tw("task-view-menu inline-flex flex-none", className)}>
       <Dropdown isOpen={open} onOpenChange={setOpen}>
-        <Dropdown.Trigger aria-label="自定义任务视图" className={tw("sidebar-projects__tool inline-flex items-center justify-center border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer [width:1.65rem] [height:1.65rem] flex-none [border-radius:0.35rem] hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")}><Icon name="sort" size={16} /></Dropdown.Trigger>
-        <Dropdown.Popover className={tw("task-view-menu__popover w-55 min-w-55 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(13.75rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[0_16px_38px_rgb(0_0_0_/_0.15)]")} crossOffset={-112} offset={5} placement="bottom start">
+        <Dropdown.Trigger aria-label="自定义任务视图" className={tw("sidebar-projects__tool inline-flex items-center justify-center border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer [width:1.65rem] [height:1.65rem] flex-none rounded-md hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")}><Icon name="sort" size={16} /></Dropdown.Trigger>
+        <Dropdown.Popover className={tw("task-view-menu__popover w-55 min-w-55 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(13.75rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} crossOffset={-112} offset={5} placement="bottom start">
           <Dropdown.Menu aria-label="自定义任务视图" className={tw("task-view-menu__list")}>
             <Dropdown.SubmenuTrigger>
               <Dropdown.Item id="group-by" textValue="分组方式">
-                <Label>分组方式</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto [margin-right:1.1rem] overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{groupLabels[view.groupBy]}</span><Dropdown.SubmenuIndicator />
+                <Label>分组方式</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto mr-4.5 overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{groupLabels[view.groupBy]}</span><Dropdown.SubmenuIndicator />
               </Dropdown.Item>
-              <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[0_16px_38px_rgb(0_0_0_/_0.15)]")} placement="right top">
+              <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} placement="right top">
                 <Dropdown.Menu aria-label="分组方式" selectedKeys={[view.groupBy]} selectionMode="single">
                   <Dropdown.Item id="workspace" onAction={() => { set({ groupBy: 'workspace', sortBy: 'manual' }) }} textValue="按工作区"><Label>按工作区</Label><Dropdown.ItemIndicator /></Dropdown.Item>
                   <Dropdown.Item id="custom" onAction={() => { set({ groupBy: 'custom', sortBy: 'updated', workspaceId: 'all' }) }} textValue="按自定义分组"><Label>按自定义分组</Label><Dropdown.ItemIndicator /></Dropdown.Item>
@@ -44,9 +44,9 @@ export function TaskViewMenu({ className, view, workspaces, onChange }: TaskView
             </Dropdown.SubmenuTrigger>
             <Dropdown.SubmenuTrigger>
               <Dropdown.Item id="sort-by" textValue="排序方式">
-                <Label>排序方式</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto [margin-right:1.1rem] overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{sortLabels[view.sortBy]}</span><Dropdown.SubmenuIndicator />
+                <Label>排序方式</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto mr-4.5 overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{sortLabels[view.sortBy]}</span><Dropdown.SubmenuIndicator />
               </Dropdown.Item>
-              <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[0_16px_38px_rgb(0_0_0_/_0.15)]")} placement="right top">
+              <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} placement="right top">
                 <Dropdown.Menu aria-label="排序方式" selectedKeys={[view.sortBy]} selectionMode="single">
                   {view.groupBy === 'workspace' ? <Dropdown.Item id="manual" onAction={() => { set({ sortBy: 'manual' }) }} textValue="手动"><Label>手动</Label><Dropdown.ItemIndicator /></Dropdown.Item> : null}
                   <Dropdown.Item id="updated" onAction={() => { set({ sortBy: 'updated' }) }} textValue="最近更新"><Label>最近更新</Label><Dropdown.ItemIndicator /></Dropdown.Item>
@@ -59,9 +59,9 @@ export function TaskViewMenu({ className, view, workspaces, onChange }: TaskView
             {view.groupBy === 'workspace' ? (
               <Dropdown.SubmenuTrigger>
                 <Dropdown.Item id="workspace-filter" textValue="工作区">
-                  <Label>工作区</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto [margin-right:1.1rem] overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{workspaceLabel}</span><Dropdown.SubmenuIndicator />
+                  <Label>工作区</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto mr-4.5 overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{workspaceLabel}</span><Dropdown.SubmenuIndicator />
                 </Dropdown.Item>
-                <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[0_16px_38px_rgb(0_0_0_/_0.15)]")} placement="right top">
+                <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} placement="right top">
                   <Dropdown.Menu aria-label="工作区" selectedKeys={[view.workspaceId]} selectionMode="single">
                     <Dropdown.Item id="all" onAction={() => { set({ workspaceId: 'all' }) }} textValue="全部"><Label>全部</Label><Dropdown.ItemIndicator /></Dropdown.Item>
                     <Dropdown.Item id="none" onAction={() => { set({ workspaceId: 'none' }) }} textValue="无工作区"><Label>无工作区</Label><Dropdown.ItemIndicator /></Dropdown.Item>
@@ -76,9 +76,9 @@ export function TaskViewMenu({ className, view, workspaces, onChange }: TaskView
             ) : null}
             <Dropdown.SubmenuTrigger>
               <Dropdown.Item id="recency" textValue="最近活动">
-                <Label>最近活动</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto [margin-right:1.1rem] overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{recencyLabels[view.recency]}</span><Dropdown.SubmenuIndicator />
+                <Label>最近活动</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto mr-4.5 overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{recencyLabels[view.recency]}</span><Dropdown.SubmenuIndicator />
               </Dropdown.Item>
-              <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[0_16px_38px_rgb(0_0_0_/_0.15)]")} placement="right top">
+              <Dropdown.Popover className={tw("task-view-menu__popover task-view-menu__popover--sub w-42 min-w-42 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(10.5rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} placement="right top">
                 <Dropdown.Menu aria-label="最近活动" selectedKeys={[view.recency]} selectionMode="single">
                   <Dropdown.Item id="all" onAction={() => { set({ recency: 'all' }) }} textValue="全部"><Label>全部</Label><Dropdown.ItemIndicator /></Dropdown.Item>
                   <Dropdown.Item id="today" onAction={() => { set({ recency: 'today' }) }} textValue="今天"><Label>今天</Label><Dropdown.ItemIndicator /></Dropdown.Item>

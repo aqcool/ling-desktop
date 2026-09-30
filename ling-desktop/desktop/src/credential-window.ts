@@ -1,12 +1,50 @@
+import { themeStylesheet, palettes, parseWindowAppearance, type WindowAppearance, type ResolvedTheme } from 'ling-desktop/theme'
+
 /** Static, isolated credential view. No DSH scripts, network resources or injected server text. */
 export const CREDENTIAL_HTML = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'none'; connect-src 'none'">
 <title>服务器认证</title><style>
-:root{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#242426;background:#fff;color-scheme:light dark;--surface:#f7f7f8;--border:#e4e4e7;--muted:#74747c;--success:#258052;--danger:#c43f3f;--focus:#5b67db}
-@media(prefers-color-scheme:dark){:root{color:#f0f0f2;background:#202023;--surface:#2c2c30;--border:#45454b;--muted:#a5a5ad;--success:#75c39a;--danger:#f18b8b;--focus:#9ca4ff}}
-*{box-sizing:border-box}body{margin:0;padding:22px 24px}h1,h2,p{margin:0}h1{max-width:445px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:18px;font-weight:650;letter-spacing:-.02em}h2{font-size:13px;font-weight:650}.header,.section-head,.actions,.footer,.entry-row{display:flex;align-items:center;justify-content:space-between;gap:12px}.header{align-items:flex-start}.server{max-width:445px;margin-top:5px;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.section{border-top:1px solid var(--border);margin-top:17px;padding-top:15px}.section-head{min-height:25px}.status{color:var(--muted);font-size:11px}.status--ok{color:var(--success)}.status--warning{color:var(--danger)}.head-actions{display:flex;align-items:center;gap:9px}.fingerprint-box{margin-top:9px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.algorithm{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}.mono{margin-top:3px;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow-x:auto;user-select:text}.actions{justify-content:flex-end;margin-top:7px}.mode-switch{display:inline-flex;gap:2px;margin-top:12px;padding:2px;border-radius:8px;background:var(--surface)}.mode-switch button{border:0;background:transparent;color:var(--muted);min-height:27px;padding:4px 11px}.mode-switch button[aria-pressed=true]{background:var(--bg,#fff);color:inherit;box-shadow:0 1px 3px #00000017}.field{display:block;margin-top:12px;font-size:12px;font-weight:550}.entry-row{margin-top:6px}.entry-row input{flex:1;width:0}.key-file{flex:1;min-width:0;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}input{height:32px;padding:6px 9px;border:1px solid var(--border);border-radius:7px;background:var(--bg,#fff);color:inherit;font:inherit}button{min-height:30px;padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:inherit;font:inherit;white-space:nowrap;cursor:pointer}button:hover:not(:disabled){filter:brightness(.97)}button:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}button:disabled{opacity:.45;cursor:default}.icon-button{width:28px;min-height:28px;padding:0;border:0;background:transparent;color:var(--muted);font-size:20px;line-height:1}.subtle{border:0;background:transparent;color:var(--muted);padding:3px 5px;min-height:25px;font-size:11px}.primary{background:#29292c;border-color:#29292c;color:#fff}.danger{display:block;margin-top:11px;border:0;background:transparent;color:var(--danger);padding-left:0}.footer{justify-content:flex-end;margin-top:13px}.feedback{margin-top:10px;color:var(--danger);font-size:11px;line-height:1.5}.feedback--ok{color:var(--success)}.feedback:empty,.hidden{display:none!important}
-@media(prefers-color-scheme:dark){:root{--bg:#202023}.primary{background:#ececef;border-color:#ececef;color:#202023}.mode-switch button[aria-pressed=true]{box-shadow:none}}
+${themeStylesheet()}
+*{box-sizing:border-box}
+body{font-family:var(--font-ui);font-size:var(--font-size-compact);line-height:var(--line-body);color:var(--foreground);background:var(--surface);margin:0;padding:calc(var(--space-unit) * 5.5) calc(var(--space-unit) * 6)}
+h1,h2,p{margin:0}
+h1{max-width:445px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--font-size-lg);font-weight:650;letter-spacing:-.02em}
+h2{font-size:var(--font-size-compact);font-weight:650}
+.header,.section-head,.actions,.footer,.entry-row{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--space-unit) * 3)}
+.header{align-items:flex-start}
+.server{max-width:445px;margin-top:calc(var(--space-unit) * 1.25);color:var(--text-secondary);font-size:var(--font-size-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.section{border-top:1px solid var(--panel-border);margin-top:calc(var(--space-unit) * 4.25);padding-top:15px}
+.section-head{min-height:calc(var(--space-unit) * 6.25)}
+.status{color:var(--text-secondary);font-size:var(--font-size-caption)}
+.status--ok{color:var(--success)}
+.status--warning{color:var(--danger)}
+.head-actions{display:flex;align-items:center;gap:calc(var(--space-unit) * 2.25)}
+.fingerprint-box{margin-top:calc(var(--space-unit) * 2.25);padding:calc(var(--space-unit) * 2.25) calc(var(--space-unit) * 2.75);border:1px solid var(--panel-border);border-radius:var(--corner-lg);background:var(--surface-secondary)}
+.algorithm{color:var(--text-secondary);font-size:var(--font-size-micro);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.mono{margin-top:calc(var(--space-unit) * 0.75);font:var(--font-size-caption)/var(--line-body) var(--font-code);white-space:nowrap;overflow-x:auto;user-select:text}
+.actions{justify-content:flex-end;margin-top:calc(var(--space-unit) * 1.75)}
+.mode-switch{display:inline-flex;gap:calc(var(--space-unit) * 0.5);margin-top:calc(var(--space-unit) * 3);padding:calc(var(--space-unit) * 0.5);border-radius:var(--corner-lg);background:var(--surface-secondary)}
+.mode-switch button{border:0;background:transparent;color:var(--text-secondary);min-height:calc(var(--space-unit) * 6.75);padding:calc(var(--space-unit) * 1) calc(var(--space-unit) * 2.75)}
+.mode-switch button[aria-pressed=true]{background:var(--surface);color:inherit;box-shadow:var(--surface-shadow)}
+.field{display:block;margin-top:calc(var(--space-unit) * 3);font-size:var(--font-size-xs);font-weight:550}
+.entry-row{margin-top:calc(var(--space-unit) * 1.5)}
+.entry-row input{flex:1;width:0}
+.key-file{flex:1;min-width:0;color:var(--text-secondary);font-size:var(--font-size-caption);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+input{height:var(--control-md);padding:calc(var(--space-unit) * 1.5) calc(var(--space-unit) * 2.25);border:1px solid var(--panel-border);border-radius:var(--corner-lg);background:var(--field-background);color:inherit;font:inherit}
+button{min-height:calc(var(--space-unit) * 7.5);padding:calc(var(--space-unit) * 1.25) calc(var(--space-unit) * 2.5);border:1px solid var(--panel-border);border-radius:var(--corner-lg);background:var(--surface-secondary);color:inherit;font:inherit;white-space:nowrap;cursor:pointer}
+button:hover:not(:disabled){filter:brightness(.97)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+button:disabled{opacity:var(--disabled-opacity);cursor:default}
+.icon-button{width:28px;min-height:calc(var(--space-unit) * 7);padding:0;border:0;background:transparent;color:var(--text-secondary);font-size:var(--font-size-xl);line-height:1}
+.subtle{border:0;background:transparent;color:var(--text-secondary);padding:calc(var(--space-unit) * 0.75) calc(var(--space-unit) * 1.25);min-height:calc(var(--space-unit) * 6.25);font-size:var(--font-size-caption)}
+.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-foreground)}
+.danger{display:block;margin-top:calc(var(--space-unit) * 2.75);border:0;background:transparent;color:var(--danger);padding-left:0}
+.footer{justify-content:flex-end;margin-top:calc(var(--space-unit) * 3.25)}
+.feedback{margin-top:calc(var(--space-unit) * 2.5);color:var(--danger);font-size:var(--font-size-caption);line-height:1.5}
+.feedback--ok{color:var(--success)}
+.feedback:empty,.hidden{display:none!important}
+
 </style></head><body>
 <main id="sheet"><header class="header"><div><h1 id="server-title">服务器认证</h1><div id="server" class="server"></div></div><button id="close" class="icon-button" aria-label="关闭认证窗口" title="关闭">×</button></header>
 <section class="section" aria-labelledby="fingerprint-title"><div class="section-head"><h2 id="fingerprint-title">主机指纹</h2><div class="head-actions"><span id="trust-state" class="status"></span><button id="rescan" class="subtle">重新读取</button></div></div><div class="fingerprint-box"><div id="algorithm" class="algorithm"></div><div id="fingerprint" class="mono">正在读取…</div></div><div id="trust-actions" class="actions hidden"><button id="trust" class="primary">确认指纹</button></div></section>
@@ -16,7 +54,10 @@ export const CREDENTIAL_HTML = `<!doctype html>
 <div id="key-form" class="hidden"><div class="entry-row"><button id="choose-key">选择私钥文件</button><span id="key-file" class="key-file">未选择文件</span></div><label class="field" for="passphrase">私钥口令（可选）</label><div class="entry-row"><input id="passphrase" type="password" autocomplete="new-password" spellcheck="false"><button id="save-key" class="primary">保存私钥</button></div></div><button id="clear" class="danger">移除已存凭证</button></div></section>
 <div id="message" class="feedback" role="status" aria-live="polite"></div><footer class="footer"><button id="test" class="primary">测试连接</button></footer></main>
 <script>
-const api=window.lingCredentials,$=id=>document.getElementById(id);let observed=null,trusted=false,busy=false,credential='none',editing=false,currentMode='password';
+const api=window.lingCredentials;
+function applyTheme(value){if(!value||!${JSON.stringify(palettes.map(palette => palette.id))}.includes(value.palette)||!['light','dark'].includes(value.resolved))return;document.documentElement.dataset.palette=value.palette;document.documentElement.dataset.theme=value.resolved}
+const stopTheme=api.onTheme(applyTheme);api.theme().then(applyTheme).catch(()=>{});window.addEventListener('unload',stopTheme,{once:true});
+const $=id=>document.getElementById(id);let observed=null,trusted=false,busy=false,credential='none',editing=false,currentMode='password';
 function message(value,ok=false){$('message').textContent=value;$('message').className=ok?'feedback feedback--ok':'feedback'}
 function mode(value){currentMode=value;$('password-mode').setAttribute('aria-pressed',String(value==='password'));$('key-mode').setAttribute('aria-pressed',String(value==='key'));$('password-form').classList.toggle('hidden',value!=='password');$('key-form').classList.toggle('hidden',value!=='key')}
 function credentialView(){$('credential-state').textContent=credential==='none'?'未设置':credential==='key'?'已保存私钥':'已保存密码';$('change').classList.toggle('hidden',credential==='none');$('change').textContent=editing?'取消':'更换';$('credential-editor').classList.toggle('hidden',credential!=='none'&&!editing);$('clear').classList.toggle('hidden',credential==='none');mode(currentMode)}
@@ -36,3 +77,9 @@ $('test').onclick=()=>run(async()=>{const result=await api.info();if(!result.sta
 run(async()=>{await refresh();await inspect()});
 new ResizeObserver(()=>{void api.resize($('sheet').getBoundingClientRect().height+44)}).observe($('sheet'));
 </script></body></html>`
+
+/** Only validated appearance enums enter the document; no server or credential data. */
+export function credentialDocument(appearance: WindowAppearance, resolved: ResolvedTheme): string {
+  const safe = parseWindowAppearance(appearance) ?? { mode: 'system', palette: 'default' }
+  return CREDENTIAL_HTML.replace('<html lang="zh-CN">', `<html lang="zh-CN" data-theme="${resolved === 'dark' ? 'dark' : 'light'}" data-palette="${safe.palette}">`)
+}

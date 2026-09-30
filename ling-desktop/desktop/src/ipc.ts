@@ -1,6 +1,8 @@
 export const IPC = {
   boot: 'ling:boot',
   theme: 'ling:theme',
+  themeChanged: 'ling:theme-changed',
+  credentialTheme: 'ling:credential-theme',
   tray: 'ling:tray',
   notify: 'ling:notify',
   openTask: 'ling:open-task',

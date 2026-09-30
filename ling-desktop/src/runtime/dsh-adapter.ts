@@ -75,6 +75,7 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 }
 
 export interface DshRuntimeFacades {
+  readonly messageActions?: { prepareAttachments(taskId: string, sourceSeq: number, attachmentIds: readonly string[]): Promise<LingReadResult<Parameters<SessionBinding['session']['prompt']>[0]>> }
   readonly servers?: LingServerService
   /** The upstream client create helper currently drops agentPreset; use the wire API. */
   readonly createSession?: (options: { workspaceId?: string; agentPreset: string }) => ReturnType<ISessions['create']>
@@ -277,15 +278,14 @@ function taskProjection(
 
   return sessions.ids.flatMap(taskId => {
     const summary = sessions.byId[taskId]
-    if (!summary || summary.origin === 'subagent') return []
+    if (!summary || summary.blank || summary.origin === 'subagent') return []
     const workspaceId = workspaceByTask.get(taskId)
     const tokenUsage = tokenUsageProjection((summary.projectionValues as Record<string, unknown> | undefined)?.tokenUsage)
     const contextPressure = contextPressureProjection((summary.projectionValues as Record<string, unknown> | undefined)?.contextPressure)
     const contextBreakdown = contextBreakdownProjection((summary.projectionValues as Record<string, unknown> | undefined)?.contextBreakdown)
     return [{
       taskId,
-      title: summary.displayTitle,
-      ...(summary.blank ? { blank: true } : {}),
+      title: summary.title?.trim() || '新任务',
       status: taskStatus(
         summary,
         interactions.some(interaction => interaction.taskId === taskId),
@@ -446,49 +446,68 @@ async function withSession<Value>(
   )
 }
 
-async function sendPrompt(
-  facades: DshRuntimeFacades,
-  requestId: string,
-  taskId: string,
-  text: string,
-  mode: 'queue' | 'steer' = 'queue',
-  attachments: readonly LingPromptAttachment[] = [],
-): Promise<LingCommandResult> {
-  return await withSession(facades, taskId, async ({ session }) => {
-    let prepared: Awaited<ReturnType<DshRuntimeFacades['attachments']['prepare']>>
-    try {
-      prepared = await facades.attachments.prepare(taskId, attachments)
-    } catch (error) {
-      console.error('[ling] attachment preparation failed', error)
-      return {
-        accepted: false,
-        requestId,
-        reason: 'runtime-unavailable',
-        message: '附件上传失败。',
-        retryable: true,
+/** One logical send owns one upstream RPC id, including transport retries. */
+function createPromptSender(facades: DshRuntimeFacades) {
+  type Prepared = { content: Parameters<SessionBinding['session']['prompt']>[0]; submission: ReturnType<SessionBinding['session']['beginSubmission']> }
+  const attempts = new Map<string, { prepared?: Prepared; preparing?: Promise<Prepared>; inFlight?: Promise<LingCommandResult>; accepted?: LingCommandResult }>()
+  return async (requestId: string, taskId: string, text: string, mode: 'queue' | 'steer' = 'queue',
+    attachments: readonly LingPromptAttachment[] = [], recorded?: { readonly seq: number; readonly attachmentIds: readonly string[] },
+    validate?: (binding: SessionBinding) => LingCommandResult | undefined): Promise<LingCommandResult> => {
+    const key = `${taskId}:${requestId}`
+    let attempt = attempts.get(key)
+    if (attempt?.accepted) return attempt.accepted
+    if (attempt?.inFlight) return await attempt.inFlight
+    if (!attempt) {
+      // Bound completed receipts; unresolved attempts must retain their RPC identity.
+      if (attempts.size >= 64) {
+        const settled = [...attempts].find(([, value]) => value.accepted && !value.inFlight)
+        if (settled) attempts.delete(settled[0])
       }
+      attempt = {}; attempts.set(key, attempt)
     }
-    const submission = session.beginSubmission({ mode, text, attachments: prepared.pending })
-    try {
-      const content = [
-        ...(text ? [{ type: 'text' as const, text }] : []),
-        ...prepared.content,
-      ]
-      const result = await session.prompt(content, mode, undefined, submission.requestId)
-      if (result.ok) return { accepted: true, requestId }
-      submission.abandon()
-      return rejected(requestId, result.error, '无法发送消息。')
-    } catch {
-      submission.abandon()
-      return {
-        accepted: false,
-        requestId,
-        reason: 'runtime-unavailable',
-        message: '无法发送消息。',
-        retryable: true,
+    const state = attempt
+    const execute = () => withSession(facades, taskId, async binding => {
+      const { session } = binding
+      if (!state.prepared) {
+        const invalid = validate?.(binding)
+        if (invalid) return invalid
+        try {
+          state.preparing ??= (async () => {
+            const prepared = await facades.attachments.prepare(taskId, attachments)
+            const original = recorded?.attachmentIds.length
+              ? await facades.messageActions?.prepareAttachments(taskId, recorded.seq, recorded.attachmentIds) : undefined
+            if (recorded?.attachmentIds.length && !original) throw new Error('当前运行时不支持读取原附件。')
+            if (original && !original.ok) throw new Error(original.message)
+            const content = [...(text ? [{ type: 'text' as const, text }] : []), ...(original?.ok ? original.value : []), ...prepared.content]
+            const submission = session.beginSubmission({ mode, text, attachments: prepared.pending })
+            return { content, submission }
+          })()
+          state.prepared = await state.preparing
+          const changed = validate?.(binding)
+          if (changed) { state.prepared.submission.abandon(); state.prepared = undefined; state.preparing = undefined; return changed }
+        } catch (error) {
+          state.preparing = undefined
+          return { accepted: false, requestId, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '附件上传失败。', retryable: true } as LingCommandResult
+        }
       }
-    }
-  })
+      const { content, submission } = state.prepared
+      try {
+        const result = await session.prompt(content, mode, undefined, submission.requestId)
+        if (result.ok) {
+          state.accepted = { accepted: true, requestId }
+          state.prepared = undefined; state.preparing = undefined
+          return state.accepted
+        }
+        submission.abandon()
+        return rejected(requestId, result.error, '无法发送消息。')
+      } catch {
+        submission.abandon()
+        return { accepted: false, requestId, reason: 'runtime-unavailable', message: '无法发送消息。', retryable: true } as LingCommandResult
+      }
+    })
+    state.inFlight = execute().finally(() => { state.inFlight = undefined })
+    return await state.inFlight
+  }
 }
 
 export function goalObjective(line: string): string | undefined {
@@ -498,6 +517,8 @@ export function goalObjective(line: string): string | undefined {
 }
 
 export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntimeAdapter {
+  const sendPrompt = createPromptSender(facades)
+  const createdTasks = new Map<string, string>()
   const listeners = new Set<(event: LingRuntimeEvent) => void>()
   const terminalStatuses = new Map<string, LingTaskStatus>()
   const historyStates = new Map<string, boolean>()
@@ -930,6 +951,7 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
         }
         if ((command.type === 'task.create' || command.type === 'task.run-command') && command.maxGoalRounds !== undefined && (!Number.isSafeInteger(command.maxGoalRounds) || command.maxGoalRounds < 1 || command.maxGoalRounds > 256)) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '目标轮次应为 1 至 256 的整数。', retryable: false }
         if (command.type === 'task.create') {
+          if (!command.prompt.trim() && !command.attachments?.length) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '请输入消息。', retryable: false }
           if (command.serverId && command.workspaceId) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '远端任务不能同时选择本地工作区。', retryable: false }
           if (command.serverId && command.operationsServerId) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '远端开发和本地运维目标不能同时选择。', retryable: false }
           if (command.model && !facades.taskModels) return modelCommandResult(command.requestId, unavailableRead<void>('当前运行时不支持任务模型选择。'))
@@ -964,9 +986,11 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             }
           }
           const workspace = command.workspaceId ? { workspaceId: command.workspaceId } : {}
-          const taskId = command.agentPreset
+          const taskId = createdTasks.get(command.requestId) ?? (command.agentPreset
             ? await facades.createSession!({ ...workspace, agentPreset: command.agentPreset })
-            : await facades.sessions.create(workspace)
+            : await facades.sessions.create(workspace))
+          if (createdTasks.size >= 64 && !createdTasks.has(command.requestId)) createdTasks.delete(createdTasks.keys().next().value!)
+          createdTasks.set(command.requestId, String(taskId))
           if (command.serverId && remoteHome) {
             const bound = await facades.servers!.bindTask(String(taskId), command.serverId, remoteHome)
             if (!bound.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: bound.message, retryable: true }
@@ -1005,7 +1029,6 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
               : { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '当前运行时不支持此模式。', retryable: false }
           }
           const result = await sendPrompt(
-            facades,
             command.requestId,
             taskId,
             command.prompt,
@@ -1040,14 +1063,30 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             output: { taskId: String(taskId) },
           }
         }
+        if (command.type === 'task.resend-message') {
+          if (connectionProjection(facades.sessions.list.getSnapshot(), facades.workspaces.list.getSnapshot(), facades.connectionState?.getSnapshot()).phase !== 'ready') return modelCommandResult(command.requestId, unavailableRead<void>('连接中断，请重新连接后重试。'))
+          return await withSession(facades, command.taskId, async binding => {
+            const items = facades.conversation.timeline(binding).getSnapshot()
+            const original = items.find(item => item.itemId === command.itemId && item.kind === 'user-message')
+            if (!original || original.seq === undefined) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '找不到原消息，请重新打开会话。', retryable: false }
+            const validate = (current: SessionBinding): LingCommandResult | undefined => {
+              if (current.session.getSnapshot().running) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '请等待当前任务结束后再重发。', retryable: false }
+              const now = facades.conversation.timeline(current).getSnapshot()
+              const failure = now.findLast(item => item.kind === 'system-notice' && item.status === 'failed')
+              if ((now.findLast(item => item.kind === 'user-message')?.itemId !== original.itemId || (failure?.turn !== undefined && failure.retrySourceId !== original.itemId))) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '会话已有新消息，请重试最新一轮。', retryable: false }
+            }
+            return await sendPrompt(command.requestId, command.taskId, original.text, 'queue', [],
+              { seq: original.seq, attachmentIds: original.attachments?.map(a => a.attachmentId) ?? [] }, validate)
+          })
+        }
         if (command.type === 'task.send-message') {
           return await sendPrompt(
-            facades,
             command.requestId,
             command.taskId,
             command.text,
             command.mode,
             command.attachments,
+            command.recordedAttachments,
           )
         }
         if (command.type === 'workspace.create') {

@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { mountLingRenderer } from 'ling-desktop/client'
 import type { LingGitRequest, LingGitResult, LingReadResult, LingWorkspaceToolRequest, LingWorkspaceTools } from 'ling-desktop/runtime'
 import { LING_SKILLS_REMOTE, type LingSkillsRemote } from '../skill-contract.ts'
+import { LING_MESSAGE_ACTIONS_REMOTE, type LingMessageActionsRemote } from '../message-actions-contract.ts'
 import { LING_AUTHORIZATION_REMOTE } from '../authorization-contract.ts'
 import { LING_SERVERS_REMOTE } from '../server-contract.ts'
 import type { LingServersRemote } from '../server-contract.ts'
@@ -35,6 +36,7 @@ import { createDshSlashCommandProjection } from './slash-command-projection.js'
 import { createDshSubagentProjection } from './subagent-projection.js'
 import { createDshTaskModelProjection } from './task-model-projection.js'
 import { createDshTerminalProjection } from './terminal-projection.js'
+import { attachWorkspaceTerminals } from './workspace-terminal-projection.ts'
 import { createDshWorkspaceChangesProjection } from './workspace-changes-projection.js'
 import { createDshWorkspaceFilesProjection } from './workspace-files-projection.js'
 
@@ -168,7 +170,10 @@ export function apply(ctx: Context): void {
   const schedules = createDshScheduleProjection()
   const files = createDshWorkspaceFilesProjection(ctx.remote)
   const terminals = createDshTerminalProjection(ctx.remote, ctx.webTerminals)
+  attachWorkspaceTerminals(ctx, terminals.service)
   const skillsMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_SKILLS_REMOTE) : undefined
+  const messagesMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_MESSAGE_ACTIONS_REMOTE) : undefined
+  if (messagesMount) ctx.effect(async () => await messagesMount, 'LING message actions Remote')
   if (skillsMount) ctx.effect(async () => await skillsMount, 'LING draft skills Remote')
   const extensions = createDshExtensionProjection(ctx.remote, skillsMount === undefined ? undefined : async (workspaceId, agentPreset, signal) => {
     await skillsMount
@@ -180,6 +185,13 @@ export function apply(ctx: Context): void {
   ctx.effect(installStylesheet, 'LING renderer stylesheet')
   ctx.slots.register({ name: 'root', priority: -1 }, createLingRootApp(() => ({
     sessions,
+    messageActions: { async prepareAttachments(taskId, seq, attachmentIds) {
+      if (!messagesMount) return { ok: false, reason: 'runtime-unavailable', message: '原附件服务暂不可用。', retryable: true }
+      await messagesMount
+      const remote = ctx.get('remote.lingMessageActions') as unknown as LingMessageActionsRemote
+      const result = await remote.prepareAttachments({ taskId, seq, attachmentIds: [...attachmentIds] })
+      return result.ok ? { ok: true, value: result.value } : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '无法读取原附件。', retryable: true }
+    } },
     createSession: request => createLingSession(ctx.remote, sessions, request),
     workspaces: ctx.workspaces,
     workspaceTools: {

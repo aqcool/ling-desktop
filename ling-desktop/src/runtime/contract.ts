@@ -66,9 +66,11 @@ export interface LingGitSnapshot {
   readonly branches: readonly string[]
   readonly remotes: readonly string[]
   readonly worktrees: readonly LingGitWorktree[]
+  readonly lineChanges?: { readonly added: number; readonly deleted: number }
 }
 export type LingGitRequest =
-  | { readonly type: 'inspect' | 'fetch' | 'pull' }
+  | { readonly type: 'inspect'; readonly lineChanges?: boolean }
+  | { readonly type: 'fetch' | 'pull' }
   | { readonly type: 'diff'; readonly path: string; readonly staged: boolean }
   | { readonly type: 'stage' | 'unstage'; readonly paths: readonly string[] }
   | { readonly type: 'commit'; readonly message: string }
@@ -271,6 +273,9 @@ export interface LingTimelineItem {
   readonly itemId: string
   readonly taskId: string
   readonly seq?: number
+  readonly turn?: number
+  /** Explicit turn-opening question; absent when history is incomplete. */
+  readonly retrySourceId?: string
   readonly kind: LingTimelineItemKind
   readonly title?: string
   readonly text: string
@@ -621,6 +626,7 @@ export interface LingTerminalPanel {
 
 export interface LingTerminalService {
   panel(taskId: string, placement: 'side' | 'bottom'): LingTerminalPanel
+  workspacePanel?(workspaceId: string | undefined, placement: 'side' | 'bottom'): LingTerminalPanel
 }
 
 export interface LingTaskSchedule {
@@ -696,6 +702,7 @@ export type LingRuntimeCommand =
     })
   | (LingRuntimeCommandBase & {
       readonly type: 'task.send-message'
+      readonly recordedAttachments?: { readonly seq: number; readonly attachmentIds: readonly string[] }
       readonly taskId: string
       readonly text: string
       readonly mode?: 'queue' | 'steer'
@@ -704,6 +711,11 @@ export type LingRuntimeCommand =
   | (LingRuntimeCommandBase & {
       readonly type: 'task.cancel'
       readonly taskId: string
+    })
+  | (LingRuntimeCommandBase & {
+      readonly type: 'task.resend-message'
+      readonly taskId: string
+      readonly itemId: string
     })
   | (LingRuntimeCommandBase & {
       readonly type: 'task.rename'

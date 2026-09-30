@@ -7,7 +7,7 @@ import { ListBox } from '@heroui/react/list-box'
 import { Input } from '@heroui/react/input'
 import { Button } from '@heroui/react/button'
 import { Dropdown } from '@heroui/react/dropdown'
-import type { LingReadResult, LingSlashCommand, LingSkill, LingModelSelection, LingModelSettings, LingTaskGoal, LingTaskMode, LingTaskPermission } from '../runtime/contract.js'
+import type { LingReadResult, LingSlashCommand, LingSkill, LingModelSelection, LingModelSettings, LingTaskGoal, LingTaskMode, LingTaskPermission, LingTimelineAttachment } from '../runtime/contract.js'
 import { enabledModelOptions } from '../model-visibility.js'
 import { Icon, type IconName } from './Icon.js'
 import { formatBytes, type ComposerAttachment } from './attachments.js'
@@ -23,6 +23,9 @@ interface ComposerProps {
   readonly hasTask: boolean
   readonly disabled: boolean
   readonly attachments: readonly ComposerAttachment[]
+  readonly recordedAttachments?: readonly LingTimelineAttachment[]
+  readonly onRemoveRecordedAttachment?: (id: string) => void
+  readonly focusKey?: number
   readonly browserAnnotationCount?: number
   readonly onAddFiles: (files: File[]) => void
   readonly onRemoveAttachment: (id: string) => void
@@ -126,6 +129,9 @@ export function Composer({
   hasTask,
   disabled,
   attachments,
+  recordedAttachments = [],
+  onRemoveRecordedAttachment,
+  focusKey,
   browserAnnotationCount = 0,
   onAddFiles,
   onRemoveAttachment,
@@ -168,6 +174,7 @@ export function Composer({
   const [suggestionMaxHeight, setSuggestionMaxHeight] = useState(400)
   const [overflowBelow, setOverflowBelow] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { if (focusKey) textareaRef.current?.focus() }, [focusKey])
   const skillPrefixRef = useRef<HTMLDivElement>(null)
   const [skillPrefixLayout, setSkillPrefixLayout] = useState({ indent: 0, top: 0 })
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -469,7 +476,7 @@ export function Composer({
       }
       if (slashOpen) { event.preventDefault(); return }
       event.preventDefault()
-      if (!disabled && (draft.text.trim() || attachments.length || browserAnnotationCount)) onSubmit()
+      if (!disabled && (draft.text.trim() || attachments.length || recordedAttachments.length || browserAnnotationCount)) onSubmit()
     }
   }
 
@@ -505,9 +512,12 @@ export function Composer({
   const permissionOptions = permission?.options ?? []
   const permissionOption = permissionOptions.find(option => option.value === permission?.currentValue)
   const currentPermission = permissionPresentation(permission?.currentValue ?? '', permissionOption?.label ?? permission?.currentValue ?? '权限')
-  const canSend = (draft.text.trim().length > 0 || attachments.length > 0 || browserAnnotationCount > 0) && !disabled
+  const canSend = (draft.text.trim().length > 0 || attachments.length > 0 || recordedAttachments.length > 0 || browserAnnotationCount > 0) && !disabled
   const quotes = attachments.filter(attachment => attachment.quote !== undefined)
-  const files = attachments.filter(attachment => attachment.quote === undefined)
+  const files = [
+    ...attachments.filter(attachment => attachment.quote === undefined),
+    ...recordedAttachments.map(attachment => ({ id: attachment.attachmentId, name: attachment.name, size: attachment.bytes, isImage: attachment.kind === 'image', previewUrl: undefined, recorded: true })),
+  ]
   const goal = mode?.goal
 
   useLayoutEffect(() => {
@@ -531,7 +541,7 @@ export function Composer({
     <div
       ref={skillPanelRef}
       style={skillsOpen ? { ...skillPlacement, maxHeight: skillPlacement?.maxHeight ?? 280, visibility: skillPlacement ? undefined : 'hidden' } : { maxHeight: suggestionMaxHeight }}
-      className={tw('composer__slash-wrap flex min-h-0 flex-col overflow-hidden rounded-[20px] bg-[var(--surface)] p-1 text-[var(--foreground)] shadow-[0_12px_40px_rgb(0_0_0_/_0.12),0_0_0_1px_var(--panel-border)]', skillsOpen ? 'fixed z-50 w-[360px] max-w-[calc(100vw-16px)]' : 'absolute inset-x-0 bottom-[calc(100%+4px)] z-20')}
+      className={tw("composer__slash-wrap flex min-h-0 flex-col overflow-hidden rounded-2xl bg-[var(--surface)] p-1 text-[var(--foreground)] shadow-[var(--overlay-shadow)]", skillsOpen ? 'fixed z-50 w-[360px] max-w-[calc(100vw-16px)]' : 'absolute inset-x-0 bottom-[calc(100%+4px)] z-20')}
       onMouseMove={event => {
         const index = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-command-index]')?.dataset.commandIndex : undefined
         if (index !== undefined) setSlashIndex(Number(index))
@@ -539,8 +549,8 @@ export function Composer({
     >
       {skillsOpen ? <div className={tw('flex shrink-0 items-center gap-2 px-2 py-1')}>
         <Icon name="search" size={16} className={tw('text-[var(--text-tertiary)]')} />
-        <Input aria-label="搜索技能" aria-controls={suggestionId} aria-autocomplete="list" ref={skillSearchRef} value={skillQuery} onChange={(event: ChangeEvent<HTMLInputElement>) => { setSkillQuery(event.target.value) }} onKeyDown={handleKeyDown} onCompositionStart={syncComposing} onCompositionEnd={syncComposing} placeholder="搜索技能…" className={tw('h-8 min-w-0 flex-1 rounded-lg border-0 bg-transparent px-0 text-sm shadow-none')} />
-        <Button aria-label="关闭技能列表" isIconOnly size="sm" variant="ghost" className={tw('size-7 min-w-7 rounded-lg')} onPress={() => { setSkillsOpen(false); textareaRef.current?.focus() }}><Icon name="close" size={14} /></Button>
+        <Input aria-label="搜索技能" aria-controls={suggestionId} aria-autocomplete="list" ref={skillSearchRef} value={skillQuery} onChange={(event: ChangeEvent<HTMLInputElement>) => { setSkillQuery(event.target.value) }} onKeyDown={handleKeyDown} onCompositionStart={syncComposing} onCompositionEnd={syncComposing} placeholder="搜索技能…" className={tw("h-control min-w-0 flex-1 rounded-lg border-0 bg-transparent px-0 text-sm shadow-none")} />
+        <Button aria-label="关闭技能列表" isIconOnly size="sm" variant="ghost" className={tw("size-control-sm min-w-7 rounded-lg")} onPress={() => { setSkillsOpen(false); textareaRef.current?.focus() }}><Icon name="close" size={14} /></Button>
       </div> : null}
       <SelectableCollectionContext.Provider value={{ shouldUseVirtualFocus: true, disallowTypeAhead: true }}>
         <ListBox
@@ -567,7 +577,7 @@ export function Composer({
                   textValue={command.label ?? command.name}
                   data-command-index={index}
                   data-active={index === activeSlashIndex || undefined}
-                  className={tw('min-h-10 w-full gap-2 rounded-[10px] px-2.5 py-2 text-sm leading-[22px] font-normal shadow-none outline-none transition-none active:scale-100 data-[pressed=true]:scale-100 data-[focus-visible=true]:outline-none', index === activeSlashIndex ? 'bg-[var(--surface-hover)] hover:bg-[var(--surface-hover)] data-[hovered=true]:bg-[var(--surface-hover)]' : 'bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent')}
+                  className={tw("min-h-10 w-full gap-2 rounded-lg px-2.5 py-2 text-sm leading-[22px] font-normal shadow-none outline-none transition-none active:scale-100 data-[pressed=true]:scale-100 data-[focus-visible=true]:outline-none", index === activeSlashIndex ? 'bg-[var(--surface-hover)] hover:bg-[var(--surface-hover)] data-[hovered=true]:bg-[var(--surface-hover)]' : 'bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent')}
                 >
                   <Icon name={command.icon} size={16} className={tw('text-[var(--text-tertiary)]')} />
                   <span className={tw('max-w-[40%] shrink-0 truncate')}>{command.label ?? command.name}</span>
@@ -581,7 +591,7 @@ export function Composer({
         </ListBox>
       </SelectableCollectionContext.Provider>
       {suggestionLoading ? <p role="status" className={tw('m-0 shrink-0 px-2.5 py-2 text-xs text-[var(--text-tertiary)]')}>正在读取{skillsLoading ? '技能' : '指令'}…</p> : null}
-      {suggestionError ? <div role="alert" className={tw('flex shrink-0 items-center gap-2 px-2.5 py-2 text-xs text-[var(--text-tertiary)]')}>{suggestionError}{skillsError ? <Button size="sm" variant="ghost" onPress={() => setSkillsRevision(current => current + 1)} className={tw('h-6 min-w-0 px-1.5 text-xs')}>重试</Button> : null}</div> : null}
+      {suggestionError ? <div role="alert" className={tw('flex shrink-0 items-center gap-2 px-2.5 py-2 text-xs text-[var(--text-tertiary)]')}>{suggestionError}{skillsError ? <Button size="sm" variant="ghost" onPress={() => setSkillsRevision(current => current + 1)} className={tw("h-control-xs min-w-0 px-1.5 text-xs")}>重试</Button> : null}</div> : null}
       {overflowBelow ? <div aria-hidden="true" className={tw('pointer-events-none absolute right-3.5 bottom-1 left-1 h-4 bg-linear-to-b from-transparent to-[var(--surface)]')} /> : null}
     </div>
   )
@@ -589,7 +599,7 @@ export function Composer({
   return (
     <div
       ref={composerRef}
-      className={tw("composer relative flex-none overflow-visible rounded-2xl border border-[var(--panel-border)] bg-[var(--surface-secondary)] shadow-[0_3px_12px_rgb(62_45_29_/_0.025)] [container:composer_/_inline-size] dark:shadow-[0_8px_24px_rgb(0_0_0_/_0.2)]", dragOver && "composer--dragover border-[#9b9b96] shadow-[inset_0_0_0_2px_#c9c9c4]")}
+      className={tw("composer relative flex-none overflow-visible rounded-2xl border border-[var(--panel-border)] bg-[var(--surface)] [container:composer_/_inline-size]", dragOver && "composer--dragover border-[var(--panel-border)] shadow-[var(--overlay-shadow)]")}
       onDragOver={event => { event.preventDefault(); setDragOver(true) }}
       onDragLeave={() => { setDragOver(false) }}
       onDrop={handleDrop}
@@ -601,7 +611,7 @@ export function Composer({
         aria-valuemax={240}
         aria-valuemin={72}
         aria-valuenow={manualInputHeight ?? 72}
-        className={tw("composer__resize absolute [z-index:1] [top:-0.3rem] [left:25%] [width:50%] [height:0.65rem] cursor-ns-resize after:absolute after:[top:0.2rem] after:[left:calc(50%_-_1rem)] after:[width:2rem] after:[height:0.18rem] after:[border-radius:1rem] after:[background:#bcb8b4] after:[content:''] after:opacity-0 hover:after:opacity-100 focus-visible:after:opacity-100 focus-visible:[outline:0]")}
+        className={tw("composer__resize absolute [z-index:1] [top:-0.3rem] [left:25%] [width:50%] [height:0.65rem] cursor-ns-resize after:absolute after:[top:0.2rem] after:[left:calc(50%_-_1rem)] after:[width:2rem] after:[height:0.18rem] after:rounded-2xl after:[background:var(--disabled-background)] after:[content:''] after:opacity-0 hover:after:opacity-100 focus-visible:after:opacity-100 focus-visible:[outline:0]")}
         onKeyDown={event => {
           if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
           event.preventDefault()
@@ -612,37 +622,37 @@ export function Composer({
         tabIndex={0}
       />
       {goal ? (
-        <div className={tw("composer__goal dark:[border-bottom-color:#2c2c30] dark:[color:#a3a3a8] flex items-center [gap:0.4rem] [padding:0.4rem_0.6rem] [border-bottom:1px_solid_#ececea] [color:#5f5f5f] [font-size:0.74rem]")}>
+        <div className={tw("composer__goal flex items-center gap-1.5 py-1.5 px-2.5 [border-bottom:1px_solid_var(--panel-border)] [color:var(--text-secondary)] text-xs")}>
           <Icon name="target" size={15} />
-          <span className={tw("composer__goal-objective dark:[color:#d6d6d9] flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [color:var(--text-secondary)]")} title={goal.blockedReason ?? goal.objective}>{goal.objective}</span>
+          <span className={tw("composer__goal-objective flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [color:var(--text-secondary)]")} title={goal.blockedReason ?? goal.objective}>{goal.objective}</span>
           <span className={tw(
-            "composer__goal-phase whitespace-nowrap rounded-md bg-[var(--surface-tertiary)] px-1.5 py-px text-[0.68rem] text-[var(--text-secondary)]",
+            "composer__goal-phase whitespace-nowrap rounded-md bg-[var(--surface-tertiary)] px-1.5 py-px text-caption text-[var(--text-secondary)]",
             (goal.phase === 'active' || goal.phase === 'complete') && "composer__goal-phase--active bg-[color-mix(in_oklab,var(--success)_14%,var(--surface))] text-[var(--success)]",
             goal.phase === 'blocked' && "composer__goal-phase--blocked bg-[color-mix(in_oklab,var(--danger)_10%,var(--surface))] text-[var(--danger)]",
-            goal.phase === 'paused' && "composer__goal-phase--paused bg-[color-mix(in_oklab,var(--warning)_12%,var(--surface))] text-[#8f6a2c]",
+            goal.phase === 'paused' && "composer__goal-phase--paused bg-[color-mix(in_oklab,var(--warning)_12%,var(--surface))] text-[var(--warning)]",
           )}>{goalPhaseLabels[goal.phase]}</span>
           <small>轮次 {goal.roundsStarted}/{goal.maxGoalRounds}</small>
           {goal.phase === 'active' ? (
             <>
-              <button className={tw("composer__goal-action dark:[border-color:#3a3a3f] dark:[color:#b8b8be] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee] [padding:0.15rem_0.5rem] [border:1px_solid_#e4e4e1] [border-radius:0.45rem] bg-transparent [color:#5f5f5f] [font-size:0.7rem] whitespace-nowrap hover:[background:#f3f3f2] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('pause', goal) }} type="button">暂停</button>
-              <button className={tw("composer__goal-action dark:[border-color:#3a3a3f] dark:[color:#b8b8be] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee] [padding:0.15rem_0.5rem] [border:1px_solid_#e4e4e1] [border-radius:0.45rem] bg-transparent [color:#5f5f5f] [font-size:0.7rem] whitespace-nowrap hover:[background:#f3f3f2] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('complete', goal) }} type="button">完成</button>
+              <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('pause', goal) }} type="button">暂停</button>
+              <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('complete', goal) }} type="button">完成</button>
             </>
           ) : null}
           {goal.phase === 'paused' || goal.phase === 'blocked' ? (
             <>
-              <button className={tw("composer__goal-action dark:[border-color:#3a3a3f] dark:[color:#b8b8be] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee] [padding:0.15rem_0.5rem] [border:1px_solid_#e4e4e1] [border-radius:0.45rem] bg-transparent [color:#5f5f5f] [font-size:0.7rem] whitespace-nowrap hover:[background:#f3f3f2] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('resume', goal) }} type="button">继续</button>
-              <button className={tw("composer__goal-action dark:[border-color:#3a3a3f] dark:[color:#b8b8be] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee] [padding:0.15rem_0.5rem] [border:1px_solid_#e4e4e1] [border-radius:0.45rem] bg-transparent [color:#5f5f5f] [font-size:0.7rem] whitespace-nowrap hover:[background:#f3f3f2] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('clear', goal) }} type="button">移除</button>
+              <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('resume', goal) }} type="button">继续</button>
+              <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('clear', goal) }} type="button">移除</button>
             </>
           ) : null}
           {goal.phase === 'complete' ? (
-            <button className={tw("composer__goal-action dark:[border-color:#3a3a3f] dark:[color:#b8b8be] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee] [padding:0.15rem_0.5rem] [border:1px_solid_#e4e4e1] [border-radius:0.45rem] bg-transparent [color:#5f5f5f] [font-size:0.7rem] whitespace-nowrap hover:[background:#f3f3f2] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('clear', goal) }} type="button">移除</button>
+            <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('clear', goal) }} type="button">移除</button>
           ) : null}
         </div>
       ) : null}
       {browserAnnotationCount > 0 ? (
         <div className={tw("flex flex-wrap gap-1.5 px-3 pt-2")}>
-          <div className={tw("inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--foreground)] dark:border-[#3a3a3f]")}>
-            <span className={tw("grid size-6 place-items-center rounded-md bg-[#e6f2ff] font-semibold text-[#3b82f6] dark:bg-[#24364f]")}>{browserAnnotationCount}</span>
+          <div className={tw("inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-secondary)] px-2.5 text-xs text-[var(--foreground)]")}>
+            <span className={tw("grid size-control-xs place-items-center rounded-md bg-[var(--info-subtle)] font-semibold text-[var(--info)]")}>{browserAnnotationCount}</span>
             <strong className={tw("font-medium")}>网页注释 {browserAnnotationCount}</strong>
             <button aria-label="移除全部网页注释" className={tw("grid size-5 place-items-center rounded-sm border-0 bg-transparent p-0 text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={onRemoveBrowserAnnotations} type="button"><Icon name="close" size={12} /></button>
           </div>
@@ -656,7 +666,7 @@ export function Composer({
                 <span className={tw('grid size-10 place-items-center rounded bg-[var(--surface-secondary)] text-[var(--text-tertiary)]')}><Icon name="textSelection" size={24} /></span>
               </span>
               <div className={tw('flex min-w-0 flex-1 flex-col gap-0.5 py-2 pr-3')}>
-                <span className={tw('w-full truncate text-[13px] font-medium leading-5 text-[var(--foreground)]')}>{quote.quote?.replace(/\s+/gu, ' ').trim() || '引用对话'}</span>
+                <span className={tw("w-full truncate text-compact font-medium leading-5 text-[var(--foreground)]")}>{quote.quote?.replace(/\s+/gu, ' ').trim() || '引用对话'}</span>
                 <span className={tw('text-xs leading-[18px] text-[var(--text-tertiary)]')}>选中的文本</span>
               </div>
             </div>
@@ -665,15 +675,15 @@ export function Composer({
         </div>
       ) : null}
       {files.length > 0 ? (
-        <div className={tw("composer__attachments flex flex-wrap [gap:0.35rem] [padding:0.55rem_0.7rem_0]")}>
+        <div className={tw("composer__attachments flex flex-wrap gap-1.5 pt-2 px-3 pb-0")}>
           {files.map(attachment => (
-            <div className={tw("composer__attachment grid max-w-60 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg border border-[#e7e7e4] bg-[#fafaf9] px-1.5 py-1")} key={attachment.id}>
+            <div className={tw("composer__attachment grid max-w-60 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-1.5 py-1")} key={attachment.id}>
               {attachment.isImage && attachment.previewUrl
-                ? <img alt={attachment.name} className={tw("composer__attachment-thumb [width:1.6rem] [height:1.6rem] object-cover [border-radius:0.35rem]")} src={attachment.previewUrl} />
+                ? <img alt={attachment.name} className={tw("composer__attachment-thumb [width:1.6rem] [height:1.6rem] object-cover rounded-md")} src={attachment.previewUrl} />
                 : <Icon name="file" size={18} />}
-              <span className={tw("composer__attachment-name overflow-hidden [color:#454545] [font-size:0.73rem] text-ellipsis whitespace-nowrap")} title={attachment.name}>{attachment.name}</span>
-              <small className={tw("text-[0.65rem] text-[#a2a2a2]")}>{formatBytes(attachment.size)}</small>
-              <button aria-label="移除附件" className={tw("composer__attachment-remove flex [padding:0.1rem] border-0 [border-radius:0.3rem] bg-transparent [color:var(--text-tertiary)] hover:[background:#ececea] hover:[color:var(--text-secondary)]")} onClick={() => { onRemoveAttachment(attachment.id) }} type="button">
+              <span className={tw("composer__attachment-name overflow-hidden [color:var(--foreground)] text-xs text-ellipsis whitespace-nowrap")} title={attachment.name}>{attachment.name}</span>
+              <small className={tw("text-micro text-[var(--text-tertiary)]")}>{attachment.size === undefined ? '' : formatBytes(attachment.size)}</small>
+              <button aria-label="移除附件" className={tw("composer__attachment-remove flex p-0.5 border-0 rounded-sm bg-transparent [color:var(--text-tertiary)] hover:[background:var(--surface-tertiary)] hover:[color:var(--text-secondary)]")} onClick={() => { if ('recorded' in attachment) onRemoveRecordedAttachment?.(attachment.id); else onRemoveAttachment(attachment.id) }} type="button">
                 <Icon name="close" size={14} />
               </button>
             </div>
@@ -681,7 +691,7 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className={tw("composer__input-row [padding:0.1rem_0.7rem_0]")}>
+      <div className={tw("composer__input-row pt-0.5 px-3 pb-0")}>
         <input
           accept="*/*"
           className={tw("hidden")}
@@ -692,7 +702,7 @@ export function Composer({
         />
         <div className={tw("composer__text-wrap relative min-w-0 overflow-hidden")}>
           {skillDraft.skills.length > 0 ? <div ref={skillPrefixRef} aria-label="已选技能" className={tw('composer__skills pointer-events-none absolute inset-x-1 top-[11px] z-1 flex flex-wrap items-start gap-1')}>
-            {skillDraft.skills.map((skill, index) => <button key={`${skill.name}-${index}`} type="button" aria-label={`移除技能 ${skill.name}`} title={slashSkills.find(item => item.name === skill.name)?.description || skill.name} className={tw('composer__skill group/skill pointer-events-auto inline-flex h-[22px] min-w-0 max-w-[min(180px,100%)] items-center gap-1 overflow-hidden rounded-lg border-0 bg-[var(--skill-tag-background)] px-1.5 py-[3px] text-[11px] leading-4 text-[var(--skill-tag-foreground)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]')} onClick={() => { updateDraft(withComposerSkills(value, skillDraft.skills.filter((_, skillIndex) => skillIndex !== index))); textareaRef.current?.focus() }}>
+            {skillDraft.skills.map((skill, index) => <button key={`${skill.name}-${index}`} type="button" aria-label={`移除技能 ${skill.name}`} title={slashSkills.find(item => item.name === skill.name)?.description || skill.name} className={tw("composer__skill group/skill pointer-events-auto inline-flex h-[22px] min-w-0 max-w-[min(180px,100%)] items-center gap-1 overflow-hidden rounded-lg border-0 bg-[var(--skill-tag-background)] px-1.5 py-[3px] text-caption leading-4 text-[var(--skill-tag-foreground)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]")} onClick={() => { updateDraft(withComposerSkills(value, skillDraft.skills.filter((_, skillIndex) => skillIndex !== index))); textareaRef.current?.focus() }}>
               <span className={tw('relative size-3 shrink-0')}><Icon name="hammer" size={12} className={tw('absolute inset-0 group-hover/skill:opacity-0 group-focus-visible/skill:opacity-0')} /><Icon name="close" size={12} className={tw('absolute inset-0 opacity-0 group-hover/skill:opacity-100 group-focus-visible/skill:opacity-100')} /></span>
               <span className={tw('min-w-0 truncate')}>@{skill.name}</span>
             </button>)}
@@ -701,7 +711,7 @@ export function Composer({
             aria-label="消息"
             aria-controls={slashOpen && !skillsOpen ? suggestionId : undefined}
             aria-autocomplete="list"
-            className={tw("composer__textarea min-h-18 w-full resize-none rounded-none border-0 bg-transparent px-1 pt-3 pb-1.5 text-sm leading-[1.45] shadow-none outline-0 [--field-background:transparent] placeholder:text-[#aaa6a2]")}
+            className={tw("composer__textarea min-h-18 w-full resize-none rounded-none border-0 bg-transparent px-1 pt-3 pb-1.5 text-sm leading-[1.45] shadow-none outline-0 [--field-background:transparent] placeholder:text-[var(--text-tertiary)]")}
             style={{ textIndent: skillPrefixLayout.indent, paddingTop: 12 + skillPrefixLayout.top }}
             maxLength={8000}
             onChange={event => { onChange(event.target.value) }}
@@ -719,12 +729,12 @@ export function Composer({
         </div>
       </div>
 
-      <div className={tw("composer__footer flex [min-height:2.65rem] items-center justify-between [padding:0.15rem_0.42rem] border-t border-dashed border-[var(--panel-border)]")}>
-        <div ref={toolsRef} className={tw("composer__tools flex items-center min-w-0 [gap:0.1rem]")}>
+      <div className={tw("composer__footer flex [min-height:2.65rem] items-center justify-between py-0.5 px-1.5 border-t border-dashed border-[var(--panel-border)]")}>
+        <div ref={toolsRef} className={tw("composer__tools flex items-center min-w-0 gap-0.5")}>
           <Menu
             align="start"
             triggerAriaLabel="添加内容"
-            triggerClassName="composer__add size-7 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] shadow-sm"
+            triggerClassName="composer__add size-control-sm rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] shadow-sm"
             listClassName="composer-menu composer-menu--add"
             triggerLabel={open => <Icon name={open ? 'close' : 'plus'} size={18} />}
           >
@@ -732,15 +742,15 @@ export function Composer({
             <MenuItem checked={selectedMode === 'plan'} disabled={disabled} icon="calendar" onPress={() => { selectMode('plan') }} suffix="⇧Tab">计划</MenuItem>
             <MenuItem disabled={disabled} icon="hammer" onPress={() => { setSkillQuery(''); setSkillsOpen(true) }}>技能</MenuItem>
           </Menu>
-          <button aria-label="添加附件" className={tw("composer__attach flex items-center justify-center [width:1.65rem] [height:1.65rem] border-0 [border-radius:0.5rem] bg-transparent [color:#7c7c7c] hover:[background:#f6f4f2] hover:[color:var(--text-secondary)]")} onClick={() => { fileInputRef.current?.click() }} type="button">
+          <button aria-label="添加附件" className={tw("composer__attach flex items-center justify-center [width:1.65rem] [height:1.65rem] border-0 rounded-lg bg-transparent [color:var(--text-secondary)] hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { fileInputRef.current?.click() }} type="button">
             <Icon name="paperclip" size={16} />
           </button>
           {permissionOptions.length > 0 ? (
             <Menu
               align="start"
               triggerAriaLabel="切换权限预设"
-              triggerClassName={tw("composer__pill composer__pill--permission h-7 min-w-0 gap-1 rounded-md px-1.5 text-[13px] font-medium hover:bg-[var(--surface-hover)]", currentPermission.danger && "text-[var(--permission-danger)]")}
-              listClassName="composer-menu composer-menu--permission w-72 min-w-0 max-w-[calc(100vw_-_16px)] rounded-lg p-1 shadow-[0_6px_16px_rgb(0_0_0_/_0.08)]"
+              triggerClassName={tw("composer__pill composer__pill--permission h-control-sm min-w-0 gap-1 rounded-md px-1.5 text-compact font-medium hover:bg-[var(--surface-hover)]", currentPermission.danger && "text-[var(--permission-danger)]")}
+              listClassName="composer-menu composer-menu--permission w-72 min-w-0 max-w-[calc(100vw_-_16px)] rounded-lg p-1 shadow-[var(--overlay-shadow)]"
               triggerLabel={<><Icon className={tw(currentPermission.danger && "text-[var(--permission-danger)]")} name={currentPermission.icon} size={16} /><span className={tw("composer__permission-label whitespace-nowrap @max-[22rem]/composer:hidden", currentPermission.danger && "text-[var(--permission-danger)]")}>{currentPermission.label}</span><Icon name="chevronDown" size={12} /></>}
             >
               {permissionOptions.map(option => {
@@ -757,14 +767,14 @@ export function Composer({
                   <Icon className={tw("mt-0.5 shrink-0 text-[var(--text-tertiary)]", presentation.danger && "text-[var(--permission-danger)]")} name={presentation.icon} size={14} />
                   <span className={tw("grid min-w-0 flex-1 gap-0.5")}>
                     <span className={tw("text-xs font-medium leading-4 text-[var(--foreground)]", presentation.danger && "text-[var(--permission-danger)]")}>{presentation.label}</span>
-                    {presentation.description ? <span className={tw("text-[11px] font-normal leading-[15px] text-[var(--text-tertiary)]", presentation.danger && "text-[var(--permission-danger)]")}>{presentation.description}</span> : null}
+                    {presentation.description ? <span className={tw("text-caption font-normal leading-[15px] text-[var(--text-tertiary)]", presentation.danger && "text-[var(--permission-danger)]")}>{presentation.description}</span> : null}
                   </span>
                   {selected ? <span className={tw("grid size-3.5 shrink-0 self-center place-items-center text-[var(--text-tertiary)]", presentation.danger && "text-[var(--permission-danger)]")}><Icon name="check" size={12} /></span> : null}
                 </button>
               })}
             </Menu>
           ) : (
-            <span className={tw("composer__pill inline-flex [height:1.85rem] min-w-0 items-center [gap:0.3rem] [padding:0_0.4rem] border-0 [border-radius:0.5rem] bg-transparent [color:#5f5f5f] [font-size:0.78rem] [font-weight:520] hover:[background:#f3f3f2] max-[700px]:[max-width:9rem] max-[700px]:overflow-hidden max-[700px]:whitespace-nowrap composer__pill--unavailable [color:#aaa6a2] cursor-help hover:bg-transparent")} title="当前运行时未提供权限预设">
+            <span className={tw("composer__pill inline-flex [height:1.85rem] min-w-0 items-center gap-1 py-0 px-1.5 border-0 rounded-lg bg-transparent [color:var(--text-secondary)] text-xs [font-weight:520] hover:[background:var(--surface-secondary)] max-[700px]:[max-width:9rem] max-[700px]:overflow-hidden max-[700px]:whitespace-nowrap composer__pill--unavailable [color:var(--text-tertiary)] cursor-help hover:bg-transparent")} title="当前运行时未提供权限预设">
               <Icon name="shield" size={14} /><span className={tw("composer__permission-label whitespace-nowrap @max-[22rem]/composer:hidden")}>访问权限</span><Icon name="chevronDown" size={11} />
             </span>
           )}
@@ -772,7 +782,7 @@ export function Composer({
             <button
               aria-label={selectedMode === 'goal' ? '关闭目标模式' : '关闭计划模式'}
               aria-pressed
-              className={tw("composer__mode group/mode-chip ml-1 inline-flex h-7 max-w-33 shrink-0 items-center gap-1.5 rounded-2xl [corner-shape:squircle] border-0 px-2 text-xs font-medium leading-4 [font-family:Inter,_-apple-system,_BlinkMacSystemFont,_Segoe_UI,_sans-serif] disabled:opacity-50", selectedMode === 'goal' ? "bg-[var(--goal-mode-background)] text-[var(--goal-mode-foreground)]" : "bg-[var(--plan-mode-background)] text-[var(--plan-mode-foreground)]")}
+              className={tw("composer__mode group/mode-chip ml-1 inline-flex h-control-sm max-w-33 shrink-0 items-center gap-1.5 rounded-2xl [corner-shape:squircle] border-0 px-2 text-xs font-medium leading-4 [font-family:Inter,_-apple-system,_BlinkMacSystemFont,_Segoe_UI,_sans-serif] disabled:opacity-50", selectedMode === 'goal' ? "bg-[var(--goal-mode-background)] text-[var(--goal-mode-foreground)]" : "bg-[var(--plan-mode-background)] text-[var(--plan-mode-foreground)]")}
               disabled={disabled}
               onClick={() => { selectMode(selectedMode) }}
               title={selectedMode === 'goal' ? '关闭目标模式' : '关闭计划模式（⇧Tab）'}
@@ -786,7 +796,7 @@ export function Composer({
             </button>
           ) : null}
         </div>
-        <div className={tw("composer__submit flex items-center min-w-0 [gap:0.1rem]")}>
+        <div className={tw("composer__submit flex items-center min-w-0 gap-0.5")}>
           {modelOptions.length > 0 ? (
             <Dropdown isOpen={modelPickerOpen} onOpenChange={setModelPickerOpen}>
               <Button
@@ -803,7 +813,7 @@ export function Composer({
               <Dropdown.Popover className={tw("w-72 max-w-[calc(100vw-1rem)] rounded-2xl border border-[var(--panel-border)]")} offset={8} placement="top end">
                 <Dropdown.Menu aria-label="模型选择" className={tw("p-1.5")}>
                   <Dropdown.SubmenuTrigger>
-                    <Dropdown.Item className={tw("h-10 gap-3 rounded-lg ps-2 pe-8 text-[13px]")} id="model" textValue="模型">
+                    <Dropdown.Item className={tw("h-10 gap-3 rounded-lg ps-2 pe-8 text-compact")} id="model" textValue="模型">
                       <span className={tw("shrink-0")}>模型</span>
                       <span className={tw("ml-auto min-w-0 truncate text-muted")}>{modelLabel}</span>
                       <Dropdown.SubmenuIndicator className={tw("size-3.5 shrink-0 text-muted")} />
@@ -824,7 +834,7 @@ export function Composer({
                           }}
                         >
                           {modelOptions.map(option => (
-                            <Dropdown.Item className={tw("min-h-9 gap-2 rounded-lg ps-8 text-[13px]")} id={option.key} key={option.key} textValue={option.model.name}>
+                            <Dropdown.Item className={tw("min-h-control-lg gap-2 rounded-lg ps-8 text-compact")} id={option.key} key={option.key} textValue={option.model.name}>
                               <ProviderIcon providerId={option.provider} size={18} />
                               <span className={tw("min-w-0 flex-1 truncate")}>{option.model.name}</span>
                               <Dropdown.ItemIndicator />
@@ -832,7 +842,7 @@ export function Composer({
                           ))}
                         </Dropdown.Section>
                         <Dropdown.Item
-                          className={tw("min-h-9 gap-2 rounded-lg text-xs text-[var(--text-secondary)]")}
+                          className={tw("min-h-control-lg gap-2 rounded-lg text-xs text-[var(--text-secondary)]")}
                           id="manage-models"
                           textValue="模型管理"
                           onAction={() => { setModelPickerOpen(false); onOpenModelSettings() }}
@@ -842,7 +852,7 @@ export function Composer({
                   </Dropdown.SubmenuTrigger>
                   {modelSelection !== undefined && canChooseEffort ? (
                     <Dropdown.SubmenuTrigger>
-                      <Dropdown.Item className={tw("h-10 gap-3 rounded-lg ps-2 pe-8 text-[13px]")} id="reasoning" textValue="推理等级">
+                      <Dropdown.Item className={tw("h-10 gap-3 rounded-lg ps-2 pe-8 text-compact")} id="reasoning" textValue="推理等级">
                         <span className={tw("shrink-0")}>推理等级</span>
                         <span className={tw("ml-auto min-w-0 truncate text-muted")}>{effortLabel ?? '默认'}</span>
                         <Dropdown.SubmenuIndicator className={tw("size-3.5 shrink-0 text-muted")} />
@@ -862,11 +872,11 @@ export function Composer({
                             setModelPickerOpen(false)
                           }}
                         >
-                          <Dropdown.Item className={tw("min-h-9 rounded-lg ps-8 text-[13px]")} id="default" textValue="默认">
+                          <Dropdown.Item className={tw("min-h-control-lg rounded-lg ps-8 text-compact")} id="default" textValue="默认">
                             <span className={tw("flex-1")}>默认</span><Dropdown.ItemIndicator />
                           </Dropdown.Item>
                           {modelEfforts.map(effort => (
-                            <Dropdown.Item className={tw("min-h-9 rounded-lg ps-8 text-[13px]")} id={effort.id} key={effort.id} textValue={reasoningEffortLabel(effort)}>
+                            <Dropdown.Item className={tw("min-h-control-lg rounded-lg ps-8 text-compact")} id={effort.id} key={effort.id} textValue={reasoningEffortLabel(effort)}>
                               <span className={tw("flex-1")}>{reasoningEffortLabel(effort)}</span><Dropdown.ItemIndicator />
                             </Dropdown.Item>
                           ))}
@@ -878,19 +888,19 @@ export function Composer({
               </Dropdown.Popover>
             </Dropdown>
           ) : (
-            <span className={tw("composer__pill composer__pill--static composer__pill--model inline-flex h-7.5 max-w-[min(15rem,35vw)] min-w-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 text-[0.78rem] font-medium text-[#6d6d6d] hover:bg-[#f3f3f2] max-[700px]:max-w-36 max-[700px]:overflow-hidden max-[700px]:whitespace-nowrap @max-[22rem]/composer:max-w-26")}><Icon className={tw("flex-none")} name="bolt" size={14} /><span className={tw("overflow-hidden text-ellipsis whitespace-nowrap")}>{modelLabel}</span></span>
+            <span className={tw("composer__pill composer__pill--static composer__pill--model inline-flex h-7.5 max-w-[min(15rem,35vw)] min-w-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] max-[700px]:max-w-36 max-[700px]:overflow-hidden max-[700px]:whitespace-nowrap @max-[22rem]/composer:max-w-26")}><Icon className={tw("flex-none")} name="bolt" size={14} /><span className={tw("overflow-hidden text-ellipsis whitespace-nowrap")}>{modelLabel}</span></span>
           )}
           {running ? (
-            <button aria-label="停止" className={tw("composer__stop flex items-center justify-center [width:2.1rem] [height:2.1rem] border-0 [border-radius:50%] [background:#f1e3e1] [color:#a1453c] hover:[background:#e8d3d0]")} onClick={onStop} type="button">
+            <button aria-label="停止" className={tw("composer__stop flex items-center justify-center [width:2.1rem] [height:2.1rem] border-0 [border-radius:50%] [background:var(--danger-subtle)] [color:var(--danger)] hover:[background:var(--danger-subtle)]")} onClick={onStop} type="button">
               <Icon name="stop" size={16} />
             </button>
           ) : null}
-          <span className={tw("composer__voice-unavailable flex [width:1.55rem] [height:1.65rem] items-center justify-center [color:#aaa6a2] cursor-help @max-[22rem]/composer:[width:1.2rem]")} title="离线语音输入尚未接入" aria-label="离线语音输入尚未接入">
+          <span className={tw("composer__voice-unavailable flex [width:1.55rem] [height:1.65rem] items-center justify-center [color:var(--text-tertiary)] cursor-help @max-[22rem]/composer:[width:1.2rem]")} title="离线语音输入尚未接入" aria-label="离线语音输入尚未接入">
             <Icon name="mic" size={16} />
           </span>
           <button
             aria-label={!canSend && !disabled ? '语音输入尚未接入' : running ? sendLabel : '发送'}
-            className={tw("composer__send flex h-7.5 w-7.5 flex-none items-center justify-center rounded-lg bg-[#c96343] text-white disabled:cursor-default disabled:bg-[#c96343] disabled:text-white dark:bg-[#c96343] dark:text-white", disabled && "disabled:bg-[#dedede]")}
+            className={tw("composer__send flex h-7.5 w-7.5 flex-none items-center justify-center rounded-lg bg-[var(--action)] text-[var(--action-foreground)] disabled:cursor-default disabled:bg-[var(--action)] disabled:text-[var(--action-foreground)] text-[var(--action-foreground)]", disabled && "disabled:bg-[var(--surface-tertiary)]")}
             disabled={!canSend}
             onClick={onSubmit}
             title={disabled ? '运行时未连接，暂时无法发送' : !canSend ? '离线语音输入尚未接入；输入内容后可发送' : running ? `${sendLabel}（Enter）` : '发送（Enter）'}

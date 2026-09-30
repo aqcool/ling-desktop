@@ -192,7 +192,7 @@ interface MenuItemProps {
 export function MenuItem({ children, icon, danger, disabled, checked, description, suffix, title, onPress }: MenuItemProps) {
   return (
     <button
-      className={tw('ling-menu__item flex min-h-8 w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] aria-checked:bg-[var(--surface-selected)] enabled:hover:bg-[var(--surface-hover)] focus-visible:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)] disabled:cursor-default disabled:opacity-50', danger && 'text-[var(--danger)] enabled:hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]')}
+      className={tw("ling-menu__item flex min-h-control w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] aria-checked:bg-[var(--surface-selected)] enabled:hover:bg-[var(--surface-hover)] focus-visible:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)] disabled:cursor-default disabled:opacity-50", danger && 'text-[var(--danger)] enabled:hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]')}
       disabled={disabled}
       onClick={onPress}
       aria-checked={checked}
@@ -201,17 +201,17 @@ export function MenuItem({ children, icon, danger, disabled, checked, descriptio
       type="button"
     >
       {icon ? <Icon name={icon} size={16} /> : <span className={tw("ling-menu__item-spacer [width:1rem] flex-none")} />}
-      <span className={tw("ling-menu__item-copy grid min-w-0 flex-1 gap-0.5")}><span>{children}</span>{description ? <small className={tw("text-[0.71rem] leading-[1.35] font-normal text-[var(--text-tertiary)]")}>{description}</small> : null}</span>
-      {suffix ? <span className={tw("ling-menu__item-suffix inline-flex flex-none items-center text-[var(--text-tertiary)] [font-size:0.7rem]")}>{suffix}</span> : null}
+      <span className={tw("ling-menu__item-copy grid min-w-0 flex-1 gap-0.5")}><span>{children}</span>{description ? <small className={tw("text-caption leading-[1.35] font-normal text-[var(--text-tertiary)]")}>{description}</small> : null}</span>
+      {suffix ? <span className={tw("ling-menu__item-suffix inline-flex flex-none items-center text-[var(--text-tertiary)] text-caption")}>{suffix}</span> : null}
       {checked !== undefined ? <Icon className={tw(!checked && "invisible")} name="check" size={14} /> : null}
     </button>
   )
 }
 
 export function MenuLabel({ children, className }: { readonly children: ReactNode; readonly className?: string }) {
-  return <p className={tw("ling-menu__label max-w-80 overflow-hidden text-ellipsis whitespace-nowrap px-2 pt-1.5 pb-2 text-[0.68rem] text-[var(--text-tertiary)]", className)}>{children}</p>
+  return <p className={tw("ling-menu__label max-w-80 overflow-hidden text-ellipsis whitespace-nowrap px-2 pt-1.5 pb-2 text-caption text-[var(--text-tertiary)]", className)}>{children}</p>
 }
 
 export function MenuSeparator() {
-  return <div className={tw("ling-menu__separator [height:1px] [margin:0.3rem_0.4rem] [background:var(--separator)]")} role="separator" />
+  return <div className={tw("ling-menu__separator [height:1px] my-1 mx-1.5 [background:var(--separator)]")} role="separator" />
 }

@@ -49,7 +49,7 @@ function fixture(goalLimit = false) {
     byId: {
       'session-1': {
         id: 'session-1',
-        displayTitle: '实现 Renderer',
+        displayTitle: '实现 Renderer', title: '实现 Renderer',
         running: true,
         retainedBy: {},
         blank: false,
@@ -105,12 +105,12 @@ function fixture(goalLimit = false) {
     },
   }))
   const beginSubmission = vi.fn(() => ({ requestId: 'submission-1', abandon: vi.fn() }))
-  const sessionHistory = { hasMore: false }
+  const sessionHistory = { hasMore: false, running: true }
   const sessionListeners = new Set<() => void>()
   const binding = {
     sessionId: 'session-1',
     session: {
-      getSnapshot: () => ({ running: true, ...sessionHistory }),
+      getSnapshot: () => ({ ...sessionHistory }),
       subscribe: (listener: () => void) => {
         sessionListeners.add(listener)
         return () => sessionListeners.delete(listener)
@@ -355,6 +355,7 @@ function fixture(goalLimit = false) {
       sessionHistory.hasMore = hasMore
       for (const listener of [...sessionListeners]) listener()
     },
+    setRunning: (running: boolean) => { sessionHistory.running = running },
     subagentInterrupt,
     subagentPrompt,
     setTransport: (value: 'connected' | 'disconnected' | 'connecting' | undefined) => {
@@ -369,6 +370,69 @@ function fixture(goalLimit = false) {
 }
 
 describe('DSH runtime adapter', () => {
+  it('sends edited text and retained attachments through ordinary queue/steer admission', async () => {
+    const { adapter, facades, timelineSource, prepareAttachments, readAttachment, prompt } = fixture()
+    const prepare = vi.fn(async () => ({ ok: true as const, value: [{ type: 'file' as const, receiptId: 'original' }] }))
+    Object.assign(facades, { messageActions: { prepareAttachments: prepare } })
+    const original = timelineSource.getSnapshot()[0]!
+    expect(await adapter.dispatch({ type: 'task.send-message', taskId: 'session-1', text: '修改后的问题', mode: 'steer', recordedAttachments: { seq: 12, attachmentIds: ['file'] }, requestId: 'edit-1' })).toMatchObject({ accepted: true })
+    expect(prepare).toHaveBeenCalledWith('session-1', 12, ['file'])
+    expect(timelineSource.getSnapshot()[0]).toBe(original)
+    expect(prepareAttachments).toHaveBeenCalledWith('session-1', [])
+    expect(readAttachment).not.toHaveBeenCalled()
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '修改后的问题' }, { type: 'file', receiptId: 'original' }], 'steer', undefined, 'submission-1')
+  })
+
+  it('rejects stale retry sources, missing messages and active turns before admission', async () => {
+    const { adapter, setRunning, timelineSource, prompt } = fixture()
+    const original = { ...timelineSource.getSnapshot()[0]!, seq: 12 }
+    timelineSource.set([original, { ...original, itemId: 'later', seq: 16 }])
+    const command = { type: 'task.resend-message' as const, taskId: 'session-1', itemId: original.itemId, requestId: 'resend-1' }
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: false, message: expect.stringContaining('结束') })
+    setRunning(false)
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: false, message: expect.stringContaining('新消息') })
+    expect(await adapter.dispatch({ ...command, itemId: 'missing' })).toMatchObject({ accepted: false, message: expect.stringContaining('找不到') })
+    expect(prompt).not.toHaveBeenCalled()
+    expect(await adapter.dispatch({ ...command, itemId: 'later' })).toMatchObject({ accepted: true })
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: original.text }], 'queue', undefined, 'submission-1')
+  })
+
+  it('reuses admission identity and staged attachments after an ambiguous transport failure', async () => {
+    const { adapter, beginSubmission, prepareAttachments, prompt } = fixture()
+    prompt.mockRejectedValueOnce(new Error('lost acknowledgement'))
+    const command = { type: 'task.send-message' as const, taskId: 'session-1', text: '检查服务', requestId: 'same-attempt' }
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: false, retryable: true })
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: true })
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: true })
+    expect(beginSubmission).toHaveBeenCalledTimes(1)
+    expect(prepareAttachments).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledTimes(2)
+    expect(prompt).toHaveBeenNthCalledWith(1, [{ type: 'text', text: '检查服务' }], 'queue', undefined, 'submission-1')
+    expect(prompt).toHaveBeenNthCalledWith(2, [{ type: 'text', text: '检查服务' }], 'queue', undefined, 'submission-1')
+  })
+
+  it('reuses a newly created session when its first prompt admission needs a retry', async () => {
+    const { adapter, create, prompt } = fixture()
+    prompt.mockRejectedValueOnce(new Error('lost acknowledgement'))
+    const command = { type: 'task.create' as const, prompt: '检查服务', requestId: 'same-first-send' }
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: false, retryable: true })
+    expect(await adapter.dispatch(command)).toMatchObject({ accepted: true, output: { taskId: 'session-created' } })
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('rechecks the latest question after loading recorded attachments for a retry', async () => {
+    const { adapter, facades, setRunning, timelineSource, prompt } = fixture()
+    setRunning(false)
+    const original = { ...timelineSource.getSnapshot()[0]!, seq: 12, attachments: [{ attachmentId: 'file', name: 'report.txt', kind: 'file' as const }] }
+    timelineSource.set([original])
+    Object.assign(facades, { messageActions: { prepareAttachments: async () => {
+      timelineSource.set([original, { ...original, itemId: 'new', seq: 16 }])
+      return { ok: true, value: [{ type: 'file', receiptId: 'original' }] }
+    } } })
+    expect(await adapter.dispatch({ type: 'task.resend-message', taskId: 'session-1', itemId: original.itemId, requestId: 'resend-1' })).toMatchObject({ accepted: false, message: expect.stringContaining('新消息') })
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
   it('binds a selected server before the first remote task prompt and uses the verified login directory', async () => {
     const { facades, create, prompt } = fixture()
     const bindTask = vi.fn(async () => ({ ok: true as const, value: { serverId: 'server-1', cwd: '/home/tester' } }))
@@ -461,7 +525,7 @@ describe('DSH runtime adapter', () => {
       byId: {
         'session-1': {
           id: 'session-1',
-          displayTitle: '实现 Renderer',
+          displayTitle: '实现 Renderer', title: '实现 Renderer',
           running: true,
           retainedBy: {},
           blank: false,
@@ -469,7 +533,7 @@ describe('DSH runtime adapter', () => {
         },
         'session-2': {
           id: 'session-2',
-          displayTitle: '审查改动',
+          displayTitle: '审查改动', title: '审查改动',
           parentId: 'session-1',
           origin: 'subagent',
           running: false,
@@ -562,7 +626,7 @@ describe('DSH runtime adapter', () => {
       byId: {
         'session-1': {
           id: 'session-1',
-          displayTitle: '实现 Renderer',
+          displayTitle: '实现 Renderer', title: '实现 Renderer',
           running: true,
           retainedBy: {},
           blank: false,
@@ -1644,4 +1708,32 @@ it('keeps shared session history and subagent observation while another pane rem
   expect(setSubagentCatalogOpen.mock.calls).toEqual([['session-1', true]])
   second(); adapter.setTaskSubagentsOpen?.('session-1', false)
   expect(setSubagentCatalogOpen.mock.calls).toEqual([['session-1', true], ['session-1', false]])
+})
+
+
+describe('new task history', () => {
+  it('does not create a conversation for empty input', async () => {
+    const { adapter, create } = fixture()
+    expect(await adapter.dispatch({ type: 'task.create', requestId: 'empty', prompt: '  \n ' })).toMatchObject({ accepted: false })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('keeps unsent and rejected drafts out of history and never uses the workspace as their title', async () => {
+    const { adapter, sessionList, prompt } = fixture()
+    const previous = sessionList.getSnapshot()
+    sessionList.set({ ...previous, ids: [...previous.ids, 'session-created'], byId: {
+      ...previous.byId,
+      'session-created': { id: 'session-created', cwd: '/work/atlas', displayTitle: 'atlas', blank: true, running: false, updatedAt: 1 },
+    } })
+    expect((await adapter.getSnapshot()).tasks.map(task => task.taskId)).toEqual(['session-1'])
+    prompt.mockResolvedValueOnce({ ok: false, error: { code: 'transport/unavailable', message: 'offline' } } as never)
+    expect(await adapter.dispatch({ type: 'task.create', requestId: 'failed-first', prompt: '检查代码' })).toMatchObject({ accepted: false })
+    expect((await adapter.getSnapshot()).tasks.map(task => task.taskId)).toEqual(['session-1'])
+    const saved = sessionList.getSnapshot()
+    sessionList.set({ ...saved, byId: { ...saved.byId, 'session-created': { ...saved.byId['session-created'], blank: false } } })
+    expect((await adapter.getSnapshot()).tasks.find(task => task.taskId === 'session-created')?.title).toBe('新任务')
+    const sent = sessionList.getSnapshot()
+    sessionList.set({ ...sent, byId: { ...sent.byId, 'session-created': { ...sent.byId['session-created'], title: '检查代码', displayTitle: '检查代码' } } })
+    expect((await adapter.getSnapshot()).tasks.find(task => task.taskId === 'session-created')?.title).toBe('检查代码')
+  })
 })

@@ -5,13 +5,9 @@ import { useState } from 'react'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
 
-import { updateAppearance, useAppearance, type LingTheme, type LingPalette } from '../theme.js'
+import { updateAppearance, useAppearance, palettes, type LingTheme } from '../theme.js'
 export type { LingTheme } from '../theme.js'
 
-const palettes: readonly { id: LingPalette; label: string }[] = [
-  { id: 'default', label: '默认' }, { id: 'forest', label: '森林' },
-  { id: 'mint', label: '薄荷' }, { id: 'bee', label: '蜜蜂' }, { id: 'parchment', label: '羊皮纸' },
-]
 
 interface GeneralSettingsProps {
   readonly section: 'appearance' | 'shortcuts'
@@ -61,32 +57,32 @@ export function GeneralSettings({ section, theme, onThemeChange, version, locale
     })).filter(group => group.items.length > 0)
     return <section aria-label="快捷键设置" className={tw("general-settings relative block max-w-3xl gap-3.5")}>
       <h1 className={tw("mt-0 mb-6 text-xl font-semibold text-[var(--foreground)]")}>快捷键</h1>
-      <p className={tw("general-settings__intro mb-6 -mt-3 [color:var(--text-secondary)] [font-size:0.79rem]")}>搜索并查看 灵创当前支持的快捷键。</p>
-      <h2 className={tw("mt-0 mb-3 text-[0.78rem] font-[580] text-[var(--text-secondary)]")}>应用快捷键</h2>
+      <p className={tw("general-settings__intro mb-6 -mt-3 [color:var(--text-secondary)] text-compact")}>搜索并查看 灵创当前支持的快捷键。</p>
+      <h2 className={tw("mt-0 mb-3 text-xs font-[580] text-[var(--text-secondary)]")}>应用快捷键</h2>
       <div className={tw("general-settings__list general-settings__search-card flex items-center justify-between gap-4 overflow-hidden rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] px-4.5 py-4")}>
-        <label className={tw("grid gap-1 text-[13px]")} htmlFor="settings-shortcut-search"><strong>搜索快捷键</strong><span className={tw("text-xs text-[var(--text-secondary)]")}>共 {shortcutGroups.reduce((total, group) => total + group.items.length, 0)} 个快捷键。</span></label>
-        <input className={tw("min-h-8 w-[min(16rem,50%)] rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 py-1 text-[0.77rem] text-[var(--foreground)]")} id="settings-shortcut-search" onChange={event => { setShortcutQuery(event.target.value) }} placeholder="搜索命令、说明或组合键" type="search" value={shortcutQuery} />
+        <label className={tw("grid gap-1 text-compact")} htmlFor="settings-shortcut-search"><strong>搜索快捷键</strong><span className={tw("text-xs text-[var(--text-secondary)]")}>共 {shortcutGroups.reduce((total, group) => total + group.items.length, 0)} 个快捷键。</span></label>
+        <input className={tw("min-h-control w-[min(16rem,50%)] rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 py-1 text-xs text-[var(--foreground)]")} id="settings-shortcut-search" onChange={event => { setShortcutQuery(event.target.value) }} placeholder="搜索命令、说明或组合键" type="search" value={shortcutQuery} />
       </div>
-      {visibleGroups.map(group => <div className={tw("general-settings__group [margin-top:1.5rem]")} key={group.title}>
-        <h2 className={tw("mt-0 mb-3 text-[0.78rem] font-[580] text-[var(--text-secondary)]")}>{group.title}</h2>
-        <div className={tw("general-settings__list overflow-hidden rounded-xl border border-[var(--panel-border)] bg-[var(--surface)]")}>{group.items.map(item => <div className={tw("general-settings__shortcut mx-4.5 flex min-h-14 items-center justify-between gap-4  text-[0.8rem] last:border-b-0")} key={item.label}>
-          <span className={tw("grid gap-1")}><strong className={tw("text-[13px] font-medium")}>{item.label}</strong><small className={tw("text-xs text-[var(--text-secondary)]")}>{item.description}</small></span><kbd className={tw("rounded-md border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-2 py-1 text-[0.72rem]")}>{item.keys}</kbd>
+      {visibleGroups.map(group => <div className={tw("general-settings__group mt-6")} key={group.title}>
+        <h2 className={tw("mt-0 mb-3 text-xs font-[580] text-[var(--text-secondary)]")}>{group.title}</h2>
+        <div className={tw("general-settings__list overflow-hidden rounded-xl border border-[var(--panel-border)] bg-[var(--surface)]")}>{group.items.map(item => <div className={tw("general-settings__shortcut mx-4.5 flex min-h-14 items-center justify-between gap-4 text-compact last:border-b-0")} key={item.label}>
+          <span className={tw("grid gap-1")}><strong className={tw("text-compact font-medium")}>{item.label}</strong><small className={tw("text-xs text-[var(--text-secondary)]")}>{item.description}</small></span><kbd className={tw("rounded-md border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-2 py-1 text-xs")}>{item.keys}</kbd>
         </div>)}</div>
       </div>)}
-      {visibleGroups.length === 0 ? <p className={tw("general-settings__status [margin:0.8rem_1rem_0] [color:var(--text-tertiary)] [font-size:0.75rem]")}>没有匹配的快捷键。</p> : null}
+      {visibleGroups.length === 0 ? <p className={tw("general-settings__status mt-3 mx-4 mb-0 [color:var(--text-tertiary)] text-xs")}>没有匹配的快捷键。</p> : null}
     </section>
   }
 
   return <section aria-label="外观设置" className={tw("general-settings w-full min-w-0 max-w-3xl pb-8")}>
     <h1 className={tw("mb-6 mt-0 text-xl font-semibold text-[var(--foreground)]")}>外观</h1>
     <div className={tw("mb-7 flex flex-wrap items-center justify-between gap-3")}>
-      <h2 className={tw("m-0 text-[13px] font-medium")}>明暗模式</h2>
-      <div aria-label="明暗模式" role="group" className={tw("flex gap-0.5 rounded-[10px] bg-[var(--surface-secondary)] p-1")}>
-        {([{ id: 'system', label: '系统', icon: 'desktop' }, { id: 'light', label: '浅色', icon: 'sun' }, { id: 'dark', label: '深色', icon: 'moon' }] as const).map(mode => <Button key={mode.id} aria-pressed={theme === mode.id} onPress={() => { onThemeChange(mode.id) }} size="sm" variant="ghost" className={tw("h-8 min-h-8 gap-1.5 rounded-[7px] px-3 text-xs", theme === mode.id ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm" : "bg-transparent text-[var(--text-secondary)]")}><Icon name={mode.icon} size={14} />{mode.label}</Button>)}
+      <h2 className={tw("m-0 text-compact font-medium")}>明暗模式</h2>
+      <div aria-label="明暗模式" role="group" className={tw("flex gap-0.5 rounded-lg bg-[var(--surface-secondary)] p-1")}>
+        {([{ id: 'system', label: '系统', icon: 'desktop' }, { id: 'light', label: '浅色', icon: 'sun' }, { id: 'dark', label: '深色', icon: 'moon' }] as const).map(mode => <Button key={mode.id} aria-pressed={theme === mode.id} onPress={() => { onThemeChange(mode.id) }} size="sm" variant="ghost" className={tw("h-control min-h-control gap-1.5 rounded-md px-3 text-xs", theme === mode.id ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm" : "bg-transparent text-[var(--text-secondary)]")}><Icon name={mode.icon} size={14} />{mode.label}</Button>)}
       </div>
     </div>
-    <h2 className={tw("mb-3 mt-0 text-[13px] font-medium")}>界面主题</h2>
-    <div aria-label="界面主题" role="group" className={tw("mb-7 grid grid-cols-5 gap-2.5 max-[1000px]:grid-cols-3")}>
+    <h2 className={tw("mb-3 mt-0 text-compact font-medium")}>界面主题</h2>
+    <div aria-label="界面主题" role="group" className={tw("mb-7 grid grid-cols-3 gap-2.5 max-[700px]:grid-cols-2")}>
       {palettes.map(palette => <Button key={palette.id} aria-label={`${palette.label}主题`} aria-pressed={appearance.palette === palette.id} onPress={() => { updateAppearance({ palette: palette.id }) }} variant="ghost" className={tw("h-auto w-full min-w-0 flex-col gap-2 rounded-xl border p-2 text-xs", appearance.palette === palette.id ? "border-[var(--focus)] ring-1 ring-[var(--focus)]" : "border-[var(--panel-border)] hover:border-[var(--text-tertiary)]")}>
         <span aria-hidden="true" data-palette={palette.id} data-theme={appearance.resolved} className={tw("flex h-16 w-full overflow-hidden rounded-md border border-[var(--panel-border)] bg-[var(--surface)]")}>
           <span className={tw("flex w-1/4 shrink-0 flex-col gap-1.5 bg-[var(--sidebar-background)] px-1.5 py-2")}><span className={tw("h-1 w-full rounded-full bg-[var(--text-tertiary)]/40")} /><span className={tw("h-1 w-2/3 rounded-full bg-[var(--text-tertiary)]/25")} /></span>
@@ -106,11 +102,11 @@ export function GeneralSettings({ section, theme, onThemeChange, version, locale
       <SettingRow description="选择文件引用使用的图标风格。" title="文件图标"><PreviewSelect label="文件图标" value="默认" /></SettingRow>
       <SettingRow description="控制浮层和遮罩的模糊效果。" title="模糊与玻璃效果"><PreviewToggle label="模糊与玻璃效果" /></SettingRow>
     </div>
-    <div className={tw("general-settings__group mt-6")}><h2 className={tw("mt-0 mb-3 text-[0.78rem] font-[580] text-[var(--text-secondary)]")}>应用图标</h2><div className={tw("general-settings__list overflow-hidden [border:1px_solid_var(--panel-border)] [border-radius:0.9rem] bg-[var(--surface)]")}>
+    <div className={tw("general-settings__group mt-6")}><h2 className={tw("mt-0 mb-3 text-xs font-[580] text-[var(--text-secondary)]")}>应用图标</h2><div className={tw("general-settings__list overflow-hidden [border:1px_solid_var(--panel-border)] rounded-2xl bg-[var(--surface)]")}>
       <SettingRow description="选择程序坞中显示的图标。" title="图标样式"><PreviewSelect label="图标样式" value="灵创" /></SettingRow>
     </div></div>
-    {localeLoading ? <p className={tw("general-settings__status [margin:0.8rem_1rem_0] [color:var(--text-tertiary)] [font-size:0.75rem]")}>正在更新语言…</p> : null}
-    {localeMessage ? <p className={tw("general-settings__error dark:[color:#ef968d] [margin:0.55rem_0_0] [color:#a6473f] [font-size:0.75rem]")} role="status">{localeMessage}</p> : null}
-    <p className={tw("general-settings__version [margin:0.8rem_1rem_0] [color:var(--text-tertiary)] [font-size:0.75rem]")}>灵创 · {version} · 灰色控件仅展示界面，功能尚未接入</p>
+    {localeLoading ? <p className={tw("general-settings__status mt-3 mx-4 mb-0 [color:var(--text-tertiary)] text-xs")}>正在更新语言…</p> : null}
+    {localeMessage ? <p className={tw("general-settings__error mt-2 mx-0 mb-0 [color:var(--danger)] text-xs")} role="status">{localeMessage}</p> : null}
+    <p className={tw("general-settings__version mt-3 mx-4 mb-0 [color:var(--text-tertiary)] text-xs")}>灵创 · {version} · 灰色控件仅展示界面，功能尚未接入</p>
   </section>
 }

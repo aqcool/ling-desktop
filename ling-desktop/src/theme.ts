@@ -1,28 +1,10 @@
 import { useEffect, useState } from 'react'
 
-export type LingTheme = 'light' | 'dark' | 'system'
-export type LingPalette = 'default' | 'forest' | 'mint' | 'bee' | 'parchment'
-export interface Appearance {
-  mode: LingTheme
-  palette: LingPalette
-  terminal: 'follow' | 'manual'
-  terminalDark: boolean
-}
+import { appearanceKeys as keys, parseAppearance, resolveTheme, themeTokens, type Appearance } from './theme/tokens.js'
+export { palettes, isPalette, parseAppearance, resolveTheme, terminalMode, terminalTheme, metrics } from './theme/tokens.js'
+export type { Appearance, LingTheme, LingPalette, ResolvedTheme } from './theme/tokens.js'
 const changeEvent = 'ling:appearance-changed'
-const keys = ['ling.theme', 'ling.palette', 'ling.terminal-theme', 'ling.terminal-dark'] as const
 
-export function parseAppearance(values: readonly (string | null)[]): Appearance {
-  const [mode, palette, terminal, terminalDark] = values
-  return {
-    mode: mode === 'light' || mode === 'dark' ? mode : 'system',
-    palette: palette === 'forest' || palette === 'mint' || palette === 'bee' || palette === 'parchment' ? palette : 'default',
-    terminal: terminal === 'manual' ? 'manual' : 'follow',
-    terminalDark: terminalDark === 'true',
-  }
-}
-export function resolveTheme(mode: LingTheme, systemDark: boolean): 'light' | 'dark' {
-  return mode === 'system' ? systemDark ? 'dark' : 'light' : mode
-}
 export function readAppearance(): Appearance {
   try { return parseAppearance(keys.map(key => window.localStorage.getItem(key))) }
   catch { return parseAppearance([]) }
@@ -61,6 +43,7 @@ export function applyAppearance(appearance: Appearance, resolved: 'light' | 'dar
   root.dataset.palette = appearance.palette
   root.classList.toggle('dark', resolved === 'dark')
   root.style.colorScheme = resolved
+  root.style.backgroundColor = themeTokens(resolved, appearance.palette).surface!
 }
 
 export function initializeAppearance(): void {

@@ -79,26 +79,26 @@ export function PluginSettings({ config, namespaces, writable, service, onSaved 
     } catch { setMessage('保存失败，请重试。') } finally { setBusy(false) }
   }
   return <div className={tw('flex flex-col gap-4')}>
-    {!writable ? <p role="status" className={tw('text-[13px] text-muted')}>当前配置只读。</p> : null}
+    {!writable ? <p role="status" className={tw("text-compact text-muted")}>当前配置只读。</p> : null}
     {config.fields.filter(field => views.some(view => view.ns === field.ns)).map(field => <div key={field.key} className={tw('flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-2')}>
-      <label htmlFor={`plugin-${field.key}`} className={tw('text-[13px]')}>{field.label}</label>
+      <label htmlFor={`plugin-${field.key}`} className={tw("text-compact")}>{field.label}</label>
       <div className={tw('flex w-60 max-w-full items-center gap-1.5')}>
-        <Input id={`plugin-${field.key}`} aria-label={field.label} type={field.min === undefined ? 'text' : 'number'} min={field.min} step={field.min === undefined ? undefined : 1} placeholder="默认值" value={String(valueOf(field.ns, field.key) ?? '')} disabled={!writable || busy} onChange={(event: ChangeEvent<HTMLInputElement>) => edit(field.ns, field.key, event.target.value === '' ? undefined : field.min === undefined ? event.target.value : Number(event.target.value))} className={tw('h-8 min-h-8 min-w-0 flex-1 rounded-lg text-xs')} />
+        <Input id={`plugin-${field.key}`} aria-label={field.label} type={field.min === undefined ? 'text' : 'number'} min={field.min} step={field.min === undefined ? undefined : 1} placeholder="默认值" value={String(valueOf(field.ns, field.key) ?? '')} disabled={!writable || busy} onChange={(event: ChangeEvent<HTMLInputElement>) => edit(field.ns, field.key, event.target.value === '' ? undefined : field.min === undefined ? event.target.value : Number(event.target.value))} className={tw("h-control min-h-control min-w-0 flex-1 rounded-lg text-xs")} />
         <Button size="sm" variant="ghost" isDisabled={!writable || busy} onPress={() => edit(field.ns, field.key, undefined)} className={tw('min-w-0 px-2 text-xs')}>重置</Button>
       </div>
     </div>)}
     {views.some(view => view.ns === modelNs) ? <div className={tw('flex flex-col gap-4')}>
-      <div className={tw('flex items-center justify-between gap-4')}><span className={tw('text-[13px]')}>允许智能体选择子智能体模型</span><CompactSwitch label="允许智能体选择子智能体模型" selected={enabled} disabled={!writable || busy} onChange={selected => edit(modelNs, 'enabled', selected)} /></div>
+      <div className={tw('flex items-center justify-between gap-4')}><span className={tw("text-compact")}>允许智能体选择子智能体模型</span><CompactSwitch label="允许智能体选择子智能体模型" selected={enabled} disabled={!writable || busy} onChange={selected => edit(modelNs, 'enabled', selected)} /></div>
       <p className={tw('m-0 text-xs text-muted')}>仅影响新会话。关闭时使用配置的默认模型或继承父智能体模型。</p>
       {enabled ? <div className={tw('grid gap-3')}>
-        {modelError ? <div role="status" className={tw('flex items-center gap-2 text-[13px] text-muted')}>{modelError}<Button size="sm" variant="ghost" onPress={() => setCatalogRevision(value => value + 1)}>重试</Button></div> : null}
-        {candidates.map(model => <Checkbox key={JSON.stringify([model.provider, model.model])} isSelected={allowed.some(route => route.provider === model.provider && route.model === model.model)} isDisabled={!writable || busy} onChange={(selected: boolean) => edit(modelNs, 'allowedModels', selected ? [...allowed, { provider: model.provider, model: model.model }] : allowed.filter(route => route.provider !== model.provider || route.model !== model.model))}><Checkbox.Content aria-label={`${model.providerName} ${model.name}`}><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className={tw('text-[13px]')}>{model.name}</span><span className={tw('text-xs text-muted')}>{model.providerName}</span></Checkbox.Content></Checkbox>)}
-        {!candidates.length ? <p className={tw('text-[13px] text-muted')}>暂无可用模型</p> : null}
+        {modelError ? <div role="status" className={tw("flex items-center gap-2 text-compact text-muted")}>{modelError}<Button size="sm" variant="ghost" onPress={() => setCatalogRevision(value => value + 1)}>重试</Button></div> : null}
+        {candidates.map(model => <Checkbox key={JSON.stringify([model.provider, model.model])} isSelected={allowed.some(route => route.provider === model.provider && route.model === model.model)} isDisabled={!writable || busy} onChange={(selected: boolean) => edit(modelNs, 'allowedModels', selected ? [...allowed, { provider: model.provider, model: model.model }] : allowed.filter(route => route.provider !== model.provider || route.model !== model.model))}><Checkbox.Content aria-label={`${model.providerName} ${model.name}`}><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><span className={tw("text-compact")}>{model.name}</span><span className={tw('text-xs text-muted')}>{model.providerName}</span></Checkbox.Content></Checkbox>)}
+        {!candidates.length ? <p className={tw("text-compact text-muted")}>暂无可用模型</p> : null}
       </div> : null}
     </div> : null}
-    {config.id === 'web-search' ? <div className={tw('flex flex-col gap-2')}><label htmlFor="plugin-search-key" className={tw('text-[13px]')}>API Key</label><Input id="plugin-search-key" type="password" autoComplete="new-password" value={key} disabled={busy || !credential?.writable} placeholder={credential?.configured ? '已配置，留空保留现有密钥' : '输入 API Key'} onChange={(event: ChangeEvent<HTMLInputElement>) => setKey(event.target.value)} className={tw('h-8 min-h-8 rounded-lg text-xs')} /></div> : null}
-    {invalid ? <p role="alert" className={tw('text-[13px] text-danger')}>请检查数值范围；启用模型选择时至少选择一个模型。</p> : null}
-    {message ? <p role="status" className={tw('text-[13px] text-muted')}>{message}</p> : null}
-    <Button size="sm" variant="primary" isDisabled={!dirty || invalid || (!writable && !key)} isPending={busy} onPress={() => { void save() }} className={tw('h-8 min-h-8 self-end rounded-lg px-3 text-xs')}>保存</Button>
+    {config.id === 'web-search' ? <div className={tw('flex flex-col gap-2')}><label htmlFor="plugin-search-key" className={tw("text-compact")}>API Key</label><Input id="plugin-search-key" type="password" autoComplete="new-password" value={key} disabled={busy || !credential?.writable} placeholder={credential?.configured ? '已配置，留空保留现有密钥' : '输入 API Key'} onChange={(event: ChangeEvent<HTMLInputElement>) => setKey(event.target.value)} className={tw("h-control min-h-control rounded-lg text-xs")} /></div> : null}
+    {invalid ? <p role="alert" className={tw("text-compact text-danger")}>请检查数值范围；启用模型选择时至少选择一个模型。</p> : null}
+    {message ? <p role="status" className={tw("text-compact text-muted")}>{message}</p> : null}
+    <Button size="sm" variant="primary" isDisabled={!dirty || invalid || (!writable && !key)} isPending={busy} onPress={() => { void save() }} className={tw("h-control min-h-control self-end rounded-lg px-3 text-xs")}>保存</Button>
   </div>
 }

@@ -337,13 +337,27 @@ function serverCalls(snapshot: ChatSnapshot): Array<RunningToolCall | ToolResult
 
 export function projectConversation(taskId: string, snapshot: ChatSnapshot, executions: readonly LingServerExecution[] = []): readonly LingTimelineItem[] {
   const stops = turnStops(snapshot)
+  // Carry engine-owned locations across the native Renderer boundary.
+  const turnsBySeq = new Map<number, number>()
+  for (const node of snapshot.nodes.values()) {
+    if (node.location.kind === 'turn' || node.location.kind === 'step') turnsBySeq.set(node.anchorSeq, node.location.turn.turn)
+  }
+  const questions = new Map<number, string>()
+  for (const node of snapshot.legacy.nodes) {
+    const turn = turnsBySeq.get(node.seq)
+    if (node.kind === 'user' && turn !== undefined && !questions.has(turn)) questions.set(turn, `${taskId}:conversation:${node.seq}:user`)
+  }
   const lastReplies = new Map<number, number>()
   for (const node of snapshot.legacy.nodes) {
     if (node.kind === 'assistant' && assistantText(node.blocks).trim()) lastReplies.set(node.turn, node.seq)
   }
   const items = snapshot.legacy.nodes.flatMap(node => {
-    const item = projectNode(taskId, stops, node)
-    if (item === undefined) return []
+    const projected = projectNode(taskId, stops, node)
+    if (projected === undefined) return []
+    const turn = 'turn' in node && typeof node.turn === 'number' ? node.turn : turnsBySeq.get(node.seq)
+    const item = { ...projected, ...(turn === undefined ? {} : { turn }),
+      ...(node.kind === 'turn-error' && turn !== undefined && questions.has(turn) ? { retrySourceId: questions.get(turn)! } : {}),
+    }
     if (node.kind === 'assistant' && snapshot.timeline.turns.has(node.turn)) {
       return item.text ? [{ ...item, turnComplete: snapshot.timeline.turns.get(node.turn)?.end !== undefined && lastReplies.get(node.turn) === node.seq }] : []
     }

@@ -166,7 +166,7 @@ export function ServerSettings({ service }: { readonly service?: LingServerServi
       {servers.map((server, index) => <div key={server.id} className={tw(index > 0 && 'border-t border-[var(--panel-border)]')}>
         <div className={tw('flex min-h-14 items-center justify-between gap-3 px-4 py-2.5')}>
           <div className={tw('min-w-0')}>
-            <div className={tw('truncate text-[13px] font-medium text-[var(--foreground)]')}>{server.name}</div>
+            <div className={tw("truncate text-compact font-medium text-[var(--foreground)]")}>{server.name}</div>
             <div className={tw('mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--text-secondary)]')}>
               <span className={tw('truncate')}>{server.user ? `${server.user}@` : ''}{server.alias}{server.port && server.port !== 22 ? `:${server.port}` : ''}</span>
               <span aria-hidden="true">·</span><span>{environments.find(item => item.value === server.environment)?.label}</span>
@@ -175,7 +175,7 @@ export function ServerSettings({ service }: { readonly service?: LingServerServi
           </div>
           <div className={tw('flex shrink-0 items-center gap-1.5')}>
             <CompactButton variant="tertiary" isDisabled={Boolean(pending)} onPress={() => { void manage(server) }}>管理</CompactButton>
-            <Menu triggerAriaLabel={`${server.name} 更多操作`} triggerClassName={tw('size-7 rounded-md hover:bg-[var(--surface-hover)]')} triggerLabel={<Icon name="more" size={15} />} listClassName={tw('min-w-32')}>
+            <Menu triggerAriaLabel={`${server.name} 更多操作`} triggerClassName={tw("size-control-sm rounded-md hover:bg-[var(--surface-hover)]")} triggerLabel={<Icon name="more" size={15} />} listClassName={tw('min-w-32')}>
               <MenuItem icon="edit" disabled={Boolean(pending)} onPress={() => beginEdit(server)}>编辑信息</MenuItem>
               <MenuItem icon="trash" danger disabled={Boolean(pending)} onPress={() => setDeleteId(server.id)}>移除服务器</MenuItem>
             </Menu>

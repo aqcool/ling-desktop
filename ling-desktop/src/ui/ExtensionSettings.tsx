@@ -19,7 +19,7 @@ function SkillCard({
   readonly taskRequired: boolean
 }) {
   return (
-    <Card className={tw("settings-card rounded-2xl border border-[#eaeae7] dark:border-[#303035]")} variant="secondary">
+    <Card className={tw("settings-card rounded-2xl border border-[var(--panel-border)]")} variant="secondary">
       <Card.Header className={tw("px-4.5 pt-3.5 pb-0")}>
         <div>
           <Card.Title className={tw("text-sm font-[620]")}><Icon name="sparkle" size={15} /> 技能</Card.Title>
@@ -27,21 +27,21 @@ function SkillCard({
         </div>
       </Card.Header>
       <Card.Content className={tw("px-4.5 pt-3 pb-4")}>
-        {taskRequired ? <p className={tw("extension-settings__hint dark:[color:#a0a0a6] [margin:0_0_0.6rem] [color:#6f6f6f] [font-size:0.76rem]")}>打开一个任务后可查看技能目录。</p> : null}
-        {loading ? <p className={tw("extension-settings__state dark:[color:#a0a0a6] flex items-center [gap:0.45rem] m-0 [color:#6b6b6b] [font-size:0.77rem]")}><Spinner size="sm" /> 正在读取技能目录</p> : null}
-        {!loading && message !== undefined ? <p className={tw("extension-settings__state dark:[color:#a0a0a6] flex items-center [gap:0.45rem] m-0 [color:#6b6b6b] [font-size:0.77rem] extension-settings__state--error dark:[color:#e08a80] [color:#a6473f]")}>{message}</p> : null}
-        {!loading && skills !== undefined && skills.length === 0 ? <p className={tw("extension-settings__state dark:[color:#a0a0a6] flex items-center [gap:0.45rem] m-0 [color:#6b6b6b] [font-size:0.77rem]")}>此任务没有可用技能。</p> : null}
+        {taskRequired ? <p className={tw("extension-settings__hint mt-0 mx-0 mb-2.5 [color:var(--text-secondary)] text-xs")}>打开一个任务后可查看技能目录。</p> : null}
+        {loading ? <p className={tw("extension-settings__state flex items-center gap-2 m-0 [color:var(--text-secondary)] text-xs")}><Spinner size="sm" /> 正在读取技能目录</p> : null}
+        {!loading && message !== undefined ? <p className={tw("extension-settings__state flex items-center gap-2 m-0 [color:var(--text-secondary)] text-xs extension-settings__state--error [color:var(--danger)]")}>{message}</p> : null}
+        {!loading && skills !== undefined && skills.length === 0 ? <p className={tw("extension-settings__state flex items-center gap-2 m-0 [color:var(--text-secondary)] text-xs")}>此任务没有可用技能。</p> : null}
         {!loading && skills !== undefined && skills.length > 0 ? (
-          <ul className={tw("extension-list grid [gap:0.4rem] m-0 p-0 [list-style:none]")}>
+          <ul className={tw("extension-list grid gap-1.5 m-0 p-0 [list-style:none]")}>
             {skills.map(skill => (
-              <li className={tw("extension-item dark:[border-color:#34343a] dark:[background:#232327] grid [gap:0.2rem] [padding:0.6rem_0.7rem] [border:1px_solid_#ecece9] [border-radius:0.6rem] [background:#fbfbfa]")} key={`${skill.name}-${String(skill.path ?? '')}`}>
+              <li className={tw("extension-item grid gap-1 py-2.5 px-3 [border:1px_solid_var(--panel-border)] rounded-lg [background:var(--surface)]")} key={`${skill.name}-${String(skill.path ?? '')}`}>
                 <div className={tw("extension-item__head flex flex-wrap items-center gap-1.5")}>
-                  <b className={tw("text-[0.8rem] font-[620]")}>{skill.name}</b>
-                  {skill.modelInvocable ? <span className={tw("extension-item__tag dark:[background:#2a2a2d] dark:[color:#a5a5aa] [padding:0.1rem_0.38rem] [border-radius:0.35rem] [background:#ececea] [color:#5f5f5f] [font-size:0.66rem]")}>模型可调用</span> : null}
+                  <b className={tw("text-compact font-[620]")}>{skill.name}</b>
+                  {skill.modelInvocable ? <span className={tw("extension-item__tag py-0.5 px-1.5 rounded-md [background:var(--surface-tertiary)] [color:var(--text-secondary)] text-caption")}>模型可调用</span> : null}
                 </div>
-                <span className={tw("extension-item__desc dark:[color:#c9c9cd] overflow-hidden [color:#6b6b6b] [font-size:0.73rem] [line-height:1.45] text-ellipsis whitespace-nowrap")}>{skill.description}</span>
-                {skill.whenToUse !== undefined ? <span className={tw("extension-item__note dark:[color:#c9c9cd] overflow-hidden [color:#6b6b6b] [font-size:0.73rem] [line-height:1.45] text-ellipsis whitespace-nowrap")}>{skill.whenToUse}</span> : null}
-                {skill.path !== undefined ? <span className={tw("extension-item__source dark:[color:#8d8d93] overflow-hidden [color:#8a8a8a] [font-size:0.68rem] [line-height:1.45] text-ellipsis whitespace-nowrap [font-family:ui-monospace,_SFMono-Regular,_Menlo,_Monaco,_Consolas,_monospace]")} title={skill.path}>{skill.path}</span> : null}
+                <span className={tw("extension-item__desc overflow-hidden [color:var(--text-secondary)] text-xs [line-height:1.45] text-ellipsis whitespace-nowrap")}>{skill.description}</span>
+                {skill.whenToUse !== undefined ? <span className={tw("extension-item__note overflow-hidden [color:var(--text-secondary)] text-xs [line-height:1.45] text-ellipsis whitespace-nowrap")}>{skill.whenToUse}</span> : null}
+                {skill.path !== undefined ? <span className={tw("extension-item__source overflow-hidden [color:var(--text-tertiary)] text-caption [line-height:1.45] text-ellipsis whitespace-nowrap [font-family:ui-monospace,_SFMono-Regular,_Menlo,_Monaco,_Consolas,_monospace]")} title={skill.path}>{skill.path}</span> : null}
               </li>
             ))}
           </ul>

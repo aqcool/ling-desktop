@@ -1,0 +1,2 @@
+/* Built-in theme pack styles. Each pack scopes its own selectors. */
+@import "./windows-xp/styles.css";

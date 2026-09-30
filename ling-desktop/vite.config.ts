@@ -5,6 +5,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
+    assetsInlineLimit: 256_000,
     rollupOptions: {
       output: {
         assetFileNames: asset => asset.name?.endsWith('.css')

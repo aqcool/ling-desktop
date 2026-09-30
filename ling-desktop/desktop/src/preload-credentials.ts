@@ -9,9 +9,16 @@ const IPC = {
   credentialClear: 'ling:credential-clear', credentialTest: 'ling:credential-test',
   credentialClose: 'ling:credential-close',
   credentialResize: 'ling:credential-resize',
+  credentialTheme: 'ling:credential-theme', themeChanged: 'ling:theme-changed',
 } as const
 
 contextBridge.exposeInMainWorld('lingCredentials', {
+  theme: () => ipcRenderer.invoke(IPC.credentialTheme),
+  onTheme: (callback: (value: unknown) => void) => {
+    const listener = (_event: unknown, value: unknown) => callback(value)
+    ipcRenderer.on(IPC.themeChanged, listener)
+    return () => ipcRenderer.removeListener(IPC.themeChanged, listener)
+  },
   info: () => ipcRenderer.invoke(IPC.credentialInfo),
   inspect: () => ipcRenderer.invoke(IPC.credentialInspect),
   trust: (fingerprint: { algorithm: string; sha256: string }) => ipcRenderer.invoke(IPC.credentialTrust, fingerprint),

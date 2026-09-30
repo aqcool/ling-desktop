@@ -10,9 +10,9 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/build-ssh-runtime.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node scripts/build-ssh-runtime.mjs && vitest run",
     "check": "yarn build && yarn typecheck && yarn test",
     "dev": "yarn workspace ling-desktop build && yarn build && node scripts/start.mjs",
     "start": "node scripts/start.mjs",
@@ -86,6 +86,8 @@
     "@deepseek-ai/dsh-file-reference": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-fs": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-fs-local": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-fs-sandbox": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-fs-ssh": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-goal": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-goal-round-driver": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-home-paths": "0.1.6-alpha.2",
@@ -116,6 +118,7 @@
     "@deepseek-ai/dsh-sandbox": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-sandbox-local": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-sandbox-policy": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-sandbox-ssh": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-sandbox-windows-acl": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-scope": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-sdk-protocol": "0.1.6-alpha.2",
@@ -136,12 +139,14 @@
     "@deepseek-ai/dsh-skill": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-skill-filesystem": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-spill": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-ssh": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-storage": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-storage-domain": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-subagent": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-subagent-in-process-driver": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-subprocess": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-subprocess-local": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-subprocess-ssh": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-terminal": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-terminal-bash": "0.1.6-alpha.2",
@@ -194,7 +199,9 @@
     ".": "./lib/extensions.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json",
-    "./webserver": "./lib/webserver.js"
+    "./webserver": "./lib/webserver.js",
+    "./ssh-runtime": "./lib/ssh-runtime.js",
+    "./ssh": "./lib/ssh-plugin.js"
   },
   "dsh": {
     "client": {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { updateAppearance, type LingPalette } from '../theme.js'
+import { updateAppearance, isPalette, type LingPalette } from '../theme.js'
 
 export const behaviorKey = 'ling.behavior.v1'
 const changedEvent = 'ling:behavior-changed'
@@ -58,7 +58,7 @@ export function parseBehavior(raw: string | null): BehaviorPreferences {
     if (!saved || typeof saved !== 'object') continue
     const record = saved as Record<string, unknown>
     for (const key of ['locationControls', 'environmentLabels', 'monitorEnvironment', 'localServices', 'fileChanges'] as const) if (typeof record[key] === 'boolean') result.modes[mode][key] = record[key]
-    if (['inherit', 'default', 'forest', 'mint', 'bee', 'parchment'].includes(record.palette as string)) result.modes[mode].palette = record.palette as ModePreferences['palette']
+    if ((record.palette === 'inherit' || isPalette(record.palette))) result.modes[mode].palette = record.palette as ModePreferences['palette']
   }
   return result
 }

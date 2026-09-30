@@ -35,6 +35,7 @@ export function createDshServerProjection(
     operationsBinding: taskId => request(service => service.operationsBinding(taskId)),
     takeTerminalUiRequest: taskId => request(service => service.takeTerminalUiRequest(taskId)),
     terminalList: taskId => request(service => service.terminalList(taskId)),
+    terminalScope: (serverId, placement, signal) => request(service => service.terminalScope(serverId, placement, signal)),
     terminalOpen: (taskId, cols, rows, signal) => request(service => service.terminalOpen(taskId, cols, rows, signal)),
     terminalPoll: (taskId, terminalId, offset, signal) => request(service => service.terminalPoll(taskId, terminalId, offset, signal)),
     terminalWrite: (taskId, terminalId, data, signal) => request(service => service.terminalWrite(taskId, terminalId, data, signal)),

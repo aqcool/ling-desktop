@@ -1,4 +1,5 @@
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
+import { posix } from 'node:path'
 
 /** A deliberately bounded shell subset. Anything we cannot inspect still goes to approval. */
 function commandParts(source: string): string[][] | undefined {
@@ -220,9 +221,23 @@ export function serverCommandImpact(command: string): string {
 
 /** Never relax another policy's denial/approval, nor apply server rules to unbound/local tools. */
 export function serverToolDecision(
-  name: string, args: unknown, binding: { remote: boolean; operations: boolean }, decision: PreToolDecision,
+  name: string, args: unknown, binding: { remote: boolean; operations: boolean;
+    mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; cwd?: string }, decision: PreToolDecision,
 ): PreToolDecision {
+  if (decision.kind === 'deny') return decision
+  const commandTool = (name === 'remote_run' && binding.remote) || (name === 'server_exec' && binding.operations)
+  const mutationTool = (name === 'remote_write' && binding.remote)
+    || (binding.operations && ['server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply'].includes(name))
+  if (!commandTool && !mutationTool) return decision
+  const values = args && typeof args === 'object' ? args as Record<string, unknown> : {}
+  if (binding.mode === 'danger-full-access') return decision
+  if (binding.mode === 'read-only') return commandTool && isServerQuery(values.command) ? decision
+    : { kind: 'deny', reason: '当前会话为只读，不能修改远端文件、服务或系统状态。请先切换会话权限。' }
   if (decision.kind !== 'allow') return decision
+  if (name === 'remote_write' && binding.mode === 'workspace-write' && binding.cwd && typeof values.path === 'string') {
+    const relative = posix.relative(binding.cwd, posix.resolve(binding.cwd, values.path))
+    if (relative !== '..' && !relative.startsWith('../') && !posix.isAbsolute(relative)) return decision
+  }
   if ((name === 'remote_run' && binding.remote) || (name === 'server_exec' && binding.operations)) {
     const command = args && typeof args === 'object' && 'command' in args ? args.command : undefined
     return isServerQuery(command) ? decision : { kind: 'ask', reason: '这条远端命令可能修改文件、服务或系统状态，需要确认后执行。' }

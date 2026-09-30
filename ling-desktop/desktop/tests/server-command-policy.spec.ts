@@ -49,4 +49,20 @@ describe('server command policy', () => {
     expect(serverCommandImpact('chmod 600 /srv/config')).toContain('权限')
     expect(serverCommandImpact('sh deploy.sh')).toContain('可能修改')
   })
+  it('uses the session modes and preserves independent denials', () => {
+    const binding = { remote: true, operations: true, cwd: '/srv/project' }
+    const allow = { kind: 'allow' } as const
+    const ask = { kind: 'ask', reason: 'another guard' } as const
+    const deny = { kind: 'deny', reason: 'another guard' } as const
+    for (const name of ['server_exec', 'remote_run', 'remote_write', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply']) {
+      expect(serverToolDecision(name, { command: 'systemctl restart app' }, { ...binding, mode: 'danger-full-access' }, allow)).toBe(allow)
+      expect(serverToolDecision(name, { command: 'systemctl restart app' }, { ...binding, mode: 'read-only' }, ask).kind).toBe('deny')
+      expect(serverToolDecision(name, {}, { ...binding, mode: 'danger-full-access' }, deny)).toBe(deny)
+    }
+    expect(serverToolDecision('server_exec', { command: 'pwd' }, { ...binding, mode: 'read-only' }, allow)).toBe(allow)
+    expect(serverToolDecision('remote_write', { path: 'src/app.ts' }, { ...binding, mode: 'workspace-write' }, allow)).toBe(allow)
+    expect(serverToolDecision('remote_write', { path: '../outside.txt' }, { ...binding, mode: 'workspace-write' }, allow).kind).toBe('ask')
+    expect(serverToolDecision('remote_write', { path: '/srv/project-other/app.ts' }, { ...binding, mode: 'workspace-write' }, allow).kind).toBe('ask')
+  })
+
 })

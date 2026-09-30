@@ -63,16 +63,48 @@ function parseStoredStringMap(raw: string | null): Record<string, string> {
   return texts
 }
 
-export function parseStoredDrafts(raw: string | null): Record<string, string> {
-  return parseStoredStringMap(raw)
+export interface StoredDraft {
+  readonly text: string
+  readonly recordedAttachments?: {
+    readonly seq: number
+    readonly attachments: readonly import('./runtime/contract.js').LingTimelineAttachment[]
+  }
 }
 
-export function serializeDrafts(drafts: Record<string, { text: string }>): string {
-  const texts: Record<string, string> = {}
-  for (const [key, draft] of Object.entries(drafts)) {
-    if (draft.text.length > 0) texts[key] = draft.text
+/** Read legacy text drafts and attachment references, never browser-owned file bytes. */
+export function parseStoredDrafts(raw: string | null): Record<string, StoredDraft> {
+  let parsed: unknown
+  try { parsed = JSON.parse(raw ?? '{}') } catch { return {} }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+  const drafts: Record<string, StoredDraft> = {}
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === 'string') {
+      if (value) drafts[key] = { text: value }
+      continue
+    }
+    if (typeof value !== 'object' || value === null) continue
+    const draft = value as Record<string, unknown>
+    if (typeof draft.text !== 'string') continue
+    const source = draft.recordedAttachments as StoredDraft['recordedAttachments']
+    const valid = source && Number.isSafeInteger(source.seq) && source.seq >= 0 && Array.isArray(source.attachments)
+      && source.attachments.every(a => a && typeof a.attachmentId === 'string' && typeof a.name === 'string'
+        && (a.kind === 'image' || a.kind === 'file')
+        && (a.bytes === undefined || typeof a.bytes === 'number') && (a.mediaType === undefined || typeof a.mediaType === 'string'))
+    if (draft.text || (valid && source.attachments.length)) drafts[key] = {
+      text: draft.text, ...(valid && source.attachments.length ? { recordedAttachments: source } : {}),
+    }
   }
-  return JSON.stringify(texts)
+  return drafts
+}
+
+export function serializeDrafts(drafts: Record<string, StoredDraft>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(drafts).flatMap(([key, draft]) => {
+    const source = draft.recordedAttachments
+    if (!draft.text && !source?.attachments.length) return []
+    return [[key, source?.attachments.length ? { text: draft.text, recordedAttachments: {
+      seq: source.seq, attachments: source.attachments.map(({ attachmentId, kind, name, bytes, mediaType }) => ({ attachmentId, kind, name, bytes, mediaType })),
+    } } : draft.text]]
+  })))
 }
 
 export function pickRestorableTaskId(raw: string | null, taskIds: readonly string[]): string | undefined {

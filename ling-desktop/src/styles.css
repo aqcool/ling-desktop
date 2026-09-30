@@ -2,161 +2,60 @@
 @import "@heroui/styles";
 @import "@xterm/xterm/css/xterm.css";
 
+@import "./theme/generated.css";
+@import "./theme/packs/index.css";
+
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
-:root,
-[data-theme='light'] {
-  --background: oklch(0.985 0 0);
-  --foreground: #252525;
-  --surface: oklch(1 0 0);
-  --surface-foreground: var(--foreground);
-  --surface-secondary: oklch(0.974 0 0);
-  --surface-secondary-foreground: var(--foreground);
-  --surface-tertiary: oklch(0.948 0 0);
-  --surface-tertiary-foreground: var(--foreground);
-  --field-background: oklch(0.992 0 0);
-  --field-foreground: var(--foreground);
-  --field-placeholder: oklch(0.69 0 0);
-  --accent: oklch(0.205 0 0);
-  --accent-foreground: oklch(1 0 0);
-  --border: oklch(0.895 0 0);
-  --separator: oklch(0.925 0 0);
-  --muted: oklch(0.51 0 0);
-  --success: oklch(0.57 0.16 145);
-  --warning: oklch(0.72 0.15 75);
-  --danger: oklch(0.61 0.22 27);
-  --permission-danger: #ff4d4f;
-  --goal-mode-foreground: #da5597;
-  --goal-mode-background: #f5e4f2;
-  --plan-mode-foreground: #7cb196;
-  --plan-mode-background: #f0f3f2;
-  --skill-tag-foreground: #3b81e9;
-  --skill-tag-background: #e9f6fe;
-  --focus: #4d735f;
-  --radius: 0.5rem;
-  color-scheme: light;
+/* Tailwind utilities and HeroUI consume the same portable metrics. */
+@theme inline {
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+  --spacing: var(--space-unit);
+  --spacing-control-xs: var(--control-xs);
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control: var(--control-md);
+  --spacing-control-lg: var(--control-lg);
+  --text-micro: var(--font-size-micro);
+  --text-caption: var(--font-size-caption);
+  --text-xs: var(--font-size-xs);
+  --text-compact: var(--font-size-compact);
+  --text-sm: var(--font-size-sm);
+  --text-md: var(--font-size-md);
+  --text-base: var(--font-size-base);
+  --text-lg: var(--font-size-lg);
+  --text-xl: var(--font-size-xl);
+  --text-2xl: var(--font-size-2xl);
+  --text-3xl: var(--font-size-3xl);
+  --text-4xl: var(--font-size-4xl);
+  --radius-xs: var(--corner-xs);
+  --radius-sm: var(--corner-sm);
+  --radius-md: var(--corner-md);
+  --radius-lg: var(--corner-lg);
+  --radius-xl: var(--corner-xl);
+  --radius-2xl: var(--corner-2xl);
+  --radius-3xl: var(--corner-3xl);
 }
 
 * { box-sizing: border-box; }
-
-html,
-body,
-#root {
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  min-height: 0;
-}
-
+html, body, #root { width: 100%; min-width: 0; height: 100%; min-height: 0; }
 body {
   margin: 0;
   overflow: hidden;
   background: var(--surface);
   color: var(--foreground);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  font-size: 14px;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-body);
   -webkit-font-smoothing: antialiased;
 }
 
 @keyframes blink { 50% { opacity: 0; } }
-
-:root,
-[data-theme='light'][data-palette='default'] {
-  --sidebar-background: #f3f1f1;
-  --surface-hover: #eeeded;
-  --surface-selected: #e3e1e1;
-  --text-secondary: #6b6b6b;
-  --text-tertiary: #868686;
-  --code-background: #f6f6f5;
-  --panel-border: #e5e5e5;
-}
-
-[data-theme='dark'] {
-  --goal-mode-foreground: #f472b6;
-  --goal-mode-background: #3a1d2c;
-  --plan-mode-foreground: #8fc9ae;
-  --plan-mode-background: #1c2e25;
-  --background: oklch(0.185 0 0);
-  --foreground: oklch(0.93 0 0);
-  --surface: oklch(0.215 0 0);
-  --surface-foreground: var(--foreground);
-  --surface-secondary: oklch(0.26 0 0);
-  --surface-secondary-foreground: var(--foreground);
-  --surface-tertiary: oklch(0.3 0 0);
-  --surface-tertiary-foreground: var(--foreground);
-  --field-background: oklch(0.245 0 0);
-  --field-foreground: var(--foreground);
-  --field-placeholder: oklch(0.6 0 0);
-  --accent: oklch(0.93 0 0);
-  --accent-foreground: oklch(0.185 0 0);
-  --border: oklch(0.35 0 0);
-  --separator: oklch(0.31 0 0);
-  --muted: oklch(0.68 0 0);
-  --surface-hover: #2b2b2e;
-  --sidebar-background: #1e1e20;
-  --surface-selected: #303034;
-  --text-secondary: oklch(0.74 0 0);
-  --text-tertiary: oklch(0.7 0 0);
-  --code-background: oklch(0.245 0 0);
-  --panel-border: #39393d;
-  --skill-tag-foreground: #5ebcff;
-  --skill-tag-background: #1a2838;
-  --focus: #e3977c;
-  color-scheme: dark;
-}
-
-[data-theme='dark'] body { background: var(--surface); }
-
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* Appearance palettes share semantic tokens with HeroUI and the workspace. */
-[data-palette='forest'] { --palette-hue: 148; --palette-chroma: 0.024; --palette-accent: 0.10; }
-[data-palette='mint'] { --palette-hue: 174; --palette-chroma: 0.021; --palette-accent: 0.09; }
-[data-palette='bee'] { --palette-hue: 85; --palette-chroma: 0.035; --palette-accent: 0.11; }
-[data-palette='parchment'] { --palette-hue: 75; --palette-chroma: 0.028; --palette-accent: 0.07; }
-[data-palette]:not([data-palette='default']) {
-  --background: oklch(0.966 var(--palette-chroma) var(--palette-hue));
-  --sidebar-background: var(--background);
-  --surface: oklch(0.994 calc(var(--palette-chroma) * 0.25) var(--palette-hue));
-  --surface-secondary: oklch(0.971 calc(var(--palette-chroma) * 0.6) var(--palette-hue));
-  --surface-tertiary: oklch(0.942 var(--palette-chroma) var(--palette-hue));
-  --surface-hover: var(--surface-tertiary);
-  --surface-selected: oklch(0.918 calc(var(--palette-chroma) * 1.3) var(--palette-hue));
-  --foreground: oklch(0.27 0.025 var(--palette-hue));
-  --text-secondary: oklch(0.46 0.025 var(--palette-hue));
-  --text-tertiary: oklch(0.55 0.02 var(--palette-hue));
-  --panel-border: oklch(0.9 calc(var(--palette-chroma) * 0.6) var(--palette-hue));
-  --border: var(--panel-border);
-  --separator: var(--panel-border);
-  --code-background: var(--surface-secondary);
-  --field-background: var(--surface);
-  --field-foreground: var(--foreground);
-  --field-placeholder: var(--text-tertiary);
-  --muted: var(--text-secondary);
-  --focus: oklch(0.48 var(--palette-accent) var(--palette-hue));
-  --accent: var(--focus);
-  --accent-foreground: #fff;
-}
-[data-theme='dark'][data-palette]:not([data-palette='default']) {
-  --background: oklch(0.19 0.017 var(--palette-hue));
-  --sidebar-background: var(--background);
-  --surface: oklch(0.225 0.016 var(--palette-hue));
-  --surface-secondary: oklch(0.255 0.018 var(--palette-hue));
-  --surface-tertiary: oklch(0.29 0.024 var(--palette-hue));
-  --surface-selected: oklch(0.34 0.035 var(--palette-hue));
-  --foreground: oklch(0.94 0.012 var(--palette-hue));
-  --text-secondary: oklch(0.76 0.024 var(--palette-hue));
-  --text-tertiary: oklch(0.67 0.022 var(--palette-hue));
-  --panel-border: oklch(0.355 0.025 var(--palette-hue));
-  --focus: oklch(0.76 var(--palette-accent) var(--palette-hue));
-  --accent-foreground: oklch(0.19 0.017 var(--palette-hue));
 }

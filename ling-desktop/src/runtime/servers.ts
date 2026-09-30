@@ -38,6 +38,7 @@ export interface LingServerService {
   operationsBinding(taskId: string): Promise<LingReadResult<{ readonly serverId: string; readonly cwd: string } | null>>
   takeTerminalUiRequest(taskId: string): Promise<LingReadResult<{ readonly open: boolean }>>
   terminalList(taskId: string): Promise<LingReadResult<readonly string[]>>
+  terminalScope(serverId: string, placement: 'side' | 'bottom', signal?: AbortSignal): Promise<LingReadResult<{ readonly ownerId: string }>>
   terminalOpen(taskId: string, cols: number, rows: number, signal?: AbortSignal): Promise<LingReadResult<{ readonly terminalId: string }>>
   terminalPoll(taskId: string, terminalId: string, offset: number, signal?: AbortSignal): Promise<LingReadResult<LingServerTerminalSnapshot>>
   terminalWrite(taskId: string, terminalId: string, data: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly ok: true }>>

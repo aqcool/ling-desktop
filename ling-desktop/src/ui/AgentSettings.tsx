@@ -41,7 +41,7 @@ function SettingsHeader({ title, loading, refresh, openConfig }: { title: string
   return <header className={tw('flex flex-wrap items-center justify-between gap-3')}>
     <h1 className={tw('m-0 text-xl font-semibold')}>{title}</h1>
     <div className={tw('flex items-center gap-1')}>
-      {openConfig ? <Button size="sm" variant="secondary" className={tw('h-8 rounded-lg text-xs')} onPress={openConfig}>打开配置文件</Button> : null}
+      {openConfig ? <Button size="sm" variant="secondary" className={tw("h-control rounded-lg text-xs")} onPress={openConfig}>打开配置文件</Button> : null}
       <Button isIconOnly size="sm" variant="ghost" aria-label={`刷新${title}`} isDisabled={loading} onPress={refresh}><Icon name="refresh" size={16} /></Button>
     </div>
   </header>
@@ -88,9 +88,9 @@ export function AgentPresetSettings({ service, onChanged, onCreate }: {
   const card = (preset: LingAgentPreset) => <Card key={preset.id} className={tw('min-w-0 gap-0 rounded-xl border border-[var(--panel-border)] bg-surface p-4 shadow-none', preset.isDefault && 'bg-surface-secondary')}>
     <Card.Header className={tw('gap-2 p-0')}>
       <div className={tw('flex flex-wrap items-center gap-2')}>
-        <Card.Title className={tw('text-[13px] font-semibold')}>{preset.label}</Card.Title>
-        <span className={tw('rounded-md bg-surface-secondary px-1.5 py-0.5 text-[10px] text-muted')}>{preset.trust === 'system' ? '内置' : '自定义'}</span>
-        {preset.isDefault ? <span className={tw('ml-auto rounded-md bg-foreground px-2 py-0.5 text-[10px] text-background')}>新任务默认</span> : null}
+        <Card.Title className={tw("text-compact font-semibold")}>{preset.label}</Card.Title>
+        <span className={tw("rounded-md bg-surface-secondary px-1.5 py-0.5 text-micro text-muted")}>{preset.trust === 'system' ? '内置' : '自定义'}</span>
+        {preset.isDefault ? <span className={tw("ml-auto rounded-md bg-foreground px-2 py-0.5 text-micro text-background")}>新任务默认</span> : null}
       </div>
       <Card.Description className={tw('min-h-10 text-xs leading-5')}>{preset.description}</Card.Description>
     </Card.Header>
@@ -99,7 +99,7 @@ export function AgentPresetSettings({ service, onChanged, onCreate }: {
       <code className={tw('break-all text-xs text-muted')}>{preset.id}</code>
     </Card.Content>
     <Card.Footer className={tw('mt-auto flex flex-wrap items-center justify-end gap-1 p-0')}>
-      {!preset.isDefault ? <Button size="sm" variant="ghost" className={tw('mr-auto h-7 px-2 text-xs')} isDisabled={busy || !data?.writable || !data.modeSelectionEnabled || !!preset.unavailableReason} onPress={() => { void act(() => service!.update({ default: preset.id }), true) }}>设为默认</Button> : null}
+      {!preset.isDefault ? <Button size="sm" variant="ghost" className={tw("mr-auto h-control-sm px-2 text-xs")} isDisabled={busy || !data?.writable || !data.modeSelectionEnabled || !!preset.unavailableReason} onPress={() => { void act(() => service!.update({ default: preset.id }), true) }}>设为默认</Button> : null}
       <Button isIconOnly size="sm" variant="ghost" aria-label={`查看${preset.label}配置`} title={`查看${preset.label}配置`} isDisabled={busy} onPress={() => { void act(async () => { const result = await service!.read(preset.id); if (result.ok) setDocument({ ...result.value, name: preset.label }); return result }) }}><Icon name="file" size={16} /></Button>
       <Button isIconOnly size="sm" variant="ghost" aria-label={`复制${preset.label}`} title={`复制${preset.label}`} isDisabled={busy || !data?.authorable} onPress={() => { setCopy(preset); setCopyId(''); setCopyName(''); setMessage(undefined) }}><Icon name="copy" size={16} /></Button>
       {preset.trust === 'user' ? <>
@@ -114,7 +114,7 @@ export function AgentPresetSettings({ service, onChanged, onCreate }: {
     {loading && !data ? <p role="status" className={tw('text-sm text-muted')}>正在读取预设…</p> : null}
     {data ? <>
       <div className={tw('flex items-center justify-between gap-4 rounded-xl border border-[var(--panel-border)] p-4')}>
-        <div><h2 className={tw('m-0 text-[13px] font-medium')}>允许切换智能体</h2><p className={tw('mb-0 mt-1 text-xs text-muted')}>仅影响新任务，已有会话保留原预设。</p></div>
+        <div><h2 className={tw("m-0 text-compact font-medium")}>允许切换智能体</h2><p className={tw('mb-0 mt-1 text-xs text-muted')}>仅影响新任务，已有会话保留原预设。</p></div>
         <CompactSwitch label="允许切换智能体" selected={data.modeSelectionEnabled} disabled={busy || !data.writable} onChange={enabled => { void act(() => service!.update({ modeSelectionEnabled: enabled }), true) }} />
       </div>
       {(['system', 'user'] as const).map(trust => <section key={trust} className={tw('space-y-3')}>
@@ -145,8 +145,8 @@ function PluginGrid({ rows, source, inventory }: { rows: readonly LingPresetPlug
       const status = row.enabled === 'conditional' ? '条件启用' : row.enabled ? '已启用' : providers.length ? '由预设提供' : '已停用'
       return <Accordion.Item key={`${row.id}:${index}`} id={`${row.id}:${index}`} className={tw('min-w-0 rounded-xl border border-solid border-[var(--panel-border)] bg-surface px-3')}>
         <Accordion.Trigger className={tw('min-h-16 w-full gap-2 px-0 py-3 text-left')}>
-          <span className={tw('min-w-0 flex-1')}><span className={tw('block truncate text-[13px] font-medium')}>{row.moduleName.replace(/^@deepseek-ai\/dsh-/, '')}</span><span className={tw('mt-1 block truncate font-mono text-[11px] text-muted')}>{row.id ?? '无标识'}</span></span>
-          <span className={tw('shrink-0 rounded-md px-1.5 py-0.5 text-[10px]', row.phase === 'failed' ? 'bg-danger/10 text-danger' : row.enabled === true ? 'bg-success/10 text-success' : 'bg-surface-secondary text-muted')}>{row.phase === 'failed' ? '加载失败' : status}</span><Accordion.Indicator className={tw('size-3 shrink-0 text-muted')} />
+          <span className={tw('min-w-0 flex-1')}><span className={tw("block truncate text-compact font-medium")}>{row.moduleName.replace(/^@deepseek-ai\/dsh-/, '')}</span><span className={tw("mt-1 block truncate font-mono text-caption text-muted")}>{row.id ?? '无标识'}</span></span>
+          <span className={tw("shrink-0 rounded-md px-1.5 py-0.5 text-micro", row.phase === 'failed' ? 'bg-danger/10 text-danger' : row.enabled === true ? 'bg-success/10 text-success' : 'bg-surface-secondary text-muted')}>{row.phase === 'failed' ? '加载失败' : status}</span><Accordion.Indicator className={tw('size-3 shrink-0 text-muted')} />
         </Accordion.Trigger>
         <Accordion.Panel><Accordion.Body className={tw('space-y-2 px-0 pt-0 pb-3 text-xs text-muted')}>
           <dl className={tw('m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2')}>
@@ -177,10 +177,10 @@ export function BuiltinPluginSettings({ service }: { service?: LingExtensionSett
   return <section className={tw('flex w-full min-w-0 max-w-3xl flex-col gap-5')} aria-label="内置插件设置">
     <SettingsHeader title="内置插件" loading={loading} refresh={() => { void refresh() }} openConfig={hasDocument ? () => { void service!.openConfig().then(result => setMessage(result.ok ? undefined : result.message)).catch(() => setMessage('无法打开配置文件。')) } : undefined} />
     {error || message ? <p role="alert" className={tw('m-0 text-xs text-danger')}>{error ?? message}</p> : null}
-    <TextField aria-label="搜索插件" value={query} onChange={setQuery}><div className={tw('relative')}><Icon name="search" size={16} className={tw('pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted')} /><Input placeholder="搜索插件名称或标识" className={tw('h-8 w-full rounded-lg pl-9 text-xs')} /></div></TextField>
+    <TextField aria-label="搜索插件" value={query} onChange={setQuery}><div className={tw('relative')}><Icon name="search" size={16} className={tw('pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted')} /><Input placeholder="搜索插件名称或标识" className={tw("h-control w-full rounded-lg pl-9 text-xs")} /></div></TextField>
     {loading && !data ? <p role="status" className={tw('text-sm text-muted')}>正在读取插件…</p> : null}
     {data ? <>
-      <div className={tw('flex flex-wrap items-center justify-between gap-2')}><h2 className={tw('m-0 text-[13px] font-medium')}>会话插件 <span className={tw('ml-1 text-xs text-muted')}>{rows.length}</span></h2>
+      <div className={tw('flex flex-wrap items-center justify-between gap-2')}><h2 className={tw("m-0 text-compact font-medium")}>会话插件 <span className={tw('ml-1 text-xs text-muted')}>{rows.length}</span></h2>
         {selected ? <CompactSelect label="查看预设插件" value={selected.id} onChange={setChosen} options={data.presets.map(preset => ({ value: preset.id, label: `${preset.label}${preset.isDefault ? '（默认）' : ''}` }))} /> : null}
       </div>
       {selected?.unavailableReason ? <p className={tw('text-xs text-danger')}>{selected.unavailableReason}</p> : null}

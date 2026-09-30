@@ -1,3 +1,4 @@
+import { palettes } from '../theme.js'
 import { CompactSelect, CompactSwitch, SettingsRow as Row, SettingsGroup as Group, SettingsHeader } from './SettingsControls.js'
 import { useState } from 'react'
 import { CompactButton as Button } from './SettingsControls.js'
@@ -35,7 +36,7 @@ export function BehaviorSettings({ section, supportsGoalLimit = false }: { secti
     {section === 'modes' ? <>
       <Group title="当前模式"><Row title="工作模式" description="调整界面展示，不改变任务权限和模型。"><Select title="工作模式" value={preferences.workMode} options={[["coding", "编程"], ["general", "通用"]]} onChange={value => save({ workMode: value as WorkMode })} /></Row></Group>
       {(['coding', 'general'] as const).map(mode => <Group key={mode} title={mode === 'coding' ? '编程' : '通用'}>
-        <Row title="绑定主题" description="切换到此模式时应用。"><Select title={`${mode === 'coding' ? '编程' : '通用'}绑定主题`} value={preferences.modes[mode].palette} options={[["inherit", "保持当前主题"], ["default", "默认"], ["forest", "森林"], ["mint", "薄荷"], ["bee", "蜜蜂"], ["parchment", "羊皮纸"]]} onChange={value => setMode(mode, { palette: value as ModePreferences['palette'] })} /></Row>
+        <Row title="绑定主题" description="切换到此模式时应用。"><Select title={`${mode === 'coding' ? '编程' : '通用'}绑定主题`} value={preferences.modes[mode].palette} options={[["inherit", "保持当前主题"], ...palettes.map(({ id, label }): [string, string] => [id, label])]} onChange={value => setMode(mode, { palette: value as ModePreferences['palette'] })} /></Row>
         {([
           ['locationControls', '运行位置入口', '显示工作区选择、分支菜单和外部应用入口。'],
           ['environmentLabels', '输入区运行环境标签', '在输入框下方显示工作区、运行位置和分支。'],
@@ -56,7 +57,7 @@ export function BehaviorSettings({ section, supportsGoalLimit = false }: { secti
         {booleanRow('collapseProcess', '折叠回复过程', '本轮完成后收起过程消息，保留最终回复。')}
         <Row title="耗时显示格式" description="设置当前轮次计时的显示精度。"><Select title="耗时显示格式" value={preferences.elapsedFormat} options={[["seconds", "整数秒"], ["clock", "分:秒"], ["precise", "精确到 0.1 秒"]]} onChange={value => save({ elapsedFormat: value as BehaviorPreferences['elapsedFormat'] })} /></Row>
         <Row title="思考状态 Loader" description="选择等待回复时的加载动效。"><Select title="思考状态 Loader" value={preferences.thinkingLoader} options={[["matrix", "点阵"], ["spinner", "旋转"], ["dots", "跳动圆点"], ["none", "无"]]} onChange={value => save({ thinkingLoader: value as BehaviorPreferences['thinkingLoader'] })} /></Row>
-        <Row title="思考状态文案" description="每行一条，每 4 秒轮换。"><Button size="sm" variant="secondary" className={tw('h-8 rounded-md text-xs')} onPress={() => { setPhrases(preferences.thinkingPhrases.join('\n')); setEditingPhrases(value => !value) }}>编辑文案</Button></Row>
+        <Row title="思考状态文案" description="每行一条，每 4 秒轮换。"><Button size="sm" variant="secondary" className={tw("h-control rounded-md text-xs")} onPress={() => { setPhrases(preferences.thinkingPhrases.join('\n')); setEditingPhrases(value => !value) }}>编辑文案</Button></Row>
         {editingPhrases ? <div className={tw('grid gap-2 px-4 pb-4')}><TextField aria-label="思考状态文案" value={phrases} onChange={setPhrases}><TextArea className={tw('min-h-24 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] text-xs')} /></TextField><div className={tw('flex justify-end gap-2')}><Button size="sm" variant="ghost" onPress={() => setPhrases(defaultBehavior.thinkingPhrases.join('\n'))}>恢复默认</Button><Button size="sm" isDisabled={!phrases.trim()} onPress={() => { if (save({ thinkingPhrases: phrases.split('\n') })) setEditingPhrases(false) }}>保存</Button></div></div> : null}
         <Row title="目标驱动执行" description={supportsGoalLimit ? '新建目标的最大执行轮次，不影响已有目标。' : '当前运行时尚未提供目标轮次配置。'}><Select title="目标驱动执行" value={String(preferences.goalRounds)} options={[["5", "5 轮"], ["10", "10 轮"], ["20", "20 轮"], ["50", "50 轮"], ["100", "100 轮"], ["256", "256 轮"]]} onChange={value => save({ goalRounds: Number(value) })} disabled={!supportsGoalLimit} /></Row>
       </Group>

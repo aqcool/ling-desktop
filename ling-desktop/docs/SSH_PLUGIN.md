@@ -30,7 +30,87 @@ The server list, credential lifecycle, connection lifecycle and workflow
 actions belong to a LING-owned Host plugin with a narrow Renderer adapter.
 No model tool accepts an SSH address, server ID or credential. A selected server
 is an opaque capability for the task; `remote_run` executes only against that
-binding, with approval for changes and commands outside the recognized inspection subset.
+binding, under the same session permission mode and DSH approval pipeline as local tools.
+
+## Execution architecture
+
+Remote execution now uses the pinned `@deepseek-ai/dsh-fs-ssh`,
+`@deepseek-ai/dsh-subprocess-ssh` and `@deepseek-ai/dsh-sandbox-ssh` providers.
+`desktop/src/ssh/runtime.ts` is an Electron-independent composition of these
+providers. `server-broker.ts` retains only credential/connection ownership and
+LING workflow adapters. Generic commands no longer use a separate ssh2 exec
+implementation; deployment and Git also execute through the DSH subprocess
+provider. Fixed onboarding probes and runtime installation still use SSH exec
+because they run before the helper exists.
+
+`desktop/src/ssh/connection.ts` adapts an authenticated ssh2 channel to the
+public DSH SSH connection contract and uses its RPC protocol and schemas.
+This retains visual password/key capture and host-key confirmation without
+writing credentials to OpenSSH files or environment variables. Stdout, stderr,
+stdin and PTY bytes use separate forwarded, TLS-PSK-authenticated channels.
+The upstream helper owns process groups, cancellation, cleanup and leases.
+Connection loss is reported without replaying the command.
+
+The build copies the exact installed upstream helper and its dependency closure
+unchanged, including Linux/macOS x64 and arm64 native dependencies. On first use,
+LING uploads and verifies the archive under the account's private
+`~/.local/share/ling/ssh-runtime` directory. It reuses a compatible Node.js, or
+obtains a pinned Node.js 22.19.0 distribution from nodejs.org and checks its
+published SHA-256 before installing it in that directory. No global installation,
+SSH config edits or remote npm install is required. A compatible remote Node
+avoids the Node download. Linux confinement requires usable bubblewrap or
+Landlock; macOS uses sandbox-exec. An unavailable sandbox fails closed instead
+of running restricted commands with full access.
+
+### Session permissions
+
+The controller resolves `ctx.sandboxPolicy` for each tool execution. The remote
+workspace replaces the local path in that per-call policy; modes are never
+stored globally on a shared server connection. DSH's existing `tools/pre-execute`
+and approval flow remains the sole approval owner.
+
+- **Read-only:** allows recognized inspections; rejects remote mutations.
+- **Workspace-write:** remote text edits in the workspace use the DSH filesystem
+  sandbox without another prompt. Server state changes, wider writes and unknown
+  shell commands use the existing approval card. An approved escalation applies
+  only to that execution. Upstream temporary-directory allowances still apply.
+- **Full access:** no extra SSH approval is added. In particular, the upstream
+  `approval=never` setting no longer causes LING's forced asks to reject work.
+  Other DSH guards/denials remain authoritative.
+
+Human actions in the private terminal and explicit file-editor saves are direct
+user operations. Private terminal input/output is never fed into normal tool
+results or the execution recorder. The agent may open that panel in both remote
+development and local operations tasks.
+
+### Native DSH composition
+
+The `ling-desktop-host/ssh` export mounts the same three official providers in
+an ordinary DSH Context with `ssh` and `sandboxPolicy` already provided:
+
+```ts
+import { SshConnection } from '@deepseek-ai/dsh-ssh'
+import * as lingSSH from 'ling-desktop-host/ssh'
+
+// ctx is the remote execution scope of the DSH composition, with its
+// normal session projection and sandboxPolicy services already mounted.
+await ctx.plugin(SshConnection, {
+  host: 'my-server',
+  node: '/absolute/path/to/node',
+  helper: '/absolute/path/to/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js',
+  helperHash: '<sha256-of-that-helper>',
+  workspace: '/srv/project',
+})
+await ctx.plugin(lingSSH)
+```
+
+Mount this in the remote execution scope, in place of local fs/subprocess/sandbox
+providers; retain the host's normal session, approval and agent plugins. The
+stock `dsh-ssh` transport uses configured OpenSSH. LING uses its credential broker
+with the same provider contract. The UI and Electron safeStorage window remain
+LING integrations, not a claim that these desktop screens exist in the DSH CLI.
+`ling-desktop-host/ssh-runtime` also exports the same composition as a standalone
+runtime for host adapters. No pinned upstream sources are changed.
 
 ## Current state: visual onboarding and task-scoped remote work
 
@@ -63,20 +143,20 @@ binding, with approval for changes and commands outside the recognized inspectio
   server or obtain the credential. Known local filesystem, shell and terminal
   tools are hidden or denied for these tasks. The session's file browser uses
   the same current directory and supports SHA-256-checked text edits. Its
-  terminal uses a pinned SSH PTY and keeps running when its panel closes. The
+  terminal uses a DSH-managed PTY over pinned SSH and keeps running when its panel closes. The
   Git review, branch and commit controls operate on that server and directory.
 - A local task can separately select a saved operations server from the
   Composer. Its workspace, local tools and Git remain local. The selected
   server is bound to the task before the first prompt and retained by forks;
   an existing local task can attach one server from the same Composer control.
   `server_exec` executes general remote shell commands. Known read-only inspections
-  run directly; state-changing or unclassified commands require approval. It can inspect processes, services, containers and logs, or run
+  follow the session mode described above. It can inspect processes, services, containers and logs, or run
   deployment commands. The model cannot change the bound server or access its
   credential.
 - `server_exec` and `remote_run` share `server-command-policy.ts`. Literal
   inspection commands are checked across every pipeline and command-list stage;
   file writes, service changes, destructive flags, substitutions and unknown
-  scripts still require approval. Existing upstream denials and approval decisions
+  scripts require approval in workspace-write mode. Existing upstream denials and approval decisions
   remain authoritative. Approval cards show the model-provided purpose, the actual
   bound server/directory, a host-derived impact, and the exact expandable command.
   Purpose text never decides whether approval is required.
@@ -89,7 +169,7 @@ binding, with approval for changes and commands outside the recognized inspectio
   still supplies the model's ordinary command output. Private SSH terminal data
   never uses this recorder or enters conversation context.
 - For a local workspace file, `server_deploy_plan` checks the local file and
-  remote destination SHA-256 hashes. `server_deploy_apply` requires approval
+  remote destination SHA-256 hashes. `server_deploy_apply` checks the session permission
   for the exact source and destination, rejects a changed local or remote file,
   streams the file through the pinned SSH connection, checks the transferred
   hash and atomically replaces the remote target. It does not create the
@@ -187,48 +267,23 @@ model subprocess from a live SSH socket or agent. The current Electron-main
 broker is separated from the DSH Host process and Remote, but remains under
 the same OS user and does not satisfy OS-enforced isolation.
 
-## SSH engine choice
+## Verification and remaining boundaries
 
-The direct-connection broker uses `ssh2@1.17.0`. Its `hostVerifier` receives
-the raw server key before authentication, which lets LING show a fingerprint
-without sending a password and reject changed keys on every connection. The
-package publishes CommonJS; Electron main imports its default export, and the
-actual built application has been launched to verify that interop. This module
-format is not part of the credential boundary. `node-ssh` wraps `ssh2`, so
-substituting it would retain the same protocol dependency. Microsoft's Dev
-Tunnels SSH is a different implementation with separate TCP/key packages;
-moving to it requires a full interoperability and packaging test, rather
-than an import-only change.
+The user has completed a real server deployment with the prior LING workflow.
+The DSH-provider migration retains that workflow; it is verified separately
+against a local SSH server and the actual packaged upstream helper. Tests cover
+binary transfers, complete directory replacement, stale-version refusal,
+concurrent filesystem policies, remote shell confinement, streamed large output,
+process-range cancellation, persistent private PTYs and plain DSH plugin loading.
+`corepack yarn check:ling` verifies both LING workspaces without a GUI.
 
-## Implementation order and acceptance gates
+This migration has not been run against the user's production server. The
+cross-platform native dependencies are checked during packaging, but Linux
+end-to-end acceptance still needs a Linux host; local protocol tests run on the
+build host. No application restart or production command is part of these tests.
 
-1. **Usable connection:** credential choice, broker-backed secret capture,
-   host-key review and fixed connection probe now work with password-only and
-   key-only local fixtures without hand-edited SSH files. Still required:
-   durable connect/disconnect state and verification that a permissive local
-   task cannot access the broker or OS credential services.
-2. **Remote workspace:** task selection, login-directory binding, scoped
-   approved command execution, directory changes, session fingerprint recovery,
-   direct file editing, a persistent SSH terminal and visual Git controls are
-   implemented through LING's own plugin. The official `dsh-ssh` assumes an
-   existing noninteractive alias and a preinstalled, hash-matched helper; LING
-   owns its visual onboarding and credential broker instead. Task creation
-   selects only a server ID; after fingerprint verification, the broker supplies
-   the remote login directory as the starting location. Missing or changed
-   pins pause the task with the session recovery UI described above. A live
-   production-server end-to-end acceptance run and stronger same-user process
-   isolation still require separate verification. No upstream source edit is
-   needed.
-3. **Reviewed deployment:** single-file and complete directory SHA-256 preview,
-   exact-path approval, changed-file rejection, staged directory replacement
-   that removes remote-only paths, and reviewed remote-file download are
-   implemented. Text diff preview, symlink deployment and resumable
-   partial-failure handling remain separate acceptance gates. File transfer
-   and directory replacement are tested against an in-process SSH server.
-4. **Operations:** task-bound general remote shell commands cover service,
-   process, container, log and deployment operations with per-call approval.
-   A separate durable local operation log records attempts and outcomes.
-
-For the current prototype, a successful connection test only proves that the
-configured SSH endpoint authenticated and executed the fixed probe at that
-moment. It says nothing about credential isolation or workflow readiness.
+OS isolation from other processes owned by the same local user is not claimed.
+Symlink deployment, text diff preview and resumable transfers remain distinct
+workflow features. A successful fixed connection probe alone does not prove
+helper installation or runtime readiness; actual execution initializes the
+helper and reports installation/confinement failures.

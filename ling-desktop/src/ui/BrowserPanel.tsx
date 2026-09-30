@@ -455,7 +455,7 @@ export function BrowserPanel({
     onSendAnnotations?.(allAnnotations)
   }
 
-  const iconButton = 'grid size-7 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent'
+  const iconButton = "grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
   const localTargets = Array.from(new Map([
     ['http://localhost:5173/', { url: 'http://localhost:5173/', title: '灵创', detail: 'ling-desktop' }],
     ...tabs.flatMap(tab => tab.navigation.entries).filter(url => {
@@ -472,26 +472,26 @@ export function BrowserPanel({
   return (
     <section aria-label="内置浏览器" className={tw('relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--surface)]')}>
       {activeTab.mode === 'annotate' ? (
-        <div className={tw('flex h-10 shrink-0 items-center gap-1 bg-[#eaf7fd] px-2.5 dark:bg-[#1d3440]')}>
+        <div className={tw("flex h-10 shrink-0 items-center gap-1 bg-[var(--info-subtle)] px-2.5")}>
           <button aria-label="结束注释" className={tw(iconButton)} onClick={exitAnnotationMode} type="button"><Icon name="close" size={16} /></button>
           <button aria-label="清空当前页面批注" className={tw(iconButton)} disabled={currentAnnotations.length === 0} onClick={clearCurrentAnnotations} type="button"><Icon name="trash" size={16} /></button>
           <strong className={tw('min-w-0 flex-1 overflow-hidden text-center text-sm font-medium text-[var(--foreground)] text-ellipsis whitespace-nowrap')}>正在批注 · {pageHost(current)}</strong>
           <button aria-label="复制截图" className={tw(iconButton)} disabled={!current || !nativeBrowser} onClick={() => { void copyScreenshot() }} type="button"><Icon name="camera" size={16} /></button>
-          <Button className={tw('h-8 min-w-14 rounded-lg bg-[#4e7d68] px-3 text-xs font-semibold text-white disabled:opacity-45')} isDisabled={allAnnotations.length === 0} onPress={sendAnnotations} size="sm">发送</Button>
+          <Button className={tw("h-control min-w-14 rounded-lg bg-[var(--success)] px-3 text-xs font-semibold text-[var(--success-foreground)] disabled:opacity-45")} isDisabled={allAnnotations.length === 0} onPress={sendAnnotations} size="sm">发送</Button>
         </div>
       ) : (
         <form className={tw('flex h-10 shrink-0 items-center gap-1 px-2.5')} onSubmit={event => { event.preventDefault(); submit() }}>
           <button aria-label="后退" className={tw(iconButton)} disabled={!canGoBack} onClick={() => { load({ ...navigation, index: navigation.index - 1 }) }} type="button"><Icon name="back" size={16} /></button>
           <button aria-label="前进" className={tw(iconButton)} disabled={!canGoForward} onClick={() => { load({ ...navigation, index: navigation.index + 1 }) }} type="button"><Icon name="forward" size={16} /></button>
           <button aria-label="重新加载" className={tw(iconButton)} disabled={!current} onClick={() => { load(navigation) }} type="button"><Icon name="refresh" size={16} /></button>
-          <label className={tw('relative flex h-8 min-w-0 flex-1 items-center')}>
+          <label className={tw("relative flex h-control min-w-0 flex-1 items-center")}>
             <span className={tw('pointer-events-none absolute left-2.5 text-[var(--muted)]')}><Icon name="globe" size={15} /></span>
-            <input aria-label="网页地址" className={tw('h-8 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--field-background)] pr-2.5 pl-8 text-xs text-[var(--field-foreground)] outline-none placeholder:text-[var(--field-placeholder)] focus:border-[var(--focus)] dark:border-[#3c3c41] dark:bg-[#232327]')} onChange={event => { updateTab(activeId, tab => ({ ...tab, draft: event.target.value, failure: undefined })) }} placeholder="输入网址，例如 localhost:3000" ref={addressRef} value={activeTab.draft} />
+            <input aria-label="网页地址" className={tw("h-control min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--field-background)] pr-2.5 pl-8 text-xs text-[var(--field-foreground)] outline-none placeholder:text-[var(--field-placeholder)] focus:border-[var(--focus)]")} onChange={event => { updateTab(activeId, tab => ({ ...tab, draft: event.target.value, failure: undefined })) }} placeholder="输入网址，例如 localhost:3000" ref={addressRef} value={activeTab.draft} />
           </label>
           <button aria-label="注释" aria-pressed="false" className={tw(iconButton)} disabled={!nativeBrowser || !current} onClick={enterAnnotationMode} type="button"><Icon name="annotation" size={16} /></button>
           <button aria-label="复制截图" className={tw(iconButton)} disabled={!nativeBrowser || !current} onClick={() => { void copyScreenshot() }} type="button"><Icon name="camera" size={16} /></button>
           <button aria-label="复制链接" className={tw(iconButton)} disabled={!current} onClick={() => { void copyLink() }} type="button"><Icon name="link" size={16} /></button>
-          <Menu align="end" triggerAriaLabel="更多浏览器操作" triggerClassName="size-7 shrink-0 rounded-md hover:bg-[var(--surface-hover)]" triggerLabel={<Icon name="more" size={16} />}>
+          <Menu align="end" triggerAriaLabel="更多浏览器操作" triggerClassName="size-control-sm shrink-0 rounded-md hover:bg-[var(--surface-hover)]" triggerLabel={<Icon name="more" size={16} />}>
             <MenuItem icon="plus" onPress={addTab}>新标签页</MenuItem>
             <MenuItem disabled={!nativeBrowser || !current} icon="camera" onPress={() => { void copyScreenshot() }}>复制截图</MenuItem>
             <MenuItem disabled={!current} icon="external" onPress={() => { if (current) window.open(current, '_blank', 'noopener,noreferrer') }}>在外部浏览器中打开</MenuItem>
@@ -499,12 +499,12 @@ export function BrowserPanel({
         </form>
       )}
 
-      <div className={tw('flex h-9 shrink-0 items-center gap-1 overflow-x-auto px-2.5 pb-1')} role="tablist" aria-label="当前类型标签页">
+      <div className={tw("flex h-control-lg shrink-0 items-center gap-1 overflow-x-auto px-2.5 pb-1")} role="tablist" aria-label="当前类型标签页">
         {tabs.map(tab => {
           const url = tab.navigation.entries[tab.navigation.index]
           const title = tab.pageTitle ?? (url ? browserTitle(url) : '新标签页')
           return (
-            <div className={tw('inline-flex h-7 max-w-44 shrink-0 items-center gap-0.5 rounded-md px-1 text-xs text-[var(--text-secondary)]', tab.id === activeId && 'bg-[var(--surface-tertiary)] text-[var(--foreground)]')} key={tab.id}>
+            <div className={tw("inline-flex h-control-sm max-w-44 shrink-0 items-center gap-0.5 rounded-md px-1 text-xs text-[var(--text-secondary)]", tab.id === activeId && 'bg-[var(--surface-tertiary)] text-[var(--foreground)]')} key={tab.id}>
               <button aria-selected={tab.id === activeId} className={tw('flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-hidden border-0 bg-transparent px-1.5 text-inherit')} onClick={() => { setActiveId(tab.id) }} role="tab" type="button"><Icon name="globe" size={14} /><span className={tw('overflow-hidden text-ellipsis whitespace-nowrap')}>{title}</span></button>
               <button aria-label={`关闭 ${title} 标签页`} className={tw('grid size-5 shrink-0 place-items-center rounded-sm border-0 bg-transparent p-0 text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]')} onClick={() => { closeTab(tab.id) }} type="button"><Icon name="close" size={11} /></button>
             </div>
@@ -512,10 +512,10 @@ export function BrowserPanel({
         })}
       </div>
 
-      {activeTab.failure !== undefined ? <p className={tw('m-0 px-3 py-1.5 text-[0.72rem] leading-5 text-[#b04c43] dark:text-[#d8837a]')} role="alert">{browserErrorCopy(activeTab.failure)}</p> : null}
-      {activeTab.loading ? <p className={tw('m-0 px-3 py-1 text-[0.7rem] leading-5 text-[var(--muted)]')}>正在打开…</p> : null}
-      {activeTab.loadFailed ? <p className={tw('m-0 px-3 py-1 text-[0.7rem] leading-5 text-[var(--muted)]')}>页面加载失败；请检查地址或在外部浏览器中打开。</p> : null}
-      {copyNotice ? <div className={tw('pointer-events-none absolute right-4 bottom-4 z-30 rounded-lg bg-[#252525] px-3 py-2 text-xs text-white shadow-lg')}>{copyNotice}</div> : null}
+      {activeTab.failure !== undefined ? <p className={tw("m-0 px-3 py-1.5 text-xs leading-5 text-[var(--danger)]")} role="alert">{browserErrorCopy(activeTab.failure)}</p> : null}
+      {activeTab.loading ? <p className={tw("m-0 px-3 py-1 text-caption leading-5 text-[var(--muted)]")}>正在打开…</p> : null}
+      {activeTab.loadFailed ? <p className={tw("m-0 px-3 py-1 text-caption leading-5 text-[var(--muted)]")}>页面加载失败；请检查地址或在外部浏览器中打开。</p> : null}
+      {copyNotice ? <div className={tw("pointer-events-none absolute right-4 bottom-4 z-30 rounded-lg bg-[var(--strong-background)] px-3 py-2 text-xs text-[var(--on-strong)] shadow-lg")}>{copyNotice}</div> : null}
 
       {current === undefined ? (showLocalServices ? (
         <div className={tw('min-h-0 flex-1 overflow-auto px-5 py-5')}>
@@ -523,9 +523,9 @@ export function BrowserPanel({
           <div className={tw('grid gap-1')}>
             {localTargets.map(target => (
               <button className={tw('flex min-w-0 items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left hover:bg-[var(--surface-hover)]')} key={target.url} onClick={() => { openUrl(target.url) }} type="button">
-                <span className={tw('grid size-7 shrink-0 place-items-center rounded-md bg-[var(--surface-tertiary)] text-[var(--text-secondary)]')}><Icon name="globe" size={16} /></span>
-                <span className={tw('min-w-0 flex-1')}><strong className={tw('block overflow-hidden text-sm font-medium text-[var(--foreground)] text-ellipsis whitespace-nowrap')}>{target.title}</strong><small className={tw('block overflow-hidden text-[0.68rem] text-[var(--muted)] text-ellipsis whitespace-nowrap')}>{new URL(target.url).host}</small></span>
-                <small className={tw('shrink-0 text-[0.68rem] text-[var(--muted)]')}>{target.detail}</small>
+                <span className={tw("grid size-control-sm shrink-0 place-items-center rounded-md bg-[var(--surface-tertiary)] text-[var(--text-secondary)]")}><Icon name="globe" size={16} /></span>
+                <span className={tw('min-w-0 flex-1')}><strong className={tw('block overflow-hidden text-sm font-medium text-[var(--foreground)] text-ellipsis whitespace-nowrap')}>{target.title}</strong><small className={tw("block overflow-hidden text-caption text-[var(--muted)] text-ellipsis whitespace-nowrap")}>{new URL(target.url).host}</small></span>
+                <small className={tw("shrink-0 text-caption text-[var(--muted)]")}>{target.detail}</small>
               </button>
             ))}
           </div>
@@ -533,12 +533,12 @@ export function BrowserPanel({
       ) : <div className={tw('flex min-h-0 flex-1 items-center justify-center text-xs text-[var(--text-tertiary)]')}>输入网址开始浏览</div>) : (
         <div className={tw('relative flex min-h-0 flex-1 overflow-hidden')} ref={frameHostRef}>
           {nativeBrowser ? (
-            <webview className={tw('h-full min-h-0 w-full flex-1 bg-white')} data-ling-browser-frame="true" key={`${String(activeId)}:${String(activeTab.revision)}`} partition="persist:ling-browser" ref={webviewRef} src={current} />
+            <webview className={tw('h-full min-h-0 w-full flex-1 bg-[var(--browser-canvas)]')} data-ling-browser-frame="true" key={`${String(activeId)}:${String(activeTab.revision)}`} partition="persist:ling-browser" ref={webviewRef} src={current} />
           ) : (
-            <iframe className={tw('h-full min-h-0 w-full flex-1 border-0 bg-white')} data-ling-browser-frame="true" key={`${String(activeId)}:${current}:${String(activeTab.revision)}`} onError={() => { updateTab(activeId, tab => ({ ...tab, loading: false, loadFailed: true })) }} onLoad={() => { updateTab(activeId, tab => ({ ...tab, loading: false })) }} referrerPolicy="no-referrer" sandbox={WEB_BROWSER_SANDBOX} src={current} title={browserTitle(current)} />
+            <iframe className={tw('h-full min-h-0 w-full flex-1 border-0 bg-[var(--browser-canvas)]')} data-ling-browser-frame="true" key={`${String(activeId)}:${current}:${String(activeTab.revision)}`} onError={() => { updateTab(activeId, tab => ({ ...tab, loading: false, loadFailed: true })) }} onLoad={() => { updateTab(activeId, tab => ({ ...tab, loading: false })) }} referrerPolicy="no-referrer" sandbox={WEB_BROWSER_SANDBOX} src={current} title={browserTitle(current)} />
           )}
           {activeTab.mode === 'annotate' && activeTab.selection ? (
-            <div className={tw('absolute z-20 flex h-12 w-[min(20rem,calc(100%_-_1.5rem))] items-center gap-1.5 rounded-2xl border border-black/5 bg-white px-2.5 shadow-[0_12px_30px_rgb(0_0_0_/_0.16)] dark:border-white/10 dark:bg-[#26262a]')} style={{ left: `${String(editorLeft)}px`, top: `${String(editorTop)}px` }}>
+            <div className={tw("absolute z-20 flex h-12 w-[min(20rem,calc(100%_-_1.5rem))] items-center gap-1.5 rounded-2xl border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 shadow-[var(--overlay-shadow)] border-[var(--panel-border)] bg-[var(--surface)]")} style={{ left: `${String(editorLeft)}px`, top: `${String(editorTop)}px` }}>
               <input aria-label="网页注释评论" className={tw('h-full min-w-0 flex-1 border-0 bg-transparent px-1 text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted)]')} maxLength={1000} onChange={event => { updateTab(activeId, tab => ({ ...tab, annotationDraft: event.target.value })) }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); saveAnnotation() } }} placeholder="添加评论…" ref={commentRef} value={activeTab.annotationDraft} />
               <button aria-label="调整选择" className={tw(iconButton)} title={`${activeTab.selection.tagName} · ${activeTab.selection.selector}`} type="button"><Icon name="target" size={15} /></button>
               <button aria-label="语音输入" className={tw(iconButton)} disabled title="语音输入尚未接入" type="button"><Icon name="mic" size={16} /></button>

@@ -35,15 +35,15 @@ export function GitSettings() {
     <SettingsHeader title="Git" />
     <div className={tw('rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] px-4')}>
       <div className={tw('flex min-h-16 items-center justify-between gap-5 py-3 max-[700px]:flex-wrap')}>
-        <div><h2 className={tw('m-0 text-[13px] font-medium')}>分支前缀</h2><p className={tw('mb-0 mt-1 text-xs text-[var(--text-tertiary)]')}>新建分支和 Worktree 时预填的前缀。</p></div>
-        <TextField aria-label="新分支前缀" className={tw('w-44 shrink-0')} onChange={(branchPrefix: string) => save({ branchPrefix })} value={value.branchPrefix}><Input className={tw('h-8 min-h-8 rounded-md border border-[var(--panel-border)] bg-[var(--surface)] text-xs shadow-none')} placeholder="例如 feature/" /></TextField>
+        <div><h2 className={tw("m-0 text-compact font-medium")}>分支前缀</h2><p className={tw('mb-0 mt-1 text-xs text-[var(--text-tertiary)]')}>新建分支和 Worktree 时预填的前缀。</p></div>
+        <TextField aria-label="新分支前缀" className={tw('w-44 shrink-0')} onChange={(branchPrefix: string) => save({ branchPrefix })} value={value.branchPrefix}><Input className={tw("h-control min-h-control rounded-md border border-[var(--panel-border)] bg-[var(--surface)] text-xs shadow-none")} placeholder="例如 feature/" /></TextField>
       </div>
       <div className={tw('flex min-h-16 items-center justify-between gap-5 py-3 max-[700px]:flex-wrap')}>
-        <div><h2 className={tw('m-0 text-[13px] font-medium')}>默认推送远程</h2><p className={tw('mb-0 mt-1 text-xs text-[var(--text-tertiary)]')}>首次推送时优先选择；已关联上游的分支沿用原配置。</p></div>
-        <TextField aria-label="默认推送远程" className={tw('w-44 shrink-0')} onChange={(defaultRemote: string) => save({ defaultRemote })} value={value.defaultRemote}><Input className={tw('h-8 min-h-8 rounded-md border border-[var(--panel-border)] bg-[var(--surface)] text-xs shadow-none')} placeholder="origin" /></TextField>
+        <div><h2 className={tw("m-0 text-compact font-medium")}>默认推送远程</h2><p className={tw('mb-0 mt-1 text-xs text-[var(--text-tertiary)]')}>首次推送时优先选择；已关联上游的分支沿用原配置。</p></div>
+        <TextField aria-label="默认推送远程" className={tw('w-44 shrink-0')} onChange={(defaultRemote: string) => save({ defaultRemote })} value={value.defaultRemote}><Input className={tw("h-control min-h-control rounded-md border border-[var(--panel-border)] bg-[var(--surface)] text-xs shadow-none")} placeholder="origin" /></TextField>
       </div>
       <div className={tw('flex min-h-16 items-center justify-between gap-5 py-3')}>
-        <div><h2 className={tw('m-0 text-[13px] font-medium')}>显示未跟踪文件</h2><p className={tw('mb-0 mt-1 text-xs text-[var(--text-tertiary)]')}>在审阅中显示尚未加入 Git 的文件。</p></div>
+        <div><h2 className={tw("m-0 text-compact font-medium")}>显示未跟踪文件</h2><p className={tw('mb-0 mt-1 text-xs text-[var(--text-tertiary)]')}>在审阅中显示尚未加入 Git 的文件。</p></div>
         <CompactSwitch label="显示未跟踪文件" selected={value.showUntracked} onChange={showUntracked => save({ showUntracked })} />
       </div>
     </div>
@@ -53,7 +53,7 @@ export function GitSettings() {
 
 type Selection = { path: string; staged: boolean }
 type Dialog = 'branch' | 'worktree' | 'push' | 'remove' | null
-const smallButton = 'h-7 min-w-7 gap-1 rounded-md px-2 text-xs'
+const smallButton = "h-control-sm min-w-7 gap-1 rounded-md px-2 text-xs"
 
 export function gitDiffRows(diff: string) {
   const lines = diff.split('\n')
@@ -76,7 +76,7 @@ export function gitDiffRows(diff: string) {
 
 function GitDiff({ diff }: { diff: string }) {
   return <div className={tw('min-w-full w-max')}>{gitDiffRows(diff).map((line, index) => <div className={tw('flex min-h-5 font-mono text-xs leading-5', line.kind === 'added' ? 'bg-[color-mix(in_oklch,var(--success)_8%,transparent)]' : line.kind === 'deleted' ? 'bg-[color-mix(in_oklch,var(--danger)_8%,transparent)]' : line.kind === 'note' ? 'bg-[var(--surface-secondary)] text-[var(--text-tertiary)]' : 'text-[var(--text-secondary)]')} key={index}>
-    {line.kind === 'note' ? <span className={tw('whitespace-pre px-3 py-1 text-[11px]')}>{line.text}</span> : <><span aria-hidden="true" className={tw('flex w-17 shrink-0 select-none justify-end gap-2 px-2 text-[10px] tabular-nums text-[var(--text-tertiary)]')}><span className={tw('w-5 text-right')}>{line.old}</span><span className={tw('w-5 text-right')}>{line.next}</span></span><span className={tw('w-4 shrink-0 select-none', line.kind === 'added' ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>{line.kind === 'added' ? '+' : line.kind === 'deleted' ? '−' : ''}</span><span className={tw('whitespace-pre pr-4 text-[var(--foreground)]')}>{line.text || '\u00a0'}</span></>}
+    {line.kind === 'note' ? <span className={tw("whitespace-pre px-3 py-1 text-caption")}>{line.text}</span> : <><span aria-hidden="true" className={tw("flex w-17 shrink-0 select-none justify-end gap-2 px-2 text-micro tabular-nums text-[var(--text-tertiary)]")}><span className={tw('w-5 text-right')}>{line.old}</span><span className={tw('w-5 text-right')}>{line.next}</span></span><span className={tw('w-4 shrink-0 select-none', line.kind === 'added' ? 'text-[var(--success)]' : 'text-[var(--danger)]')}>{line.kind === 'added' ? '+' : line.kind === 'deleted' ? '−' : ''}</span><span className={tw('whitespace-pre pr-4 text-[var(--foreground)]')}>{line.text || '\u00a0'}</span></>}
   </div>)}</div>
 }
 
@@ -175,56 +175,56 @@ export function GitPanel({ workspaceId, request, view = 'review', onChanged, onB
   const openBranch = (worktree: boolean) => { setNewBranch(true); setBranch(preferences.branchPrefix); setDirectory(''); setError(''); setDialog(worktree ? 'worktree' : 'branch') }
   const matches = (file: LingGitFile) => file.path.toLocaleLowerCase().includes(query.toLocaleLowerCase())
   const fileRow = (file: LingGitFile, staged: boolean) => <div className={tw('group flex min-w-0 items-center gap-1 rounded-md px-1 hover:bg-[var(--surface-hover)]', selection?.path === file.path && selection.staged === staged && 'bg-[var(--surface-tertiary)]')} key={file.path}>
-    <button className={tw('flex h-8 min-w-0 flex-1 items-center gap-2 border-0 bg-transparent px-1 text-left text-xs')} onClick={() => { void showDiff({ path: file.path, staged }) }} title={file.originalPath ? `${file.originalPath} → ${file.path}` : file.path} type="button"><span className={tw('w-3 shrink-0 font-mono font-semibold', file.conflict ? 'text-[var(--danger)]' : 'text-[var(--success)]')}>{file.conflict ? '!' : file.index === '?' ? 'U' : staged ? file.index : file.worktree}</span><span className={tw('truncate')}>{file.path}</span></button>
+    <button className={tw("flex h-control min-w-0 flex-1 items-center gap-2 border-0 bg-transparent px-1 text-left text-xs")} onClick={() => { void showDiff({ path: file.path, staged }) }} title={file.originalPath ? `${file.originalPath} → ${file.path}` : file.path} type="button"><span className={tw('w-3 shrink-0 font-mono font-semibold', file.conflict ? 'text-[var(--danger)]' : 'text-[var(--success)]')}>{file.conflict ? '!' : file.index === '?' ? 'U' : staged ? file.index : file.worktree}</span><span className={tw('truncate')}>{file.path}</span></button>
     <Button aria-label={`${staged ? '取消暂存' : '暂存'} ${file.path}`} className={tw('size-6 min-w-6 p-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100')} isDisabled={busy} onPress={() => { void execute({ type: staged ? 'unstage' : 'stage', paths: [file.path] }) }} size="sm" variant="ghost"><Icon name={staged ? 'minus' : 'plus'} size={14} /></Button>
   </div>
 
   return <section aria-label="Git 工作区" className={tw('flex min-h-0 min-w-0 flex-1 flex-col gap-3 text-[var(--foreground)] [container:git/inline-size]')}>
-    {view === 'review' ? <div className={tw('flex h-9 shrink-0 items-center gap-1 px-3')}>
-      <Menu align="start" triggerAriaLabel="选择改动来源" triggerClassName="h-7 gap-1.5 rounded-md px-2 text-xs" triggerLabel={<>{scope === 'all' ? '未提交' : scope === 'staged' ? '已暂存' : '未暂存'}<Icon name="chevronDown" size={12} /></>}>
+    {view === 'review' ? <div className={tw("flex h-control-lg shrink-0 items-center gap-1 px-3")}>
+      <Menu align="start" triggerAriaLabel="选择改动来源" triggerClassName="h-control-sm gap-1.5 rounded-md px-2 text-xs" triggerLabel={<>{scope === 'all' ? '未提交' : scope === 'staged' ? '已暂存' : '未暂存'}<Icon name="chevronDown" size={12} /></>}>
         {onTaskReview ? <MenuItem onPress={onTaskReview}>最近一轮</MenuItem> : null}
         <MenuItem onPress={() => setScope('all')}>未提交</MenuItem><MenuItem onPress={() => setScope('unstaged')}>未暂存</MenuItem><MenuItem onPress={() => setScope('staged')}>已暂存</MenuItem>
       </Menu>
       <span className={tw('min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)] @max-[22rem]/git:invisible')} title={state?.branch ?? ''}>{state?.branch}</span>
       <Button aria-label="刷新 Git 状态" className={tw(smallButton)} isDisabled={busy} onPress={() => { void execute({ type: 'inspect' }) }} size="sm" variant="ghost"><Icon name="refresh" size={14} /></Button>
-      <Menu triggerAriaLabel="Git 操作" triggerClassName="size-7 min-w-7 rounded-md p-0" triggerLabel={<Icon name="more" size={15} />}>
+      <Menu triggerAriaLabel="Git 操作" triggerClassName="size-control-sm min-w-7 rounded-md p-0" triggerLabel={<Icon name="more" size={15} />}>
         <MenuItem disabled={busy || !state?.remotes.length} icon="refresh" onPress={() => { void execute({ type: 'fetch' }) }}>获取远程更新</MenuItem>
         <MenuItem disabled={busy || !state?.upstream} icon="download" onPress={() => { void execute({ type: 'pull' }) }}>拉取</MenuItem>
       </Menu>
       <Button className={tw(smallButton)} isDisabled={!state?.repository || busy} onPress={onCommit} size="sm" variant="secondary"><Icon name="gitCommit" size={14} />提交或推送</Button>
     </div> : view === 'commit' ? <div className={tw('flex items-center justify-between gap-3')}>
-      <span className={tw('text-[13px] text-[var(--text-secondary)]')}>分支</span>
-      <button className={tw('flex h-8 max-w-64 items-center gap-2 rounded-md border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 text-xs')} disabled={!state?.repository || busy} onClick={() => openBranch(false)} title="切换或创建分支" type="button"><Icon name="branch" size={14} /><span className={tw('truncate')}>{state?.branch ?? '加载中'}</span><Icon name="chevronDown" size={12} /></button>
+      <span className={tw("text-compact text-[var(--text-secondary)]")}>分支</span>
+      <button className={tw("flex h-control max-w-64 items-center gap-2 rounded-md border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 text-xs")} disabled={!state?.repository || busy} onClick={() => openBranch(false)} title="切换或创建分支" type="button"><Icon name="branch" size={14} /><span className={tw('truncate')}>{state?.branch ?? '加载中'}</span><Icon name="chevronDown" size={12} /></button>
     </div> : null}
     {error ? <p role="alert" className={tw('m-0 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-secondary)] p-3 text-xs text-[var(--danger)]')}>{error}</p> : null}
     {notice || busy ? <p role="status" className={tw('m-0 px-3 text-xs text-[var(--text-secondary)]')}>{busy ? '正在执行 Git 操作…' : notice}</p> : null}
     {!state ? <p className={tw('py-8 text-center text-sm text-[var(--text-tertiary)]')}>{error ? '无法加载 Git 状态' : '正在读取仓库…'}</p> : !state.repository ? <p className={tw('py-8 text-center text-sm text-[var(--text-tertiary)]')}>当前工作区不是 Git 仓库</p> : view === 'commit' ? <>
-      <div className={tw('flex items-center justify-between py-2 text-[13px]')}><span>已暂存 {staged.length} 个文件</span><Button className={tw(smallButton)} isDisabled={busy} onPress={onReview} size="sm" variant="ghost">审阅更改<Icon name="external" size={12} /></Button></div>
+      <div className={tw("flex items-center justify-between py-2 text-compact")}><span>已暂存 {staged.length} 个文件</span><Button className={tw(smallButton)} isDisabled={busy} onPress={onReview} size="sm" variant="ghost">审阅更改<Icon name="external" size={12} /></Button></div>
       {staged.length ? <div className={tw('max-h-24 overflow-auto rounded-lg bg-[var(--surface-secondary)] px-3 py-2')}>{staged.map(file => <div className={tw('truncate py-0.5 text-xs text-[var(--text-secondary)]')} key={file.path} title={file.path}>{file.path}</div>)}</div> : <p className={tw('m-0 text-xs text-[var(--text-tertiary)]')}>尚无已暂存更改</p>}
-      <TextField aria-label="提交说明" isDisabled={busy} onChange={setMessage} value={message}><TextArea className={tw('min-h-24 resize-none rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] text-[13px] shadow-none')} placeholder="输入提交信息…" /></TextField>
+      <TextField aria-label="提交说明" isDisabled={busy} onChange={setMessage} value={message}><TextArea className={tw("min-h-24 resize-none rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] text-compact shadow-none")} placeholder="输入提交信息…" /></TextField>
       {conflicts.length ? <p className={tw('m-0 text-xs text-[var(--danger)]')}>请先解决 {conflicts.length} 个冲突</p> : null}
       <div className={tw('mt-2 flex justify-end gap-2')}>
-        <Button className={tw('h-8 rounded-lg px-3 text-[13px]')} isDisabled={busy || !state.remotes.length || state.unborn || state.detached} onPress={() => { setRemote(state.remotes.includes(preferences.defaultRemote) ? preferences.defaultRemote : state.remotes[0] ?? ''); setDialog('push') }} size="sm" variant="secondary">推送{state.upstream && state.ahead ? ` · ${state.ahead}` : ''}</Button>
-        <Button className={tw('h-8 rounded-lg px-4 text-[13px]')} isDisabled={busy || !staged.length || !!conflicts.length || !message.trim()} onPress={() => { void execute({ type: 'commit', message }).then(ok => { if (ok) setMessage('') }) }} size="sm"><Icon name="gitCommit" size={14} />提交</Button>
+        <Button className={tw("h-control rounded-lg px-3 text-compact")} isDisabled={busy || !state.remotes.length || state.unborn || state.detached} onPress={() => { setRemote(state.remotes.includes(preferences.defaultRemote) ? preferences.defaultRemote : state.remotes[0] ?? ''); setDialog('push') }} size="sm" variant="secondary">推送{state.upstream && state.ahead ? ` · ${state.ahead}` : ''}</Button>
+        <Button className={tw("h-control rounded-lg px-4 text-compact")} isDisabled={busy || !staged.length || !!conflicts.length || !message.trim()} onPress={() => { void execute({ type: 'commit', message }).then(ok => { if (ok) setMessage('') }) }} size="sm"><Icon name="gitCommit" size={14} />提交</Button>
       </div>
     </> : view === 'review' ? <div className={tw('grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_11rem] overflow-hidden @max-[26rem]/git:grid-cols-1 @max-[26rem]/git:grid-rows-[auto_minmax(0,1fr)]')}>
       <div className={tw('flex min-h-0 min-w-0 flex-col @max-[26rem]/git:row-start-2')}>
-        {selection ? <div className={tw('flex h-8 shrink-0 items-center gap-2 px-4 text-xs text-[var(--text-secondary)]')}><Icon name="file" size={13} /><span className={tw('truncate')} title={selection.path}>{selection.path}</span></div> : null}
+        {selection ? <div className={tw("flex h-control shrink-0 items-center gap-2 px-4 text-xs text-[var(--text-secondary)]")}><Icon name="file" size={13} /><span className={tw('truncate')} title={selection.path}>{selection.path}</span></div> : null}
         <div aria-label="Git 差异" className={tw('min-h-0 flex-1 overflow-auto py-2 font-mono text-xs leading-5')}>
           {selection ? diffLoading ? '正在读取差异…' : <GitDiff diff={diff} /> : <div className={tw('flex h-full min-h-36 flex-col items-center justify-center gap-3 text-[var(--text-tertiary)]')}><Icon name="review" size={28} /><span className={tw('font-sans text-xs')}>{state.files.length ? '选择文件查看差异' : '没有未提交的更改'}</span></div>}
         </div>
       </div>
       <div className={tw('flex min-h-0 min-w-0 flex-col gap-2 border-l border-[var(--panel-border)] px-2 @max-[26rem]/git:max-h-44 @max-[26rem]/git:border-l-0')}>
-        <TextField aria-label="筛选更改文件" onChange={setQuery} value={query}><Input className={tw('h-7 min-h-7 rounded-md border border-[var(--panel-border)] bg-[var(--surface)] px-2 text-xs shadow-none')} placeholder="筛选文件…" /></TextField>
+        <TextField aria-label="筛选更改文件" onChange={setQuery} value={query}><Input className={tw("h-control-sm min-h-control-sm rounded-md border border-[var(--panel-border)] bg-[var(--surface)] px-2 text-xs shadow-none")} placeholder="筛选文件…" /></TextField>
         <div className={tw('min-h-0 flex-1 overflow-auto pb-3')}>
           {conflicts.length ? <><h3 className={tw('my-2 text-xs font-medium text-[var(--danger)]')}>冲突 · {conflicts.length}</h3>{conflicts.filter(matches).map(file => fileRow(file, false))}</> : null}
           {[{ title: '已暂存', files: staged, staged: true }, { title: '未暂存', files: unstaged, staged: false }].filter(group => scope === 'all' || (scope === 'staged') === group.staged).map(group => <div key={group.title}>
-            <div className={tw('mb-1 mt-2 flex h-6 items-center justify-between gap-1')}><h3 className={tw('m-0 text-xs font-normal text-[var(--text-tertiary)]')}>{group.title} · {group.files.length}</h3><Button aria-label={group.staged ? '全部取消暂存' : '全部暂存'} className={tw('size-6 min-w-6 rounded-md p-0')} isDisabled={busy || !group.files.length} onPress={() => { void execute({ type: group.staged ? 'unstage' : 'stage', paths: group.files.map(file => file.path) }) }} size="sm" variant="ghost"><Icon name={group.staged ? 'minus' : 'plus'} size={13} /></Button></div>{group.files.filter(matches).map(file => fileRow(file, group.staged))}
+            <div className={tw("mb-1 mt-2 flex h-control-xs items-center justify-between gap-1")}><h3 className={tw('m-0 text-xs font-normal text-[var(--text-tertiary)]')}>{group.title} · {group.files.length}</h3><Button aria-label={group.staged ? '全部取消暂存' : '全部暂存'} className={tw("size-control-xs min-w-6 rounded-md p-0")} isDisabled={busy || !group.files.length} onPress={() => { void execute({ type: group.staged ? 'unstage' : 'stage', paths: group.files.map(file => file.path) }) }} size="sm" variant="ghost"><Icon name={group.staged ? 'minus' : 'plus'} size={13} /></Button></div>{group.files.filter(matches).map(file => fileRow(file, group.staged))}
           </div>)}
         </div>
       </div>
     </div> : <div className={tw('min-h-0 flex-1')}>
-      <div className={tw('mb-3 flex items-center justify-between')}><h2 className={tw('m-0 text-[13px] font-normal text-[var(--text-tertiary)]')}>工作树 · {state.worktrees.length}</h2><div className={tw('flex gap-1')}><Button aria-label="刷新 Git 状态" className={tw(smallButton)} isDisabled={busy} onPress={() => { void execute({ type: 'inspect' }) }} size="sm" variant="ghost"><Icon name="refresh" size={14} /></Button><Button className={tw(smallButton)} isDisabled={busy || state.unborn} onPress={() => openBranch(true)} size="sm" variant="secondary"><Icon name="plus" size={14} />新建 Worktree</Button></div></div>
+      <div className={tw('mb-3 flex items-center justify-between')}><h2 className={tw("m-0 text-compact font-normal text-[var(--text-tertiary)]")}>工作树 · {state.worktrees.length}</h2><div className={tw('flex gap-1')}><Button aria-label="刷新 Git 状态" className={tw(smallButton)} isDisabled={busy} onPress={() => { void execute({ type: 'inspect' }) }} size="sm" variant="ghost"><Icon name="refresh" size={14} /></Button><Button className={tw(smallButton)} isDisabled={busy || state.unborn} onPress={() => openBranch(true)} size="sm" variant="secondary"><Icon name="plus" size={14} />新建 Worktree</Button></div></div>
       <div className={tw('rounded-xl border border-[var(--panel-border)] px-4')}>
         {state.worktrees.map(tree => <div className={tw('group flex min-h-16 items-center gap-3 border-b border-dashed border-[var(--panel-border)] py-4 last:border-b-0')} key={tree.path}>
           <Icon className={tw('shrink-0 text-[var(--text-secondary)]')} name="branch" size={16} /><div className={tw('min-w-0 flex-1')}><div className={tw('flex flex-wrap items-center gap-2 text-sm')}><strong className={tw('truncate font-medium')}>{tree.branch ?? tree.head.slice(0, 8)}</strong><span className={tw('text-xs text-[var(--text-tertiary)]')}>{tree.main ? '主工作区' : tree.path === state.root ? '当前工作区' : tree.locked ? '已锁定' : tree.prunable ? '目录不可用' : ''}</span></div><p className={tw('mb-0 mt-1 truncate text-xs text-[var(--text-tertiary)]')} title={tree.path}>{tree.path}</p></div>
@@ -299,16 +299,16 @@ export function GitBranchMenu({ workspaceId, branch, request, onChanged, onRevie
     finally { pending.current = false; if (mounted.current) setBusy(false) }
   }
   const navigate = (callback: () => void) => { setOpen(false); callback() }
-  const row = 'flex h-8 w-full min-w-0 items-center justify-start gap-2 rounded-md px-2 text-xs font-normal text-[var(--text-secondary)]'
+  const row = "flex h-control w-full min-w-0 items-center justify-start gap-2 rounded-md px-2 text-xs font-normal text-[var(--text-secondary)]"
   return <Popover isOpen={open} onOpenChange={(value: boolean) => { if (!busy) setOpen(value) }}>
-    <Button aria-label={`当前分支：${branch ?? '未初始化'}`} className={tw('h-6 min-w-0 max-w-[35%] shrink gap-1.5 rounded-md px-0.5 text-xs text-[var(--text-secondary)]')} size="sm" variant="ghost"><Icon name="branch" size={14} /><span className={tw('truncate font-semibold text-[var(--foreground)]')}>{branch ?? 'Git'}</span><Icon name="chevronDown" size={11} /></Button>
-    <Popover.Content className={tw('w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] p-1.5 shadow-[0_8px_28px_rgb(0_0_0_/_0.12)]')} offset={8} placement="top start">
+    <Button aria-label={`当前分支：${branch ?? '未初始化'}`} className={tw("h-control-xs min-w-0 max-w-[35%] shrink gap-1.5 rounded-md px-0.5 text-xs text-[var(--text-secondary)]")} size="sm" variant="ghost"><Icon name="branch" size={14} /><span className={tw('truncate font-semibold text-[var(--foreground)]')}>{branch ?? 'Git'}</span><Icon name="chevronDown" size={11} /></Button>
+    <Popover.Content className={tw("w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] p-1.5 shadow-[var(--overlay-shadow)]")} offset={8} placement="top start">
       <Popover.Dialog aria-label="分支与更改" className={tw('p-0')}>
         {creating ? <form className={tw('grid gap-2 p-1')} onSubmit={event => { event.preventDefault(); if (name.trim()) void switchBranch('create-branch', name.trim()) }}>
-          <TextField autoFocus aria-label="新分支名称" isDisabled={busy} onChange={setName} value={name}><Input className={tw('h-8 min-h-8 rounded-md border border-[var(--panel-border)] bg-[var(--surface)] px-2 text-xs shadow-none')} placeholder="分支名称" /></TextField>
+          <TextField autoFocus aria-label="新分支名称" isDisabled={busy} onChange={setName} value={name}><Input className={tw("h-control min-h-control rounded-md border border-[var(--panel-border)] bg-[var(--surface)] px-2 text-xs shadow-none")} placeholder="分支名称" /></TextField>
           <div className={tw('flex justify-end gap-1')}><Button className={tw(smallButton)} isDisabled={busy} onPress={() => setCreating(false)} size="sm" variant="ghost">取消</Button><Button className={tw(smallButton)} isDisabled={busy || !name.trim()} size="sm" type="submit">创建并切换</Button></div>
         </form> : <>
-          <TextField aria-label="搜索分支" onChange={setQuery} value={query}><Input className={tw('h-8 min-h-8 rounded-md border-0 bg-[var(--surface-secondary)] px-2 text-xs shadow-none')} placeholder="搜索分支…" /></TextField>
+          <TextField aria-label="搜索分支" onChange={setQuery} value={query}><Input className={tw("h-control min-h-control rounded-md border-0 bg-[var(--surface-secondary)] px-2 text-xs shadow-none")} placeholder="搜索分支…" /></TextField>
           <div className={tw('max-h-48 overflow-auto py-1')}>
             {state?.branches.filter(value => value.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(value => <Button aria-label={`切换到 ${value}`} className={tw(row, value === state.branch && 'bg-[var(--surface-secondary)] text-[var(--foreground)]')} aria-pressed={value === state.branch} isDisabled={busy} key={value} onPress={() => { if (value !== state.branch) void switchBranch('switch', value) }} size="sm" variant="ghost"><Icon name="branch" size={14} /><span className={tw('min-w-0 flex-1 truncate text-left')}>{value}</span>{value === state.branch ? <Icon name="check" size={13} /> : null}</Button>)}
             {!state && !error ? <p className={tw('px-2 text-xs text-[var(--text-tertiary)]')}>正在读取分支…</p> : state && !state.branches.length ? <p className={tw('px-2 text-xs text-[var(--text-tertiary)]')}>{state.repository ? '首次提交后可创建分支' : '当前工作区不是 Git 仓库'}</p> : null}

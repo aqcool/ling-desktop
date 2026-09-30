@@ -2,6 +2,7 @@ import { posix } from 'node:path'
 import type { LingGitFile, LingGitRequest, LingGitResult, LingGitSnapshot, LingGitWorktree } from 'ling-desktop/runtime'
 import type { ServerCommandResult } from '../server-broker.ts'
 import { shellQuote } from '../server-deployment.ts'
+import { readGitLineChanges } from '../git-line-changes.ts'
 
 export interface RemoteGitConnection {
   run(serverId: string, cwd: string, command: string, signal: AbortSignal, outputLimit?: number): Promise<ServerCommandResult>
@@ -47,7 +48,7 @@ export class RemoteWorkspaceGit {
     return result.stdout
   }
 
-  async inspect(binding: RemoteGitBinding, signal: AbortSignal): Promise<LingGitSnapshot> {
+  async inspect(binding: RemoteGitBinding, signal: AbortSignal, includeLineChanges = false): Promise<LingGitSnapshot> {
     const empty: LingGitSnapshot = { repository: false, root: binding.cwd, branch: null, detached: false, unborn: false,
       upstream: null, ahead: 0, behind: 0, files: [], branches: [], remotes: [], worktrees: [] }
     let root: string
@@ -66,16 +67,18 @@ export class RemoteWorkspaceGit {
     ])
     const worktrees = await this.git(atRoot, ['worktree', 'list', '--porcelain', '-z'], signal)
     const counts = upstream ? (await this.git(atRoot, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], signal)).trim().split(/\s+/).map(Number) : [0, 0]
+    const files = parseFiles(status)
+    const lineChanges = includeLineChanges ? await readGitLineChanges((args, allowed) => this.git(atRoot, args, signal, allowed), files, !head.trim()) : undefined
     return { repository: true, root, branch: branch.trim() || head.trim().slice(0, 8) || null,
       detached: !branch.trim() && !!head.trim(), unborn: !head.trim(), upstream: upstream.trim() || null,
-      ahead: counts[0] ?? 0, behind: counts[1] ?? 0, files: parseFiles(status),
+      ahead: counts[0] ?? 0, behind: counts[1] ?? 0, files, ...(lineChanges ? { lineChanges } : {}),
       branches: branches.trim().split('\n').filter(Boolean), remotes: remotes.trim().split('\n').filter(Boolean),
       worktrees: parseWorktrees(worktrees) }
   }
 
   async handle(binding: RemoteGitBinding, request: LingGitRequest, signal: AbortSignal,
     onOpenWorktree: (path: string) => Promise<void>): Promise<LingGitResult> {
-    const state = await this.inspect(binding, signal)
+    const state = await this.inspect(binding, signal, request.type === 'inspect' && request.lineChanges === true)
     if (request.type === 'inspect') return { snapshot: state }
     if (!state.repository) throw new Error('当前远端目录不是 Git 仓库。')
     const atRoot = { ...binding, cwd: state.root }

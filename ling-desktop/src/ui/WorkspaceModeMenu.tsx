@@ -62,7 +62,7 @@ export function WorkspaceModeMenu({ workspaceId, request, interactive, taskSelec
   }
   const label = <><Icon name={serverId ? 'globe' : linked ? 'branch' : 'desktop'} size={14} /><span>{serverId ? '服务器' : snapshot ? linked ? 'Worktree' : '本地' : '运行位置'}</span></>
   return <>
-    {interactive ? <Menu align="start" triggerAriaLabel="切换运行位置" triggerClassName="h-6 min-h-0 gap-1.5 rounded-md px-0.5 text-xs" listClassName="w-44 min-w-44" triggerLabel={label}>
+    {interactive ? <Menu align="start" triggerAriaLabel="切换运行位置" triggerClassName="h-control-xs min-h-0 gap-1.5 rounded-md px-0.5 text-xs" listClassName="w-44 min-w-44" triggerLabel={label}>
       <MenuItem icon="desktop" checked={!serverId && !linked} disabled={busy || (!serverId && linked && !mainPath)} onPress={() => {
         if (serverId) onSelectLocal?.()
         else if (linked && mainPath) setOpen(true)
@@ -71,7 +71,7 @@ export function WorkspaceModeMenu({ workspaceId, request, interactive, taskSelec
       {servers.length ? <><MenuSeparator /><MenuLabel>服务器</MenuLabel>{servers.map(server => (
         <MenuItem key={server.id} icon="globe" checked={serverId === server.id} disabled={busy} onPress={() => onSelectServer?.(server.id)}>{server.name}</MenuItem>
       ))}</> : null}
-    </Menu> : <span className={tw('inline-flex h-6 items-center gap-1.5')}>{label}</span>}
+    </Menu> : <span className={tw("inline-flex h-control-xs items-center gap-1.5")}>{label}</span>}
     {workspaceId && request ? <Modal.Backdrop isOpen={open} onOpenChange={(value: boolean) => { if (!busy) setOpen(value) }}><Modal.Container size="lg"><Modal.Dialog>
       {!busy ? <Modal.CloseTrigger /> : null}
       <Modal.Header><Modal.Heading>选择运行目录</Modal.Heading>{taskSelected ? <p className={tw('mb-0 mt-1 text-xs text-[var(--text-secondary)]')}>将在所选目录中新建任务，当前会话保留。</p> : null}</Modal.Header>

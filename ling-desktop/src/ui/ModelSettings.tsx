@@ -213,7 +213,7 @@ function AuthorizationDialog({
             <div className={tw("authorization-dialog__status flex min-h-[3.3rem] items-center gap-3")}>
               <span className={tw(
                 "authorization-dialog__indicator grid size-[2.35rem] flex-none place-items-center rounded-full bg-[var(--surface-tertiary)] text-[var(--text-secondary)]",
-                pending && "authorization-dialog__indicator--pending text-[#4f7f64] ring-4 ring-[#4f7f641a]",
+                pending && "authorization-dialog__indicator--pending text-[var(--success)] ring-4 ring-[var(--focus)]",
                 succeeded && "authorization-dialog__indicator--success bg-[color-mix(in_oklab,var(--success)_14%,var(--surface))] text-[var(--success)]",
               )}>
                 <Icon name={succeeded ? 'check' : 'shield'} size={18} />
@@ -225,7 +225,7 @@ function AuthorizationDialog({
             </div>
 
             {pending && latestAction?.code ? (
-              <div className={tw("authorization-dialog__code grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[0.65rem] border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-3 py-2.5") }>
+              <div className={tw("authorization-dialog__code grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-3 py-2.5") }>
                 <span className={tw("text-xs text-[var(--text-secondary)]")}>验证码</span>
                 <strong className={tw("font-mono text-base tracking-[0.08em]")}>{latestAction.code}</strong>
                 <Button onPress={() => { void navigator.clipboard.writeText(latestAction.code ?? '') }} size="sm" variant="ghost">
@@ -253,8 +253,8 @@ function AuthorizationDialog({
                 {prompt.prompt.options?.map(option => (
                   <Button className={tw("min-h-12 w-full justify-between")} key={option.id} onPress={() => { answer(option.id) }} variant="secondary">
                     <span className={tw("grid text-left")}>
-                      <strong className={tw("text-[0.82rem]")}>{option.label}</strong>
-                      {option.description ? <small className={tw("mt-0.5 text-[0.7rem] text-[var(--text-tertiary)]")}>{option.description}</small> : null}
+                      <strong className={tw("text-compact")}>{option.label}</strong>
+                      {option.description ? <small className={tw("mt-0.5 text-caption text-[var(--text-tertiary)]")}>{option.description}</small> : null}
                     </span>
                     <Icon name="chevronRight" size={16} />
                   </Button>
@@ -319,15 +319,15 @@ function AuthorizationEditor({
   return (
     <section className={tw("model-provider__authorization grid gap-3 rounded-xl border border-[var(--panel-border)] bg-[var(--surface-secondary)] p-3")}>
       <div className={tw("grid gap-0.5")}>
-        <strong className={tw("text-[13px] font-medium")}>ChatGPT 账号</strong>
+        <strong className={tw("text-compact font-medium")}>ChatGPT 账号</strong>
         <span className={tw("text-xs leading-5 text-[var(--text-secondary)]")}>{authorization.configured ? '已连接，可使用 Codex 订阅模型' : '使用 ChatGPT Plus、Pro 或团队账号'}</span>
       </div>
       <div className={tw("model-provider__authorization-actions flex flex-wrap gap-2")}>
-        <Button className={tw("h-8 min-h-8 text-xs")} isDisabled={!writable || authorization.inFlight || signingOut} onPress={() => { setOpen(true) }} size="sm">
+        <Button className={tw("h-control min-h-control text-xs")} isDisabled={!writable || authorization.inFlight || signingOut} onPress={() => { setOpen(true) }} size="sm">
           {authorization.configured ? '重新登录' : '使用 ChatGPT 登录'}
         </Button>
         {authorization.configured ? (
-          <Button className={tw("h-8 min-h-8 text-xs")} isDisabled={!authorization.writable || signingOut} isPending={signingOut} onPress={() => { void signOut() }} size="sm" variant="ghost">退出登录</Button>
+          <Button className={tw("h-control min-h-control text-xs")} isDisabled={!authorization.writable || signingOut} isPending={signingOut} onPress={() => { void signOut() }} size="sm" variant="ghost">退出登录</Button>
         ) : null}
       </div>
       {feedback ? <p className={tw("model-settings__error m-0 text-xs text-[var(--danger)]")} role="status">{feedback}</p> : null}
@@ -419,7 +419,7 @@ function providerName(provider: LingModelProvider): string {
 }
 
 function ProviderMark({ provider }: { readonly provider: LingModelProvider }) {
-  return <span aria-hidden="true" className={tw("grid size-9 shrink-0 place-items-center rounded-[10px] border border-[var(--panel-border)]/60 bg-[var(--surface)] text-[var(--foreground)]")}><ProviderIcon providerId={provider.providerId} /></span>
+  return <span aria-hidden="true" className={tw("grid size-control-lg shrink-0 place-items-center rounded-lg border border-[var(--panel-border)]/60 bg-[var(--surface)] text-[var(--foreground)]")}><ProviderIcon providerId={provider.providerId} /></span>
 }
 
 function ProviderCard({ provider, models, defaultSelection, writable, selecting, onSelectDefault, onModelEnabledChange, onConnect, onRequestDelete }: {
@@ -440,8 +440,8 @@ function ProviderCard({ provider, models, defaultSelection, writable, selecting,
       <h2 className={tw("m-0 min-w-0 truncate text-sm font-medium")}>{providerName(provider)}</h2>
       <span className={tw("text-xs text-[var(--text-tertiary)]")}>{models.length}</span>
       <div className={tw("ml-auto flex shrink-0 items-center gap-1")}>
-        <Button aria-label={`管理${provider.displayName}连接`} className={tw("h-7 min-h-7 px-2 text-xs text-[var(--text-secondary)]")} onPress={onConnect} size="sm" variant="ghost">管理连接</Button>
-        {provider.canDelete ? <Button aria-label={`删除${providerName(provider)}`} className={tw("h-7 min-h-7 px-2 text-xs text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]")} isDisabled={!writable} onPress={() => { onRequestDelete(provider) }} size="sm" variant="ghost">删除</Button> : null}
+        <Button aria-label={`管理${provider.displayName}连接`} className={tw("h-control-sm min-h-control-sm px-2 text-xs text-[var(--text-secondary)]")} onPress={onConnect} size="sm" variant="ghost">管理连接</Button>
+        {provider.canDelete ? <Button aria-label={`删除${providerName(provider)}`} className={tw("h-control-sm min-h-control-sm px-2 text-xs text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]")} isDisabled={!writable} onPress={() => { onRequestDelete(provider) }} size="sm" variant="ghost">删除</Button> : null}
       </div>
     </div>
     <div className={tw("overflow-hidden rounded-xl border border-[var(--panel-border)]/70 bg-[var(--surface)]")}>
@@ -449,11 +449,11 @@ function ProviderCard({ provider, models, defaultSelection, writable, selecting,
         const selected = defaultSelection.provider === provider.providerId && defaultSelection.model === model.id
         return <div className={tw("model-provider__row flex min-h-[60px] items-center justify-between gap-3 border-b border-[var(--panel-border)]/50 px-4 py-3 transition-colors hover:bg-[var(--surface-secondary)] last:border-0")} key={model.id}>
           <div className={tw("min-w-0", model.enabled === false && "text-[var(--text-tertiary)]")}>
-            <span className={tw("block truncate text-[13px] font-medium")} title={model.id}>{model.name}</span>
+            <span className={tw("block truncate text-compact font-medium")} title={model.id}>{model.name}</span>
             {model.name !== model.id ? <span className={tw("mt-0.5 block truncate text-xs text-[var(--text-tertiary)]")} title={model.id}>{model.id}</span> : null}
           </div>
           <div className={tw("flex shrink-0 items-center gap-2")}>
-            {selected ? <span aria-label={`${model.name}是默认模型`} className={tw("model-provider__default--selected inline-flex h-6 shrink-0 items-center gap-1 rounded-md bg-[var(--plan-mode-background)] px-2 text-[11px] font-medium text-[var(--focus)] dark:text-[var(--plan-mode-foreground)]")}><Icon name="check" size={14} />默认</span> : model.enabled !== false ? <Button aria-label={connected ? `将${model.name}设为默认模型` : `连接${provider.displayName}以使用${model.name}`} className={tw("h-7 min-h-7 shrink-0 px-2 text-xs")} isDisabled={!writable || selecting} onPress={() => { if (connected) onSelectDefault({ provider: provider.providerId, model: model.id }); else onConnect() }} size="sm" variant="ghost">{connected ? '设为默认' : '连接'}</Button> : null}
+            {selected ? <span aria-label={`${model.name}是默认模型`} className={tw("model-provider__default--selected inline-flex h-control-xs shrink-0 items-center gap-1 rounded-md bg-[var(--plan-mode-background)] px-2 text-caption font-medium text-[var(--focus)] dark:text-[var(--plan-mode-foreground)]")}><Icon name="check" size={14} />默认</span> : model.enabled !== false ? <Button aria-label={connected ? `将${model.name}设为默认模型` : `连接${provider.displayName}以使用${model.name}`} className={tw("h-control-sm min-h-control-sm shrink-0 px-2 text-xs")} isDisabled={!writable || selecting} onPress={() => { if (connected) onSelectDefault({ provider: provider.providerId, model: model.id }); else onConnect() }} size="sm" variant="ghost">{connected ? '设为默认' : '连接'}</Button> : null}
             <CompactSwitch label={`启用${model.name}`} selected={model.enabled !== false} disabled={selecting} onChange={enabled => { onModelEnabledChange({ provider: provider.providerId, model: model.id }, enabled) }} />
           </div>
         </div>
@@ -693,7 +693,7 @@ function ProviderActions({
 
   return (
     <div className={tw("model-provider__actions mt-4 grid gap-3 border-t border-[var(--panel-border)] pt-3")}>
-      <div className={tw("model-provider__actions-row flex [gap:0.45rem] flex-wrap")}>
+      <div className={tw("model-provider__actions-row flex gap-2 flex-wrap")}>
         {provider.canEdit && draft !== undefined ? (
           <Button className={tw("min-h-[1.9rem] text-xs")} isDisabled={!writable || testing} onPress={() => { onEdit(draft) }} size="sm" variant="secondary">编辑</Button>
         ) : null}
@@ -809,13 +809,13 @@ export function ModelSettings({
         <h1 className={tw("m-0 text-xl font-semibold text-[var(--foreground)]")}>模型</h1>
         <Button isIconOnly aria-label="刷新模型设置" className={tw("size-8 min-w-8")} isPending={loading} onPress={onRefresh} size="sm" variant="ghost"><Icon name="refresh" size={16} /></Button>
       </div>
-      <nav aria-label="模型设置分类" className={tw("mb-5 flex w-fit gap-0.5 rounded-[10px] bg-[var(--surface-secondary)] p-1")}>
-        {(['models', 'providers'] as const).map(tab => <Button aria-pressed={view === tab} className={tw("h-7 min-h-7 rounded-[7px] px-4 text-xs", view === tab ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm" : "bg-transparent text-[var(--text-secondary)] shadow-none")} key={tab} onPress={() => { setView(tab); setSearch('') }} size="sm" variant="ghost">{tab === 'models' ? '模型' : '提供商'}</Button>)}
+      <nav aria-label="模型设置分类" className={tw("mb-5 flex w-fit gap-0.5 rounded-lg bg-[var(--surface-secondary)] p-1")}>
+        {(['models', 'providers'] as const).map(tab => <Button aria-pressed={view === tab} className={tw("h-control-sm min-h-control-sm rounded-md px-4 text-xs", view === tab ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm" : "bg-transparent text-[var(--text-secondary)] shadow-none")} key={tab} onPress={() => { setView(tab); setSearch('') }} size="sm" variant="ghost">{tab === 'models' ? '模型' : '提供商'}</Button>)}
       </nav>
       <TextField aria-label={view === 'models' ? '搜索模型' : '搜索提供商'} className={tw("mb-6")} onChange={setSearch} value={search}>
-        <div className={tw("flex h-9 items-center gap-2 rounded-lg border border-[var(--panel-border)]/70 bg-[var(--surface)] px-3 transition-colors focus-within:border-[var(--focus)] focus-within:ring-2 focus-within:ring-[var(--focus)]/10")}>
+        <div className={tw("flex h-control-lg items-center gap-2 rounded-lg border border-[var(--panel-border)]/70 bg-[var(--surface)] px-3 transition-colors focus-within:border-[var(--focus)] focus-within:ring-2 focus-within:ring-[var(--focus)]/10")}>
           <Icon className={tw("shrink-0 text-[var(--text-tertiary)]")} name="search" size={15} />
-          <Input className={tw("h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 text-[13px] shadow-none outline-none")} placeholder={view === 'models' ? '搜索模型或提供商' : '搜索提供商'} />
+          <Input className={tw("h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 text-compact shadow-none outline-none")} placeholder={view === 'models' ? '搜索模型或提供商' : '搜索提供商'} />
           {search ? <Button isIconOnly aria-label="清空搜索" className={tw("size-6 min-h-6 min-w-6")} onPress={() => { setSearch('') }} size="sm" variant="ghost"><Icon name="close" size={12} /></Button> : null}
         </div>
       </TextField>
@@ -836,18 +836,18 @@ export function ModelSettings({
             <h2 className={tw("mb-3 mt-0 flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]")}>{group.connected ? <span aria-hidden="true" className={tw("size-1.5 rounded-full bg-[var(--success)]")} /> : null}{group.title}<span className={tw("font-normal tabular-nums text-[var(--text-tertiary)]")}>{entries.length}</span></h2>
             <div className={tw("overflow-hidden rounded-xl border border-[var(--panel-border)]/70 bg-[var(--surface)]")}>
               {entries.map(provider => <div className={tw("flex min-h-[64px] items-center justify-between gap-3 border-b border-[var(--panel-border)]/50 px-4 py-3 transition-colors hover:bg-[var(--surface-secondary)] last:border-0")} key={provider.providerId}>
-                <div className={tw("flex min-w-0 items-center gap-3")}><ProviderMark provider={provider} /><div className={tw("min-w-0")}><span className={tw("block truncate text-[13px] font-medium")}>{providerName(provider)}</span><span className={tw("mt-0.5 block truncate text-xs text-[var(--text-tertiary)]")} title={provider.providerId}>{providers.some(other => other.providerId !== provider.providerId && providerName(other).toLocaleLowerCase() === providerName(provider).toLocaleLowerCase()) ? `${provider.providerId} · ` : ''}{provider.error ? '连接异常' : group.connected ? `${provider.models.length ? `${provider.models.length} 个模型` : '暂无模型'} · ${provider.authorization?.configured ? '账号登录' : provider.credential === 'configured' ? 'API Key' : '运行环境'}` : provider.authorization ? '账号登录' : provider.canStoreApiKey ? 'API Key' : providerStatus(provider)}</span></div></div>
+                <div className={tw("flex min-w-0 items-center gap-3")}><ProviderMark provider={provider} /><div className={tw("min-w-0")}><span className={tw("block truncate text-compact font-medium")}>{providerName(provider)}</span><span className={tw("mt-0.5 block truncate text-xs text-[var(--text-tertiary)]")} title={provider.providerId}>{providers.some(other => other.providerId !== provider.providerId && providerName(other).toLocaleLowerCase() === providerName(provider).toLocaleLowerCase()) ? `${provider.providerId} · ` : ''}{provider.error ? '连接异常' : group.connected ? `${provider.models.length ? `${provider.models.length} 个模型` : '暂无模型'} · ${provider.authorization?.configured ? '账号登录' : provider.credential === 'configured' ? 'API Key' : '运行环境'}` : provider.authorization ? '账号登录' : provider.canStoreApiKey ? 'API Key' : providerStatus(provider)}</span></div></div>
                 <div className={tw("flex shrink-0 items-center gap-1")}>
-                  <Button aria-label={`${group.connected ? '管理' : '连接'}${providerName(provider)}`} className={tw("h-7 min-h-7 rounded-lg px-3 text-xs")} onPress={() => { setConnectionId(provider.providerId) }} size="sm" variant={group.connected ? 'ghost' : 'outline'}>{group.connected ? '管理' : '连接'}</Button>
-                  {group.connected && provider.canDelete ? <Button aria-label={`删除${providerName(provider)}`} className={tw("h-7 min-h-7 px-2 text-xs text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]")} isDisabled={!settings.writable} onPress={() => { setDeleteTarget(provider) }} size="sm" variant="ghost">删除</Button> : null}
+                  <Button aria-label={`${group.connected ? '管理' : '连接'}${providerName(provider)}`} className={tw("h-control-sm min-h-control-sm rounded-lg px-3 text-xs")} onPress={() => { setConnectionId(provider.providerId) }} size="sm" variant={group.connected ? 'ghost' : 'outline'}>{group.connected ? '管理' : '连接'}</Button>
+                  {group.connected && provider.canDelete ? <Button aria-label={`删除${providerName(provider)}`} className={tw("h-control-sm min-h-control-sm px-2 text-xs text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]")} isDisabled={!settings.writable} onPress={() => { setDeleteTarget(provider) }} size="sm" variant="ghost">删除</Button> : null}
                 </div>
               </div>)}
             </div>
-            {!group.connected && !query && availableProviders.length > suggestedProviders.length ? <Button className={tw("mt-2 h-8 gap-1 text-xs text-[var(--text-secondary)]")} onPress={() => { setShowAllProviders(!showAllProviders) }} size="sm" variant="ghost">{showAllProviders ? '收起' : `查看全部 ${availableProviders.length} 个提供商`}<Icon className={tw(showAllProviders && 'rotate-180')} name="chevronDown" size={12} /></Button> : null}
+            {!group.connected && !query && availableProviders.length > suggestedProviders.length ? <Button className={tw("mt-2 h-control gap-1 text-xs text-[var(--text-secondary)]")} onPress={() => { setShowAllProviders(!showAllProviders) }} size="sm" variant="ghost">{showAllProviders ? '收起' : `查看全部 ${availableProviders.length} 个提供商`}<Icon className={tw(showAllProviders && 'rotate-180')} name="chevronDown" size={12} /></Button> : null}
           </section>
         })}
         {query && !filteredProviders.length ? <p className={tw("py-6 text-center text-sm text-[var(--text-tertiary)]")}>没有找到匹配的提供商</p> : null}
-        <Button className={tw("h-9 w-fit gap-2 text-[13px]")} isDisabled={!settings.writable} onPress={() => { setProviderDialog({ mode: 'create' }) }} variant="ghost"><Icon name="plus" size={15} />自定义提供商</Button>
+        <Button className={tw("h-control-lg w-fit gap-2 text-compact")} isDisabled={!settings.writable} onPress={() => { setProviderDialog({ mode: 'create' }) }} variant="ghost"><Icon name="plus" size={15} />自定义提供商</Button>
       </div> : null}
       {settings && connectionProvider && !providerDialog ? <ProviderConnectionDialog key={connectionProvider.providerId} provider={connectionProvider} writable={settings.writable} onClose={() => { setConnectionId(undefined) }} onEdit={draft => { setConnectionId(undefined); setProviderDialog({ mode: 'edit', draft }) }} onSaveApiKey={onSaveApiKey} onAuthorize={onAuthorizeProvider ?? authorizationUnavailable} onSignOut={onSignOutProvider ?? signOutUnavailable} onTest={onTestProvider} /> : null}
       {settings && deleteTarget ? <ProviderDeleteDialog key={deleteTarget.providerId} provider={deleteTarget} writable={settings.writable} onClose={() => { setDeleteTarget(undefined) }} onDelete={async id => {

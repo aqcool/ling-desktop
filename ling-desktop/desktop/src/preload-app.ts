@@ -8,7 +8,7 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   contextBridge.exposeInMainWorld('__LING_EXTERNAL_LINKS__', {
     open: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
   })
-  contextBridge.exposeInMainWorld('__LING_THEME__', { set: (mode: string) => ipcRenderer.invoke(IPC.theme, mode) })
+  contextBridge.exposeInMainWorld('__LING_THEME__', { set: (appearance: unknown) => ipcRenderer.invoke(IPC.theme, appearance) })
   contextBridge.exposeInMainWorld('__LING_BEHAVIOR__', {
     setTray: (value: boolean) => ipcRenderer.invoke(IPC.tray, value),
     notify: (value: unknown) => ipcRenderer.invoke(IPC.notify, value),

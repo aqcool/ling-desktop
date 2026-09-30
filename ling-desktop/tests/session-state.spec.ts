@@ -24,8 +24,16 @@ describe('composer draft persistence', () => {
       'task-1': '继续改测试',
       'task-2': '',
       'task-3': 7,
-      'task-4': { text: 'x' },
-    }))).toEqual({ 'task-1': '继续改测试' })
+      'task-4': { text: 3 },
+    }))).toEqual({ 'task-1': { text: '继续改测试' } })
+  })
+
+  it('restores original attachment references even for an attachment-only draft', () => {
+    const source = { seq: 12, attachments: [{ attachmentId: 'image', kind: 'image' as const, name: 'screen.png', bytes: 12 }] }
+    const stored = serializeDrafts({ 'task': { text: '', recordedAttachments: source } })
+    expect(parseStoredDrafts(stored)).toEqual({ task: { text: '', recordedAttachments: source } })
+    expect(stored).not.toContain('base64')
+    expect(parseStoredDrafts('{"task":{"text":"keep","recordedAttachments":{"seq":-1,"attachments":[]}}}')).toEqual({ task: { text: 'keep' } })
   })
 
   it('round-trips drafts and drops empty ones', () => {
@@ -33,7 +41,7 @@ describe('composer draft persistence', () => {
       'task-1': { text: '  保持缩进\n第二行' },
       'task-2': { text: '' },
     })
-    expect(parseStoredDrafts(stored)).toEqual({ 'task-1': '  保持缩进\n第二行' })
+    expect(parseStoredDrafts(stored)).toEqual({ 'task-1': { text: '  保持缩进\n第二行' } })
   })
 })
 

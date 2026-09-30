@@ -7,19 +7,20 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Input } from '@heroui/react/input'
 import { Button } from '@heroui/react/button'
 import type { LingReadResult, LingTerminalPanel, LingTerminalService, LingTerminalView } from '../runtime/contract.js'
-import { updateAppearance, useAppearance } from '../theme.js'
+import { updateAppearance, useAppearance, terminalMode, terminalTheme, metrics, type LingPalette, type ResolvedTheme } from '../theme.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
 
-export function TerminalPanel({ service, taskId, placement, onClose }: {
+export function TerminalPanel({ service, taskId, workspaceId, placement, onClose }: {
   readonly service?: LingTerminalService
   readonly taskId?: string
+  readonly workspaceId?: string
   readonly placement: 'side' | 'bottom'
   readonly onClose?: () => void
 }) {
-  const panel = useMemo(() => taskId && service ? service.panel(taskId, placement) : undefined, [service, taskId, placement])
+  const panel = useMemo(() => taskId ? service?.panel(taskId, placement) : service?.workspacePanel?.(workspaceId, placement), [service, taskId, workspaceId, placement])
   return <section aria-label={placement === 'bottom' ? '底部终端' : '侧面终端'} className={tw("flex min-h-0 min-w-0 flex-1 flex-col")}>
-    {panel ? <TerminalTabs key={`${taskId}:${placement}`} panel={panel} onClose={onClose} /> : <div className={tw("flex flex-1 items-center justify-center text-xs text-[var(--text-tertiary)]")}>{taskId ? '终端服务暂不可用' : '选择会话以打开终端'}</div>}
+    {panel ? <TerminalTabs key={`${taskId ?? `workspace:${workspaceId ?? 'home'}`}:${placement}`} panel={panel} onClose={onClose} /> : <div className={tw("flex flex-1 items-center justify-center text-xs text-[var(--text-tertiary)]")}>终端服务暂不可用</div>}
   </section>
 }
 
@@ -36,7 +37,8 @@ function TerminalTabs({ panel, onClose }: { readonly panel: LingTerminalPanel; r
     restoreTab.current = undefined
   }, [editingId])
   const appearance = useAppearance()
-  const dark = appearance.terminal === 'follow' ? appearance.resolved === 'dark' : appearance.terminalDark
+  const mode = terminalMode(appearance, appearance.resolved)
+  const dark = mode === 'dark'
   const selected = state.terminals.find(terminal => terminal.terminalId === selectedId) ?? state.terminals.at(-1)
   const previousIds = useRef(new Set(state.terminals.map(terminal => terminal.terminalId)))
   useEffect(() => { void panel.load() }, [panel])
@@ -45,11 +47,11 @@ function TerminalTabs({ panel, onClose }: { readonly panel: LingTerminalPanel; r
     if (added.length) setSelectedId(added.at(-1)!.terminalId)
     previousIds.current = new Set(state.terminals.map(terminal => terminal.terminalId))
   }, [state.terminals])
-  const controls = 'size-7 min-w-7 shrink-0 rounded-md p-0 text-current opacity-65 hover:opacity-100'
-  return <div data-theme={dark ? 'dark' : 'light'} className={tw('flex min-h-0 min-w-0 flex-1 flex-col', dark ? 'bg-[#1b1b1e] text-[#e8e8e9]' : 'bg-white text-[#252525]')}>
-    <div className={tw("flex h-9 shrink-0 items-center gap-1 px-2")}>
+  const controls = "size-control-sm min-w-7 shrink-0 rounded-md p-0 text-current opacity-65 hover:opacity-100"
+  return <div data-theme={mode} data-palette={appearance.palette} className={tw('flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--terminal-background)] text-[var(--terminal-foreground)]')}>
+    <div className={tw("flex h-control-lg shrink-0 items-center gap-1 px-2")}>
       <div ref={tabs} role="tablist" aria-label="终端列表" className={tw("flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]")}>
-        {state.terminals.map((terminal, index) => <div key={terminal.terminalId} className={tw('group flex h-7 shrink-0 items-center rounded-md', terminal.terminalId === selected?.terminalId && (dark ? 'bg-white/10' : 'bg-black/5'))}>
+        {state.terminals.map((terminal, index) => <div key={terminal.terminalId} className={tw("group flex h-control-sm shrink-0 items-center rounded-md", terminal.terminalId === selected?.terminalId && 'bg-[var(--surface-selected)]')}>
           {editingId === terminal.terminalId ? <TerminalNameEditor title={terminal.title || terminal.shell}
             onDone={focus => { if (focus) restoreTab.current = index; setEditingId(current => current === terminal.terminalId ? undefined : current) }}
             onSave={async title => {
@@ -57,7 +59,7 @@ function TerminalTabs({ panel, onClose }: { readonly panel: LingTerminalPanel; r
               const result = await panel.rename(terminal.terminalId, title)
               if (!result.ok) setRenameError(result.message)
               return result
-            }} /> : <button type="button" role="tab" aria-selected={terminal.terminalId === selected?.terminalId} aria-label={`终端 ${index + 1}`} tabIndex={terminal.terminalId === selected?.terminalId ? 0 : -1} className={tw("inline-flex h-7 min-w-0 max-w-48 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-current outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} title={`${terminal.cwd} · 双击重命名`} onDoubleClick={() => { setRenameError(undefined); setEditingId(terminal.terminalId) }} onClick={() => setSelectedId(terminal.terminalId)} onKeyDown={event => {
+            }} /> : <button type="button" role="tab" aria-selected={terminal.terminalId === selected?.terminalId} aria-label={`终端 ${index + 1}`} tabIndex={terminal.terminalId === selected?.terminalId ? 0 : -1} className={tw("inline-flex h-control-sm min-w-0 max-w-48 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-current outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} title={`${terminal.cwd} · 双击重命名`} onDoubleClick={() => { setRenameError(undefined); setEditingId(terminal.terminalId) }} onClick={() => setSelectedId(terminal.terminalId)} onKeyDown={event => {
             if (event.key === 'F2') { event.preventDefault(); setRenameError(undefined); setEditingId(terminal.terminalId); return }
             const next = event.key === 'ArrowRight' ? (index + 1) % state.terminals.length : event.key === 'ArrowLeft' ? (index + state.terminals.length - 1) % state.terminals.length : event.key === 'Home' ? 0 : event.key === 'End' ? state.terminals.length - 1 : undefined
             if (next === undefined) return
@@ -76,7 +78,7 @@ function TerminalTabs({ panel, onClose }: { readonly panel: LingTerminalPanel; r
     </div>
     {renameError && <p role="alert" className={tw("m-0 px-3 py-1 text-xs text-[var(--danger)]")}>{renameError}</p>}
     {state.error && <div role="alert" className={tw("flex items-center gap-2 px-3 py-1 text-xs text-[var(--danger)]")}>{state.error}{state.terminals.length === 0 && <Button variant="ghost" size="sm" onPress={() => { void panel.load() }}>重试</Button>}</div>}
-    {selected ? <TerminalBody key={selected.terminalId} model={panel.view(selected.terminalId)} dark={dark} /> : state.loading ? <p role="status" className={tw("px-3 text-xs opacity-60")}>正在连接终端…</p> : <div className={tw("flex flex-1 items-center justify-center")}><Button variant="ghost" size="sm" onPress={() => { void panel.create() }}><Icon name="plus" size={16} />新建终端</Button></div>}
+    {selected ? <TerminalBody key={selected.terminalId} model={panel.view(selected.terminalId)} /> : state.loading ? <p role="status" className={tw("px-3 text-xs opacity-60")}>正在连接终端…</p> : null}
   </div>
 }
 
@@ -102,7 +104,7 @@ function TerminalNameEditor({ title, onSave, onDone }: {
     else { submitted.current = false; setSaving(false); input.current?.focus() }
   }
   return <Input ref={input} aria-label="终端名称" defaultValue={title} maxLength={120} readOnly={saving}
-    className={tw("mx-1 h-6 w-36 min-w-0 rounded-sm border border-[var(--focus)] bg-transparent px-1.5 py-0 text-xs text-current shadow-none")}
+    className={tw("mx-1 h-control-xs w-36 min-w-0 rounded-sm border border-[var(--focus)] bg-transparent px-1.5 py-0 text-xs text-current shadow-none")}
     onBlur={(event: FocusEvent<HTMLInputElement>) => { void save(event.currentTarget.value) }}
     onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
       event.stopPropagation()
@@ -113,7 +115,7 @@ function TerminalNameEditor({ title, onSave, onDone }: {
     }} />
 }
 
-function TerminalBody({ model, dark }: { readonly model: LingTerminalView; readonly dark: boolean }) {
+function TerminalBody({ model }: { readonly model: LingTerminalView }) {
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot)
   useEffect(() => model.mount(), [model])
   const ended = state.phase === 'closed' || state.terminal?.state === 'exited'
@@ -122,17 +124,19 @@ function TerminalBody({ model, dark }: { readonly model: LingTerminalView; reado
   return <div className={tw("flex min-h-0 min-w-0 flex-1 flex-col")}>
     {(state.error || ended || reconnect || pending) && <div role={state.error ? 'alert' : 'status'} className={tw("flex shrink-0 items-center gap-2 px-3 py-1 text-xs opacity-70")}>
       <span>{state.error ?? (ended ? `终端已退出${state.terminal?.exitCode === undefined ? '' : `（${state.terminal.exitCode}）`}` : pending ? '正在连接终端…' : state.phase === 'connected' ? '此终端正由另一窗口控制' : '终端连接已断开')}</span>
-      {reconnect && <Button variant="ghost" size="sm" className={tw("h-6 text-xs text-current")} onPress={model.reconnect}>{state.phase === 'connected' ? '接管输入' : '重新连接'}</Button>}
+      {reconnect && <Button variant="ghost" size="sm" className={tw("h-control-xs text-xs text-current")} onPress={model.reconnect}>{state.phase === 'connected' ? '接管输入' : '重新连接'}</Button>}
     </div>}
-    <TerminalScreen model={model} dark={dark} />
+    <TerminalScreen model={model} />
   </div>
 }
 
-function TerminalScreen({ model, dark }: { readonly model: LingTerminalView; readonly dark: boolean }) {
+function TerminalScreen({ model }: { readonly model: LingTerminalView }) {
   const element = useRef<HTMLDivElement>(null)
-  const palette = useRef<((dark: boolean) => void) | undefined>(undefined)
-  const darkRef = useRef(dark)
-  darkRef.current = dark
+  const appearance = useAppearance()
+  const mode = terminalMode(appearance, appearance.resolved)
+  const palette = useRef<((mode: ResolvedTheme, palette: LingPalette) => void) | undefined>(undefined)
+  const themeRef = useRef({ mode, palette: appearance.palette })
+  themeRef.current = { mode, palette: appearance.palette }
   const [error, setError] = useState<string>()
   useLayoutEffect(() => {
     const node = element.current!
@@ -152,13 +156,11 @@ function TerminalScreen({ model, dark }: { readonly model: LingTerminalView; rea
           }
         } catch { setError('链接地址无效。') }
       }
-      const terminal = new Terminal({ linkHandler: { activate: activateLink }, cursorBlink: true, fontSize: 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', minimumContrastRatio: 4.5, scrollback: model.getSnapshot().scrollback ?? 3000, screenReaderMode: true, allowProposedApi: false })
+      const terminal = new Terminal({ linkHandler: { activate: activateLink }, cursorBlink: true, fontSize: Number.parseFloat(metrics['font-size-compact']), fontFamily: metrics['font-code'], minimumContrastRatio: 4.5, scrollback: model.getSnapshot().scrollback ?? 3000, screenReaderMode: true, allowProposedApi: false })
       const fit = new FitAddon()
       terminal.loadAddon(fit)
-      palette.current = value => { terminal.options.theme = value ? {
-        background: '#1b1b1e', foreground: '#e8e8e9', cursor: '#e8e8e9', cursorAccent: '#1b1b1e', selectionBackground: '#ffffff35',
-      } : { background: '#ffffff', foreground: '#252525', cursor: '#252525', cursorAccent: '#ffffff', selectionBackground: '#00000025', black: '#252525', white: '#777777', brightWhite: '#555555', green: '#27814b', yellow: '#906b16', blue: '#345ac0', cyan: '#177e85' } }
-      palette.current(darkRef.current)
+      palette.current = (mode, palette) => { terminal.options.theme = terminalTheme(mode, palette) }
+      palette.current(themeRef.current.mode, themeRef.current.palette)
       terminal.registerLinkProvider({ provideLinks: (row, callback) => callback(terminalLinks(terminal.buffer.active, row, activateLink)) })
       terminal.open(node)
       terminal.textarea?.setAttribute('aria-label', '终端输入')
@@ -211,7 +213,7 @@ function TerminalScreen({ model, dark }: { readonly model: LingTerminalView; rea
     } catch { setError('终端组件加载失败，请重新打开面板。') }
     return () => { disposed = true; cleanup?.() }
   }, [model])
-  useLayoutEffect(() => { palette.current?.(dark) }, [dark])
+  useLayoutEffect(() => { palette.current?.(mode, appearance.palette) }, [mode, appearance.palette])
   return <>
     {error && <p role="alert" className={tw("px-3 text-xs text-[var(--danger)]")}>{error}</p>}
     <div className={tw("relative min-h-0 min-w-0 flex-1 overflow-hidden px-3 pb-2 pt-1")} onKeyDown={event => event.stopPropagation()}>

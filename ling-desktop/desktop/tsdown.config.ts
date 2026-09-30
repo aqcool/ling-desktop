@@ -4,6 +4,8 @@ export default defineConfig([
   {
     entry: {
       main: 'src/main.ts',
+      'ssh-runtime': 'src/ssh/runtime.ts',
+      'ssh-plugin': 'src/ssh/plugin.ts',
       host: 'src/host/index.ts',
       profile: 'src/profile.ts',
       extensions: 'src/extensions.ts',
@@ -13,7 +15,7 @@ export default defineConfig([
     },
     outDir: 'lib', format: 'esm', platform: 'node', target: 'es2024',
     fixedExtension: false, dts: false, clean: true,
-    deps: { neverBundle: ['electron'] },
+    deps: { neverBundle: ['electron'], alwaysBundle: ['ling-desktop/theme'] },
   },
   {
     entry: { 'preload-app': 'src/preload-app.ts', 'preload-browser': 'src/preload-browser.ts', 'preload-credentials': 'src/preload-credentials.ts' },

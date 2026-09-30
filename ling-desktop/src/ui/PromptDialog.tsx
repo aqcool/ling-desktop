@@ -116,7 +116,7 @@ export function PromptDialog({
                 <Label>{label}</Label>
                 <Input onKeyDown={onKeyDown} placeholder={placeholder} />
               </TextField>
-              {error ? <p className={tw("prompt-dialog__error [margin:0.55rem_0_0] [color:#a6473f] [font-size:0.75rem]")} role="status">{error}</p> : null}
+              {error ? <p className={tw("prompt-dialog__error mt-2 mx-0 mb-0 [color:var(--danger)] text-xs")} role="status">{error}</p> : null}
             </Modal.Body>
             <Modal.Footer className={tw("gap-2")}>
               <Button isDisabled={pending} onPress={onCancel} slot="close" variant="ghost">取消</Button>

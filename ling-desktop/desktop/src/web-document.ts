@@ -1,4 +1,5 @@
 /** Official DSH Web boot document and authenticated Host forwarding. */
+import { appearanceKeys, palettes, themeTokens } from 'ling-desktop/theme'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 
@@ -7,7 +8,10 @@ const MIME: Readonly<Record<string, string>> = {
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json',
   '.woff2': 'font/woff2', '.png': 'image/png', '.ico': 'image/x-icon',
 }
-const BOOT = `<script>globalThis.__DSH_BOOT_READY__ = Promise.withResolvers();try{const r=document.documentElement,m=localStorage.getItem('ling.theme'),d=m==='dark'||(m!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'dark':'light';r.classList.toggle('dark',d);r.style.colorScheme=d?'dark':'light';r.style.backgroundColor=d?'#1d1d20':'#fff'}catch{}</script>`
+const bootColors = Object.fromEntries(palettes.map(({ id }) => [id, {
+  light: themeTokens('light', id).surface, dark: themeTokens('dark', id).surface,
+}]))
+const BOOT = `<script>globalThis.__DSH_BOOT_READY__ = Promise.withResolvers();try{const r=document.documentElement,k=${JSON.stringify(appearanceKeys)},c=${JSON.stringify(bootColors)},m=localStorage.getItem(k[0]),p=localStorage.getItem(k[1]),d=m==='dark'||(m!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches),t=d?'dark':'light',a=Object.hasOwn(c,p)?p:'default';r.dataset.theme=t;r.dataset.palette=a;r.classList.toggle('dark',d);r.style.colorScheme=t;r.style.backgroundColor=c[a][t]}catch{}</script>`
 
 /**
  * Read an application-owned static asset; the index waits for asynchronous Host injections.

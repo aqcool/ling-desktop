@@ -42,6 +42,18 @@ function stoppedTurn(turn: number, startSeq: number, endSeq: number): ChatSnapsh
 }
 
 describe('DSH Conversation projection', () => {
+  it('retains engine-owned turn identity and links failures to the opening question, not steering', () => {
+    const user = { kind: 'user', seq: 2, time: 1000, source: { kind: 'user' }, content: [{ type: 'text', text: '检查服务' }] }
+    const steering = { ...user, kind: 'steering', seq: 4, messageId: 'steer', content: [{ type: 'text', text: '先检查日志' }] }
+    const error = { kind: 'turn-error', turn: 3, step: 1, seq: 6, time: 2000, message: 'fetch failed', code: 'TRANSPORT' }
+    const keyed = [user, steering].map(node => ({ key: String(node.seq), kind: node.kind, id: String(node.seq), target: 'chat', anchorSeq: node.seq, data: node, visibility: 'visible', location: { kind: 'turn', turn: { turn: 3 } } })) as never
+    const result = projectConversation('task', snapshot({ nodes: [user, steering, error] as never }, new Map(), keyed))
+    expect(result).toMatchObject([{ turn: 3 }, { turn: 3 }, { turn: 3, retrySourceId: 'task:conversation:2:user' }])
+    const partial = projectConversation('task', snapshot({ nodes: [error] as never }))
+    expect(partial[0]).toMatchObject({ turn: 3 })
+    expect(partial[0]?.retrySourceId).toBeUndefined()
+  })
+
   it('polls remote output while subscribed and stops when the task view closes', async () => {
     vi.useFakeTimers()
     try {

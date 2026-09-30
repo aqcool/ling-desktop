@@ -1,4 +1,4 @@
-import { TaskNotes, openTaskNotes, openTaskNotesEvent } from './TaskNotes.js'
+import { TaskNotes, openTaskNotes, openTaskNotesEvent, readTaskNotes, taskNotesEvent } from './TaskNotes.js'
 import { browserNavigationEvent, requestBrowserNavigation, type BrowserNavigationRequest } from './browser-navigation.js'
 import { SideTaskPanel, type SideTaskState } from './SideTaskPanel.js'
 import { releaseComposerAttachment, toComposerQuote, type ComposerAttachment } from './attachments.js'
@@ -9,7 +9,7 @@ import { useBehavior, updateBehavior } from './behavior-preferences.js'
 import { Button } from '@heroui/react/button'
 import { Tooltip } from '@heroui/react/tooltip'
 import { TextArea } from '@heroui/react/textarea'
-import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type {
   LingAuthorizationInteraction,
   LingExtensionSettingsService,
@@ -22,6 +22,7 @@ import type {
   LingCustomProviderDraft,
   LingDiscoveredModel,
   LingFileDiff,
+  LingGitSnapshot,
   LingModelSelection,
   LingModelSettings,
   LingPendingInteraction,
@@ -37,6 +38,7 @@ import type {
   LingSubagentCatalog,
   LingTaskAgentPreset,
   LingTaskChanges,
+  LingTimelineAttachment,
   LingTaskGoal,
   LingTaskMode,
   LingTaskPermission,
@@ -230,6 +232,9 @@ export interface LingShellProps {
   readonly workspaceTools?: WorkspaceToolsRequest
   readonly loadWorkspaceBranch?: (workspaceId: string) => Promise<string | null>
   readonly attachments: readonly ComposerAttachment[]
+  readonly recordedAttachments?: readonly LingTimelineAttachment[]
+  readonly onRemoveRecordedAttachment?: (id: string) => void
+  readonly composerFocusKey?: number
   readonly changeDiff?: LingFileDiff
   readonly changeDiffLoading: boolean
   readonly changeDiffMessage?: string
@@ -325,6 +330,8 @@ export interface LingShellProps {
   readonly onBrowserToggle: () => void
   readonly onGoalAction: (action: 'pause' | 'resume' | 'complete' | 'clear', goal: LingTaskGoal) => void
   readonly onFork: (taskId: string, atSeq?: number) => void | Promise<void>
+  readonly onEditMessage?: (item: LingTimelineItem) => void
+  readonly onRetryMessage?: (item: LingTimelineItem) => Promise<void>
   readonly onLoadOlder: () => void
   readonly onModelDefaultSelect: (selection: LingModelSelection) => Promise<LingCommandResult>
   readonly onModelEnabledChange: (selection: LingModelSelection, enabled: boolean) => Promise<string | undefined>
@@ -469,8 +476,8 @@ function WorkspaceSection({
   }
 
   const renderTasks = (list: readonly LingTaskSummary[], archived: boolean) => (
-    <div className={tw("sidebar-tasks grid [margin-top:0.15rem]")}>
-      {list.length === 0 ? <p className={tw("sidebar-tasks__empty [margin:0.1rem_0_0.35rem] [padding-left:1.75rem] [color:#a3a3a3] [font-size:0.75rem]")}>暂无任务</p> : null}
+    <div className={tw("sidebar-tasks grid mt-0.5")}>
+      {list.length === 0 ? <p className={tw("sidebar-tasks__empty mt-0.5 mx-0 mb-1.5 pl-7 [color:var(--text-tertiary)] text-xs")}>暂无任务</p> : null}
       {[...list].sort((left, right) =>
         Number(viewState.workspacePinnedTaskIds.includes(right.taskId)) - Number(viewState.workspacePinnedTaskIds.includes(left.taskId)),
       ).map(task => (
@@ -542,12 +549,12 @@ function WorkspaceSection({
   )
 
   const section = (id: string, label: string, list: readonly LingTaskSummary[], icon: IconName = 'folder', actions?: ReactNode, color?: string) => (
-    <section className={tw("sidebar-project [margin-bottom:0.75rem]")} key={id}>
-      <div className={tw("sidebar-project__heading flex min-h-8 items-center gap-0 px-0.5 font-[590] hover:bg-transparent focus-within:bg-transparent")}>
-        <button aria-expanded={!viewState.collapsedIds.includes(id)} aria-label={`${viewState.collapsedIds.includes(id) ? '展开' : '折叠'}${label}`} className={tw("sidebar-project__toggle inline-flex items-center justify-start border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px] min-w-0 [min-height:2rem] flex-1 [gap:0.35rem] [padding:0_0.45rem] [border-radius:0.45rem] text-left")} onClick={() => { toggle(id) }} type="button">
+    <section className={tw("sidebar-project mb-3")} key={id}>
+      <div className={tw("sidebar-project__heading flex min-h-control items-center gap-0 px-0.5 font-[590] hover:bg-transparent focus-within:bg-transparent")}>
+        <button aria-expanded={!viewState.collapsedIds.includes(id)} aria-label={`${viewState.collapsedIds.includes(id) ? '展开' : '折叠'}${label}`} className={tw("sidebar-project__toggle inline-flex items-center justify-start border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px] min-w-0 [min-height:2rem] flex-1 gap-1.5 py-0 px-2 rounded-lg text-left")} onClick={() => { toggle(id) }} type="button">
           <Icon name={viewState.collapsedIds.includes(id) ? 'chevronRight' : 'chevronDown'} size={13} />
           <span className={tw("sidebar-project__icon inline-flex flex-none")} style={color ? { color } as CSSProperties : undefined}><Icon name={icon} size={16} /></span>
-          <span className={tw("sidebar-project__name flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [color:var(--text-secondary)] [font-size:0.8125rem] [font-weight:500]")} title={label}>{label}</span>
+          <span className={tw("sidebar-project__name flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [color:var(--text-secondary)] text-compact [font-weight:500]")} title={label}>{label}</span>
         </button>
         {actions}
       </div>
@@ -593,20 +600,20 @@ const jobStatusLabels: Record<LingBackgroundJob['status'], string> = {
 }
 
 function BackgroundJobList({ jobs }: { readonly jobs: readonly LingBackgroundJob[] }) {
-  if (jobs.length === 0) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>当前任务没有后台作业。</p>
+  if (jobs.length === 0) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>当前任务没有后台作业。</p>
   return (
     <ul className={tw("job-list m-0 p-0 [list-style:none]")}>
       {jobs.map(job => (
-        <li className={tw("job-list__item flex min-w-0 items-center [gap:0.45rem] [padding:0.38rem_0.35rem] [font-size:0.74rem]")} key={job.jobId}>
+        <li className={tw("job-list__item flex min-w-0 items-center gap-2 py-1.5 px-1.5 text-xs")} key={job.jobId}>
           <span className={tw(
-            "job-list__state size-[0.45rem] flex-none rounded-full bg-[#b6b6b6]",
-            job.status === 'running' && "job-list__state--running bg-[#1f7a43]",
-            job.status === 'stopping' && "job-list__state--stopping bg-[#c08a2e]",
-            (job.status === 'failed' || job.status === 'killed') && "job-list__state--failed bg-[#b04c43]",
+            "job-list__state size-[0.45rem] flex-none rounded-full bg-[var(--disabled-background)]",
+            job.status === 'running' && "job-list__state--running bg-[var(--success)]",
+            job.status === 'stopping' && "job-list__state--stopping bg-[var(--warning)]",
+            (job.status === 'failed' || job.status === 'killed') && "job-list__state--failed bg-[var(--danger)]",
           )} />
-          <span className={tw("job-list__label min-w-0 overflow-hidden mr-auto [color:#3b3b3b] text-ellipsis whitespace-nowrap dark:[color:#dcdcde]")} title={job.label}>{job.label}</span>
-          <span className={tw("job-list__kind [flex-shrink:0] [padding:0.05rem_0.35rem] [border-radius:0.4rem] [background:#f4f4f4] [color:#6f6f6f] [font-size:0.66rem] dark:[background:#2a2a2e] dark:[color:#9d9da1]")}>{job.kind}</span>
-          <span className={tw("job-list__status [flex-shrink:0] [max-width:9rem] overflow-hidden [color:#6b6b6b] [font-size:0.68rem] text-ellipsis whitespace-nowrap dark:[color:#97979c]")} title={job.detail ?? jobStatusLabels[job.status]}>
+          <span className={tw("job-list__label min-w-0 overflow-hidden mr-auto [color:var(--foreground)] text-ellipsis whitespace-nowrap")} title={job.label}>{job.label}</span>
+          <span className={tw("job-list__kind [flex-shrink:0] py-0 px-1.5 rounded-md [background:var(--surface-secondary)] [color:var(--text-secondary)] text-caption")}>{job.kind}</span>
+          <span className={tw("job-list__status [flex-shrink:0] [max-width:9rem] overflow-hidden [color:var(--text-secondary)] text-caption text-ellipsis whitespace-nowrap")} title={job.detail ?? jobStatusLabels[job.status]}>
             {job.detail ?? jobStatusLabels[job.status]}
           </span>
         </li>
@@ -638,26 +645,26 @@ export function SubagentList({ catalog, onPrompt, onInterrupt }: {
     }
   }
   if (catalog === undefined || catalog.state === 'loading') {
-    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>正在读取子任务…</p>
+    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>正在读取子任务…</p>
   }
   if (catalog.state === 'error') {
-    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>{catalog.message ?? '子任务读取失败。'}</p>
+    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>{catalog.message ?? '子任务读取失败。'}</p>
   }
   if (catalog.subagents.length === 0 && catalog.unreadable.length === 0) {
-    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>当前任务没有子任务。</p>
+    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>当前任务没有子任务。</p>
   }
   return (
     <>
       <ul className={tw("subagent-list m-0 p-0 [list-style:none]")}>
         {catalog.subagents.map(subagent => (
-          <li className={tw("subagent-list__item flex min-w-0 items-center [gap:0.45rem] [padding:0.38rem_0.35rem] [font-size:0.74rem]")} key={subagent.sessionId}>
-            <span className={tw("subagent-list__state size-[0.45rem] flex-none rounded-full bg-[#b6b6b6]", subagent.activity === 'running' && "subagent-list__state--running bg-[#1f7a43]")} />
-            <span className={tw("subagent-list__title min-w-0 overflow-hidden mr-auto [color:#3b3b3b] text-ellipsis whitespace-nowrap dark:[color:#dcdcde]")} title={subagent.title}>{subagent.title}</span>
-            <span className={tw("subagent-list__mode [flex-shrink:0] [padding:0.05rem_0.35rem] [border-radius:0.4rem] [background:#f4f4f4] [color:#6f6f6f] [font-size:0.66rem] dark:[background:#2a2a2e] dark:[color:#9d9da1]")}>{subagent.mode === 'continuable' ? '可持续' : '一次性'}</span>
+          <li className={tw("subagent-list__item flex min-w-0 items-center gap-2 py-1.5 px-1.5 text-xs")} key={subagent.sessionId}>
+            <span className={tw("subagent-list__state size-[0.45rem] flex-none rounded-full bg-[var(--disabled-background)]", subagent.activity === 'running' && "subagent-list__state--running bg-[var(--success)]")} />
+            <span className={tw("subagent-list__title min-w-0 overflow-hidden mr-auto [color:var(--foreground)] text-ellipsis whitespace-nowrap")} title={subagent.title}>{subagent.title}</span>
+            <span className={tw("subagent-list__mode [flex-shrink:0] py-0 px-1.5 rounded-md [background:var(--surface-secondary)] [color:var(--text-secondary)] text-caption")}>{subagent.mode === 'continuable' ? '可持续' : '一次性'}</span>
             {onPrompt && subagent.mode === 'continuable' ? (
               <button
                 aria-label={`向子任务 ${subagent.title} 追加指令`}
-                className={tw("subagent-list__action [flex-shrink:0] [padding:0.05rem_0.45rem] [border:1px_solid_#e3e3e3] [border-radius:0.4rem] [background:#fff] [color:#5b5b5b] [font-size:0.66rem] cursor-pointer hover:[background:#f2f2f1] dark:[border-color:#34343a] dark:[background:#232327] dark:[color:#c6c6ca] dark:hover:[background:#2a2a2e]")}
+                className={tw("subagent-list__action [flex-shrink:0] py-0 px-2 [border:1px_solid_var(--panel-border)] rounded-md [background:var(--surface)] [color:var(--text-secondary)] text-caption cursor-pointer hover:[background:var(--surface-secondary)]")}
                 disabled={busyTarget !== undefined}
                 onClick={() => { setPromptTarget(subagent.sessionId) }}
                 type="button"
@@ -669,7 +676,7 @@ export function SubagentList({ catalog, onPrompt, onInterrupt }: {
               <button
                 aria-busy={busyTarget === subagent.sessionId}
                 aria-label={`中断子任务 ${subagent.title}`}
-                className={tw("subagent-list__action [flex-shrink:0] [padding:0.05rem_0.45rem] [border:1px_solid_#e3e3e3] [border-radius:0.4rem] [background:#fff] [color:#5b5b5b] [font-size:0.66rem] cursor-pointer hover:[background:#f2f2f1] dark:[border-color:#34343a] dark:[background:#232327] dark:[color:#c6c6ca] dark:hover:[background:#2a2a2e]")}
+                className={tw("subagent-list__action [flex-shrink:0] py-0 px-2 [border:1px_solid_var(--panel-border)] rounded-md [background:var(--surface)] [color:var(--text-secondary)] text-caption cursor-pointer hover:[background:var(--surface-secondary)]")}
                 disabled={busyTarget !== undefined}
                 onClick={() => { void interrupt(subagent.sessionId) }}
                 type="button"
@@ -681,9 +688,9 @@ export function SubagentList({ catalog, onPrompt, onInterrupt }: {
         ))}
         {catalog.unreadable.length === 0
           ? null
-          : <li className={tw("subagent-list__unreadable [padding:0.38rem_0.35rem] [color:#6b6b6b] [font-size:0.69rem] dark:[color:#97979c]")}>{`${String(catalog.unreadable.length)} 个子任务无法读取`}</li>}
+          : <li className={tw("subagent-list__unreadable py-1.5 px-1.5 [color:var(--text-secondary)] text-caption")}>{`${String(catalog.unreadable.length)} 个子任务无法读取`}</li>}
       </ul>
-      {actionMessage ? <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")} role="status">{actionMessage}</p> : null}
+      {actionMessage ? <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")} role="status">{actionMessage}</p> : null}
       {promptTarget !== undefined && onPrompt ? (
         <PromptDialog
           confirmLabel="发送"
@@ -711,16 +718,16 @@ function ScheduleList(props: {
   readonly loading: boolean
   readonly message?: string
 }) {
-  if (props.loading) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>正在读取定时提醒…</p>
-  if (props.message) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>{props.message}</p>
-  if (props.schedules.length === 0) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center [gap:0.45rem] m-0 [padding:0.4rem_0.35rem] [color:#6b6b6b] [font-size:0.75rem] dark:[color:#97979c]")}>当前任务没有定时提醒。</p>
+  if (props.loading) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>正在读取定时提醒…</p>
+  if (props.message) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>{props.message}</p>
+  if (props.schedules.length === 0) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>当前任务没有定时提醒。</p>
   return (
     <ul className={tw("schedule-list m-0 p-0 [list-style:none]")}>
       {props.schedules.map(schedule => (
-        <li className={tw("schedule-list__item flex min-w-0 items-center [gap:0.45rem] [padding:0.38rem_0.35rem] [font-size:0.74rem]")} key={schedule.scheduleId}>
-          <span className={tw("schedule-list__prompt min-w-0 overflow-hidden mr-auto [color:#3b3b3b] text-ellipsis whitespace-nowrap dark:[color:#dcdcde]")} title={schedule.prompt}>{schedule.prompt}</span>
-          <span className={tw("schedule-list__kind [flex-shrink:0] [padding:0.05rem_0.35rem] [border-radius:0.4rem] [background:#f4f4f4] [color:#6f6f6f] [font-size:0.66rem] dark:[background:#2a2a2e] dark:[color:#9d9da1]")}>{scheduleKindLabels[schedule.kind]}</span>
-          <span className={tw("schedule-list__status [flex-shrink:0] [max-width:9rem] overflow-hidden [color:#6b6b6b] [font-size:0.68rem] text-ellipsis whitespace-nowrap dark:[color:#97979c]")}>{new Date(schedule.scheduledAt).toLocaleString()}</span>
+        <li className={tw("schedule-list__item flex min-w-0 items-center gap-2 py-1.5 px-1.5 text-xs")} key={schedule.scheduleId}>
+          <span className={tw("schedule-list__prompt min-w-0 overflow-hidden mr-auto [color:var(--foreground)] text-ellipsis whitespace-nowrap")} title={schedule.prompt}>{schedule.prompt}</span>
+          <span className={tw("schedule-list__kind [flex-shrink:0] py-0 px-1.5 rounded-md [background:var(--surface-secondary)] [color:var(--text-secondary)] text-caption")}>{scheduleKindLabels[schedule.kind]}</span>
+          <span className={tw("schedule-list__status [flex-shrink:0] [max-width:9rem] overflow-hidden [color:var(--text-secondary)] text-caption text-ellipsis whitespace-nowrap")}>{new Date(schedule.scheduledAt).toLocaleString()}</span>
         </li>
       ))}
     </ul>
@@ -730,17 +737,16 @@ function ScheduleList(props: {
 function MonitorSection({ title, children, initiallyOpen = true, accessory }: { readonly title: string; readonly children: ReactNode; readonly initiallyOpen?: boolean; readonly accessory?: ReactNode }) {
   const [open, setOpen] = useState(initiallyOpen)
   return <section className={tw("task-monitor__section min-w-0 pb-2")}>
-    <div className={tw("flex h-9 min-w-0 items-center justify-between gap-2")}>
-      <h3 className={tw("m-0 min-w-0")}><button aria-expanded={open} className={tw("flex min-h-7 items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-[13px] font-normal text-[var(--text-tertiary)] outline-none hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { setOpen(current => !current) }} type="button"><span>{title}</span><Icon name={open ? 'chevronDown' : 'chevronRight'} size={13} /></button></h3>
+    <div className={tw("flex h-control-lg min-w-0 items-center justify-between gap-2")}>
+      <h3 className={tw("m-0 min-w-0")}><button aria-expanded={open} className={tw("flex min-h-control-sm items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-compact font-normal text-[var(--text-tertiary)] outline-none hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { setOpen(current => !current) }} type="button"><span>{title}</span><Icon name={open ? 'chevronDown' : 'chevronRight'} size={13} /></button></h3>
       {accessory}
     </div>
     {open ? <div className={tw("min-w-0 pb-1")}>{children}</div> : null}
   </section>
 }
 
-const monitorRowClassName = 'flex min-h-8 min-w-0 items-center gap-2 text-[13px] text-[var(--foreground)]'
-const monitorIconClassName = 'grid size-6 shrink-0 place-items-center rounded bg-[var(--surface-tertiary)] text-[var(--text-secondary)]'
-const monitorEmptyClassName = 'my-1 text-xs leading-5 text-[var(--text-tertiary)]'
+const monitorRowClassName = "flex min-h-control min-w-0 items-center gap-2 text-compact text-[var(--foreground)]"
+const monitorIconClassName = "grid size-control-xs shrink-0 place-items-center rounded bg-[var(--surface-tertiary)] text-[var(--text-secondary)]"
 
 function taskSkillNames(items: readonly LingTimelineItem[]): readonly string[] {
   const names = new Set<string>()
@@ -761,10 +767,11 @@ function taskWebLinks(items: readonly LingTimelineItem[]): readonly string[] {
   return [...links]
 }
 
-function EnvironmentPanel({ preferences, presentation, sideChats, onSelectSideChat, workspaceBranch, onGitOpen, onGitReview, ...props }: LingShellProps & {
+export function EnvironmentPanel({ preferences, presentation, sideChats, onSelectSideChat, workspaceBranch, gitLineChanges, onGitOpen, onGitReview, ...props }: LingShellProps & {
   readonly onGitOpen?: () => void
   readonly onGitReview?: () => void
   readonly workspaceBranch?: string | null
+  readonly gitLineChanges?: LingGitSnapshot['lineChanges']
   readonly preferences: MonitorPreferences
   readonly presentation: MonitorPreferences['presentation']
   readonly sideChats: readonly WorkbenchTab[]
@@ -772,10 +779,18 @@ function EnvironmentPanel({ preferences, presentation, sideChats, onSelectSideCh
 }) {
   const behavior = useBehavior()
   const { selectedTask, workspaces } = props
+  const subscribeNotes = useCallback((refresh: () => void) => {
+    window.addEventListener(taskNotesEvent, refresh)
+    window.addEventListener('storage', refresh)
+    return () => { window.removeEventListener(taskNotesEvent, refresh); window.removeEventListener('storage', refresh) }
+  }, [])
+  const readNoteCount = () => {
+    try { return selectedTask ? readTaskNotes(selectedTask.taskId).length : 0 }
+    catch { return 0 }
+  }
+  const noteCount = useSyncExternalStore(subscribeNotes, readNoteCount, readNoteCount)
   const [skills, setSkills] = useState<readonly LingSkill[]>([])
   const activeWorkspace = workspaces.find(workspace => workspace.workspaceId === selectedTask?.workspaceId)
-  const added = props.changes.reduce((total, change) => total + change.added, 0)
-  const deleted = props.changes.reduce((total, change) => total + change.deleted, 0)
   const attachments = props.timeline.flatMap(item => (item.attachments ?? []).map(attachment => ({ ...attachment, taskId: item.taskId })))
   const sourceInput = useRef<HTMLInputElement>(null)
   const [sourceError, setSourceError] = useState<string>()
@@ -813,18 +828,18 @@ function EnvironmentPanel({ preferences, presentation, sideChats, onSelectSideCh
 
   return <div className={tw('task-monitor min-w-0', fixed && 'pt-2')}>
     {!fixed ? <div className={tw("sticky top-0 z-2 flex h-10 items-center justify-between bg-[var(--surface)]")}>
-      <h2 className={tw("m-0 text-[13px] font-medium text-[var(--text-secondary)]")}>任务监控</h2>
-      <button aria-pressed={props.environmentPinned} aria-label={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} className={tw("grid size-6 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] aria-pressed:text-[var(--foreground)]")} onClick={props.onEnvironmentPinToggle} title={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} type="button"><Icon active={props.environmentPinned} name="pin" size={14} /></button>
+      <h2 className={tw("m-0 text-compact font-medium text-[var(--text-secondary)]")}>任务监控</h2>
+      <button aria-pressed={props.environmentPinned} aria-label={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} className={tw("grid size-control-xs place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] aria-pressed:text-[var(--foreground)]")} onClick={props.onEnvironmentPinToggle} title={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} type="button"><Icon active={props.environmentPinned} name="pin" size={14} /></button>
     </div> : null}
     {preferences.recap && recap ? <details className={tw("group/recap mb-3 rounded-lg border border-[var(--panel-border)] p-3")}>
-      <summary className={tw("flex cursor-pointer list-none items-center gap-1 text-xs font-medium")}><span>任务回顾</span><span className={tw("ml-auto text-[11px] font-normal text-[var(--text-tertiary)]")}>最近回复</span><Icon className={tw("transition-transform group-open/recap:rotate-90")} name="chevronRight" size={13} /></summary>
+      <summary className={tw("flex cursor-pointer list-none items-center gap-1 text-xs font-medium")}><span>任务回顾</span><span className={tw("ml-auto text-caption font-normal text-[var(--text-tertiary)]")}>最近回复</span><Icon className={tw("transition-transform group-open/recap:rotate-90")} name="chevronRight" size={13} /></summary>
       <p className={tw("mb-0 mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-[var(--text-secondary)]")}>{recap}</p>
     </details> : null}
-    {preferences.goal && goal ? <MonitorSection title="任务目标"><p className={tw("mb-2 mt-0 break-words text-[13px] leading-6")}>{goal.objective}</p><span className={tw("text-[11px] text-[var(--text-tertiary)]")}>{goal.phase === 'complete' ? '已完成' : goal.phase === 'paused' ? '已暂停' : goal.phase === 'blocked' ? '已阻塞' : '进行中'} · 第 {goal.roundsStarted} / {goal.maxGoalRounds} 轮</span></MonitorSection> : null}
+    {preferences.goal && goal ? <MonitorSection title="任务目标"><p className={tw("mb-2 mt-0 break-words text-compact leading-6")}>{goal.objective}</p><span className={tw("text-caption text-[var(--text-tertiary)]")}>{goal.phase === 'complete' ? '已完成' : goal.phase === 'paused' ? '已暂停' : goal.phase === 'blocked' ? '已阻塞' : '进行中'} · 第 {goal.roundsStarted} / {goal.maxGoalRounds} 轮</span></MonitorSection> : null}
     {preferences.plan && (props.mode?.planActive || props.mode?.planPending) ? <MonitorSection title="计划"><div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="listCheck" size={14} /></span><span>{props.mode.planPending ? '等待确认' : '按计划执行'}</span></div></MonitorSection> : null}
     {behavior.modes[behavior.workMode].monitorEnvironment ? <MonitorSection title="环境信息">
       <div className={tw("grid gap-0.5")}>
-        <button aria-label="审阅未提交更改" className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} disabled={!onGitReview} onClick={onGitReview} type="button"><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>未提交</span> : null}<span className={tw('flex gap-1.5 tabular-nums', !fixed && 'ml-auto')}><span className={tw("text-[var(--success)]")}>+{added.toLocaleString()}</span><span className={tw("text-[var(--danger)]")}>−{deleted.toLocaleString()}</span></span></button>
+        {gitLineChanges ? <button aria-label="审阅未提交更改" className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} disabled={!onGitReview} onClick={onGitReview} type="button"><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>未提交</span> : null}<span className={tw('flex gap-1.5 tabular-nums', !fixed && 'ml-auto')}><span className={tw("text-[var(--success)]")}>+{gitLineChanges.added.toLocaleString()}</span><span className={tw("text-[var(--danger)]")}>−{gitLineChanges.deleted.toLocaleString()}</span></span></button> : null}
         <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="desktop" size={14} /></span><span>本地</span>{!fixed ? <span className={tw("ml-auto min-w-0 truncate text-[var(--text-secondary)]")} title={activeWorkspace?.label}>{activeWorkspace?.label ?? '未指定'}</span> : null}</div>
         {workspaceBranch ? <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>分支</span> : null}<span className={tw('min-w-0 truncate text-[var(--foreground)]', !fixed && 'ml-auto')} title={workspaceBranch}>{workspaceBranch}</span></div> : null}
         <button className={tw(monitorRowClassName, 'w-full border-0 bg-transparent p-0 text-left disabled:text-[var(--text-tertiary)]')} disabled={!onGitOpen} onClick={onGitOpen} title="Git：查看更改、提交或推送" type="button"><span className={tw(monitorIconClassName)}><Icon name="gitCommit" size={14} /></span><span>提交或推送</span></button>
@@ -833,29 +848,27 @@ function EnvironmentPanel({ preferences, presentation, sideChats, onSelectSideCh
     {preferences.subagents && hasSubagents ? <MonitorSection title="子智能体"><SubagentList catalog={props.subagents} onInterrupt={props.onSubagentInterrupt} onPrompt={props.onSubagentPrompt} /></MonitorSection> : null}
     {preferences.processes && props.backgroundJobs.length > 0 ? <MonitorSection title="后台进程"><BackgroundJobList jobs={props.backgroundJobs} /></MonitorSection> : null}
     {preferences.sideChats && sideChats.length > 0 ? <MonitorSection title="侧边聊天">{sideChats.map(chat => <button className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} key={chat.id} onClick={() => { onSelectSideChat(chat.id) }} type="button"><span className={tw(monitorIconClassName)}><Icon name="sideChat" size={14} /></span><span className={tw("min-w-0 truncate")}>{chat.label}</span><Icon className={tw("ml-auto shrink-0 text-[var(--text-tertiary)]")} name="external" size={12} /></button>)}</MonitorSection> : null}
-    {preferences.skills ? <MonitorSection accessory={visibleSkillNames.length > 0 ? <span className={tw("shrink-0 text-[11px] text-[var(--text-tertiary)]")} title="当前任务可用的技能">可用 {visibleSkillNames.length}</span> : null} title="技能与 MCP">
-      {visibleSkillNames.length > 0 ? <ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{visibleSkillNames.map(name => <li className={tw(monitorRowClassName)} key={name}><span className={tw(monitorIconClassName)}><Icon name="hammer" size={14} /></span><span className={tw("min-w-0 truncate")} title={name}>{name}</span></li>)}</ul> : <p className={tw(monitorEmptyClassName)}>暂无技能与 MCP</p>}
+    {preferences.skills && visibleSkillNames.length > 0 ? <MonitorSection accessory={<span className={tw("shrink-0 text-caption text-[var(--text-tertiary)]")} title="当前任务可用的技能">可用 {visibleSkillNames.length}</span>} title="技能与 MCP">
+      <ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{visibleSkillNames.map(name => <li className={tw(monitorRowClassName)} key={name}><span className={tw(monitorIconClassName)}><Icon name="hammer" size={14} /></span><span className={tw("min-w-0 truncate")} title={name}>{name}</span></li>)}</ul>
     </MonitorSection> : null}
-    {preferences.outputs ? <MonitorSection title="产出" initiallyOpen={props.selectedChange !== undefined}>
-      {props.changes.length === 0 && !props.changesLoading && !props.changesMessage ? <p className={tw(monitorEmptyClassName)}>暂无产出</p> : <ChangeReview changes={props.changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} />}
+    {preferences.outputs && props.changes.some(change => change.files.length > 0) ? <MonitorSection title="产出" initiallyOpen={props.selectedChange !== undefined}>
+      <ChangeReview changes={props.changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} />
     </MonitorSection> : null}
     {preferences.web && webLinks.length > 0 ? <MonitorSection initiallyOpen={false} title="网页查阅"><ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{webLinks.slice(0, 8).map(link => <li key={link}><button type="button" onClick={() => requestBrowserNavigation(link)} className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName)}><Icon name="globe" size={14} /></span><span className={tw("min-w-0 truncate")} title={link}>{link}</span></button></li>)}</ul></MonitorSection> : null}
-    {preferences.sources ? <MonitorSection accessory={<button aria-label="添加来源" className={tw("grid size-6 place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)]")} onClick={() => sourceInput.current?.click()} title="添加附件到输入框" type="button"><Icon name="plus" size={14} /></button>} title="来源">
+    {preferences.sources && attachments.length > 0 ? <MonitorSection accessory={<button aria-label="添加来源" className={tw("grid size-control-xs place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)]")} onClick={() => sourceInput.current?.click()} title="添加附件到输入框" type="button"><Icon name="plus" size={14} /></button>} title="来源">
       <input ref={sourceInput} type="file" multiple hidden onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; if (files.length) props.onAddFiles(files) }} />
       {sourceError ? <p role="alert" className={tw('text-xs text-[var(--danger)]')}>{sourceError}</p> : null}
-      {attachments.length > 0 ? <ul className={tw("m-0 grid list-none gap-1 p-0")}>{attachments.map((attachment, index) => <li className={tw(monitorRowClassName)} key={`${attachment.attachmentId}-${index}`}><button type="button" disabled={Boolean(downloading)} onClick={() => { void downloadSource(attachment.taskId, attachment.attachmentId, attachment.name) }} className={tw('flex w-full min-w-0 items-center gap-2 rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName, 'text-[var(--focus)]')}><Icon name={attachment.kind === 'image' ? 'image' : 'file'} size={14} /></span><span className={tw("min-w-0 truncate")} title={attachment.name}>{attachment.name}</span><Icon name="download" size={12} className={tw('ml-auto shrink-0')} /></button></li>)}</ul> : <p className={tw(monitorEmptyClassName)}>暂无来源</p>}
+      <ul className={tw("m-0 grid list-none gap-1 p-0")}>{attachments.map((attachment, index) => <li className={tw(monitorRowClassName)} key={`${attachment.attachmentId}-${index}`}><button type="button" disabled={Boolean(downloading)} onClick={() => { void downloadSource(attachment.taskId, attachment.attachmentId, attachment.name) }} className={tw('flex w-full min-w-0 items-center gap-2 rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName, 'text-[var(--focus)]')}><Icon name={attachment.kind === 'image' ? 'image' : 'file'} size={14} /></span><span className={tw("min-w-0 truncate")} title={attachment.name}>{attachment.name}</span><Icon name="download" size={12} className={tw('ml-auto shrink-0')} /></button></li>)}</ul>
     </MonitorSection> : null}
-    {preferences.quickNotes && behavior.quickNotes && selectedTask ? <button className={tw("flex h-9 w-full items-center justify-between border-0 bg-transparent p-0 text-left text-[13px] text-[var(--text-tertiary)]")} onClick={() => openTaskNotes(selectedTask.taskId)} title="打开任务速记" type="button"><span>速记</span><Icon name="external" size={13} /></button> : null}
-    {preferences.memoryUpdates ? <button className={tw("flex h-9 w-full items-center justify-between border-0 bg-transparent p-0 text-left text-[13px] text-[var(--text-tertiary)]")} disabled title="记忆更新暂不可用" type="button"><span>记忆更新</span><Icon name="external" size={13} /></button> : null}
-    {preferences.demoScreen && fixed ? <MonitorSection initiallyOpen={false} title="演示画面"><div className={tw("grid aspect-video place-content-center gap-2 rounded-lg border border-[var(--panel-border)] bg-[var(--surface-secondary)] text-center text-xs text-[var(--text-tertiary)]")}><Icon className={tw("mx-auto")} name="desktop" size={20} /><span>暂无演示画面</span></div></MonitorSection> : null}
+    {preferences.quickNotes && behavior.quickNotes && selectedTask && noteCount > 0 ? <button className={tw("flex h-control-lg w-full items-center justify-between border-0 bg-transparent p-0 text-left text-compact text-[var(--text-tertiary)]")} onClick={() => openTaskNotes(selectedTask.taskId)} title="打开任务速记" type="button"><span>速记</span><Icon name="external" size={13} /></button> : null}
   </div>
 }
 
 function WorkbenchHomeAction({ detail, icon, onClick, title }: { readonly detail?: string; readonly icon: IconName; readonly onClick: () => void; readonly title: string }) {
   return (
     <button className={tw("mx-auto grid min-h-13 w-[min(15rem,calc(100%_-_1rem))] cursor-pointer grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-2.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 py-1.5 text-left [color:var(--foreground)] hover:bg-[var(--surface-secondary)]")} onClick={onClick} type="button">
-      <span className={tw("grid size-9 place-items-center rounded-md bg-[var(--surface-tertiary)] [color:var(--text-secondary)]")}><Icon name={icon} size={17} /></span>
-      <span className={tw("flex min-w-0 flex-col justify-center gap-0.5")}><strong className={tw("block overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium leading-[18px]")}>{title}</strong>{detail ? <small className={tw("block overflow-hidden text-ellipsis whitespace-nowrap text-[11px] leading-[14px] [color:var(--text-tertiary)]")}>{detail}</small> : null}</span>
+      <span className={tw("grid size-control-lg place-items-center rounded-md bg-[var(--surface-tertiary)] [color:var(--text-secondary)]")}><Icon name={icon} size={17} /></span>
+      <span className={tw("flex min-w-0 flex-col justify-center gap-0.5")}><strong className={tw("block overflow-hidden text-ellipsis whitespace-nowrap text-compact font-medium leading-[18px]")}>{title}</strong>{detail ? <small className={tw("block overflow-hidden text-ellipsis whitespace-nowrap text-caption leading-[14px] [color:var(--text-tertiary)]")}>{detail}</small> : null}</span>
     </button>
   )
 }
@@ -899,9 +912,9 @@ function WorkbenchTabs({ tabs, activeId, onSelect, onClose }: {
   }, [activeId, tabs, availableWidth])
 
   return <div className={tw("flex min-w-0 flex-1 items-center gap-0.5")}>
-    <div aria-label="工作面与文件标签页" className={tw("flex h-8 min-w-0 flex-1 items-center gap-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none]")} ref={listRef} role="tablist">
-      {tabs.map((tab, index) => <div className={tw("group/tab [-webkit-app-region:no-drag] flex h-7 min-w-0 shrink-0 snap-start items-center rounded-md px-1", !overflow && "max-w-44", tab.id === activeId ? "bg-[var(--surface-tertiary)] text-[var(--foreground)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]")} key={tab.id} style={tabWidth ? { width: tabWidth } : undefined}>
-        <button aria-selected={tab.id === activeId} className={tw("flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-sm border-0 bg-transparent px-1 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { onSelect(tab.id) }} onKeyDown={event => {
+    <div aria-label="工作面与文件标签页" className={tw("flex h-control min-w-0 flex-1 items-center gap-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none]")} ref={listRef} role="tablist">
+      {tabs.map((tab, index) => <div className={tw("group/tab [-webkit-app-region:no-drag] flex h-control-sm min-w-0 shrink-0 snap-start items-center rounded-md px-1", !overflow && "max-w-44", tab.id === activeId ? "bg-[var(--surface-tertiary)] text-[var(--foreground)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]")} key={tab.id} style={tabWidth ? { width: tabWidth } : undefined}>
+        <button aria-selected={tab.id === activeId} className={tw("flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-sm border-0 bg-transparent px-1 text-compact outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { onSelect(tab.id) }} onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
           event.preventDefault()
           const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
@@ -914,7 +927,7 @@ function WorkbenchTabs({ tabs, activeId, onSelect, onClose }: {
         <button aria-label={`关闭 ${tab.label} 标签页`} className={tw("grid size-5 shrink-0 place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)] opacity-0 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] group-hover/tab:opacity-100 group-focus-within/tab:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { onClose(tab.id) }} type="button"><Icon name="close" size={11} /></button>
       </div>)}
     </div>
-    {overflow ? <Menu align="end" triggerAriaLabel="已打开的标签页" triggerClassName="[-webkit-app-region:no-drag] size-6 shrink-0 justify-center rounded-md p-0" triggerLabel={<Icon name="chevronDown" size={14} />}>
+    {overflow ? <Menu align="end" triggerAriaLabel="已打开的标签页" triggerClassName="[-webkit-app-region:no-drag] size-control-xs shrink-0 justify-center rounded-md p-0" triggerLabel={<Icon name="chevronDown" size={14} />}>
       {tabs.map(tab => <MenuItem suffix={tab.id === activeId ? <Icon name="check" size={13} /> : undefined} icon={workbenchTabIcon(tab.kind)} key={tab.id} onPress={() => { onSelect(tab.id) }}>{tab.label}</MenuItem>)}
     </Menu> : null}
   </div>
@@ -934,7 +947,7 @@ function WorkbenchHeaderAction({ active = false, expanded, controls, icon, label
       aria-expanded={expanded}
       aria-label={label}
       className={tw(
-        "[-webkit-app-region:no-drag] grid size-7 shrink-0 place-items-center rounded-md border-0 p-0 text-[var(--text-secondary)] shadow-none outline-none transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]",
+        "[-webkit-app-region:no-drag] grid size-control-sm shrink-0 place-items-center rounded-md border-0 p-0 text-[var(--text-secondary)] shadow-none outline-none transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]",
         active ? "bg-[var(--surface-tertiary)] text-[var(--foreground)]" : "bg-transparent",
       )}
       onClick={onClick}
@@ -1004,6 +1017,7 @@ export function LingShell(props: LingShellProps) {
   const [gitOpen, setGitOpen] = useState(false)
   const [settingsGitWorkspace, setSettingsGitWorkspace] = useState<string>()
   const [workspaceGit, setWorkspaceGit] = useState<{ workspaceId: string; branch: string | null }>()
+  const [monitorGit, setMonitorGit] = useState<{ id: string; request: GitRequest; lineChanges: LingGitSnapshot['lineChanges'] }>()
   const [servers, setServers] = useState<readonly LingServer[]>([])
   const [taskServerId, setTaskServerId] = useState<string>()
   const [taskRemoteCwd, setTaskRemoteCwd] = useState<string>()
@@ -1204,6 +1218,28 @@ export function LingShell(props: LingShellProps) {
   const activeGitId = activeServerId ? selectedTask?.taskId : activeWorkspaceId
   const activeGitRequest = activeServerId ? remoteGitRequest : props.workspaceGit
   const gitBranch = activeServerId ? remoteGitBranch : workspaceBranch
+  const gitLineChanges = monitorGit?.id === activeGitId && monitorGit?.request === activeGitRequest ? monitorGit?.lineChanges : undefined
+  useEffect(() => {
+    if (!monitorOpen || !activeGitId || !activeGitRequest) return
+    let active = true, pending = false
+    const id = activeGitId, request = activeGitRequest
+    const refresh = async () => {
+      if (pending || document.visibilityState === 'hidden') return
+      pending = true
+      try {
+        const result = await request(id, { type: 'inspect', lineChanges: true })
+        if (active) setMonitorGit({ id, request, lineChanges: result.ok ? result.value.snapshot.lineChanges : undefined })
+      } catch { if (active) setMonitorGit({ id, request, lineChanges: undefined }) }
+      finally { pending = false }
+    }
+    const changed = (event: Event) => { if ((event as CustomEvent<string>).detail === id) void refresh() }
+    void refresh()
+    const timer = window.setInterval(() => { void refresh() }, 5000)
+    window.addEventListener('focus', refresh)
+    window.addEventListener('ling:git-changed', changed)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('ling:git-changed', changed); document.removeEventListener('visibilitychange', refresh) }
+  }, [monitorOpen, activeGitId, activeGitRequest])
   const onGitChanged = (branch: string | null) => {
     if (activeServerId) {
       setRemoteGitBranch(branch)
@@ -1294,7 +1330,7 @@ export function LingShell(props: LingShellProps) {
 
   useEffect(() => {
     const service = props.serverManager
-    if (screen !== 'workspace' || !selectedTask || !activeOperationsServerId || !service) return
+    if (screen !== 'workspace' || !selectedTask || !(activeOperationsServerId || taskServerId) || !service) return
     let active = true
     const taskId = selectedTask.taskId
     const check = () => { void service.takeTerminalUiRequest(taskId).then(result => {
@@ -1307,7 +1343,7 @@ export function LingShell(props: LingShellProps) {
     check()
     const timer = window.setInterval(check, 800)
     return () => { active = false; window.clearInterval(timer) }
-  }, [screen, selectedTask?.taskId, activeOperationsServerId, props.serverManager, browserOpen, props.onBrowserToggle])
+  }, [screen, selectedTask?.taskId, activeOperationsServerId, taskServerId, props.serverManager, browserOpen, props.onBrowserToggle])
 
   useEffect(() => {
     const navigate = (event: Event) => {
@@ -1353,7 +1389,6 @@ export function LingShell(props: LingShellProps) {
     setWorkbenchMaximized(false)
     if (utilityPanel) setUtilityPanel(null)
     else if (browserOpen) props.onBrowserToggle()
-    if (monitorPreferences.presentation === 'fixed' && monitorPreferences.showByDefault && !environmentOpen) props.onEnvironmentToggle()
   }
 
   const openExtensions = () => {
@@ -1417,11 +1452,11 @@ export function LingShell(props: LingShellProps) {
           isDarwin && "min-[701px]:gap-0 min-[701px]:pl-22",
           screen === 'settings' && "max-[700px]:h-13 max-[700px]:pt-2",
         )}>
-          <button aria-expanded={!sidebarCollapsed} aria-label="切换侧边栏" className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-8 flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7]", isDarwin && "min-[701px]:size-7.5 min-[701px]:-translate-y-px")} onClick={() => { setSidebarCollapsed(current => !current) }} title="切换侧边栏（⌘ B）" type="button"><Icon active={!sidebarCollapsed} name="panelLeft" size={18} /></button>
+          <button aria-expanded={!sidebarCollapsed} aria-label="切换侧边栏" className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)]", isDarwin && "min-[701px]:size-7.5 min-[701px]:-translate-y-px")} onClick={() => { setSidebarCollapsed(current => !current) }} title="切换侧边栏（⌘ B）" type="button"><Icon active={!sidebarCollapsed} name="panelLeft" size={18} /></button>
           {!sidebarCollapsed ? (
             <>
-              <button aria-label="后退" className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-8 flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7] max-[700px]:hidden", isDarwin && "min-[701px]:size-7.5 min-[701px]:-translate-y-px")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
-              <button aria-label="前进" className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-8 flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7] max-[700px]:hidden", isDarwin && "min-[701px]:size-7.5 min-[701px]:-translate-y-px")} disabled={!props.canNavigateForward} onClick={onNavigateForward} title="前进" type="button"><Icon name="arrowRight" size={16} /></button>
+              <button aria-label="后退" className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent max-[700px]:hidden", isDarwin && "min-[701px]:size-7.5 min-[701px]:-translate-y-px")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
+              <button aria-label="前进" className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent max-[700px]:hidden", isDarwin && "min-[701px]:size-7.5 min-[701px]:-translate-y-px")} disabled={!props.canNavigateForward} onClick={onNavigateForward} title="前进" type="button"><Icon name="arrowRight" size={16} /></button>
             </>
           ) : null}
         </div>
@@ -1435,46 +1470,46 @@ export function LingShell(props: LingShellProps) {
         ) : sidebarCollapsed ? (
           <nav aria-label="导航" className={tw("sidebar-rail grid min-h-0 flex-1 content-start justify-items-center gap-1 px-0 pb-2 pt-0.5")}>
             {screen === 'settings' ? (
-              <button aria-label="返回应用" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 [border-radius:0.55rem] bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee]")} onClick={props.onWorkspaceOpen} title="返回应用" type="button"><Icon name="arrowLeft" size={18} /></button>
+              <button aria-label="返回应用" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 rounded-lg bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px]")} onClick={props.onWorkspaceOpen} title="返回应用" type="button"><Icon name="arrowLeft" size={18} /></button>
             ) : (
               <>
-                <button aria-label="新任务" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 [border-radius:0.55rem] bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee]")} onClick={onNewTask} title="新任务" type="button"><Icon name="compose" size={18} /></button>
-                <button aria-label="搜索" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 [border-radius:0.55rem] bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee]")} onClick={onSearchOpen} title="搜索任务" type="button"><Icon name="search" size={18} /></button>
-                <span className={tw("sidebar-rail__separator [width:1.35rem] [height:1px] [margin:0.2rem_0] [background:var(--separator)]")} />
+                <button aria-label="新任务" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 rounded-lg bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px]")} onClick={onNewTask} title="新任务" type="button"><Icon name="compose" size={18} /></button>
+                <button aria-label="搜索" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 rounded-lg bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px]")} onClick={onSearchOpen} title="搜索任务" type="button"><Icon name="search" size={18} /></button>
+                <span className={tw("sidebar-rail__separator [width:1.35rem] [height:1px] my-1 mx-0 [background:var(--separator)]")} />
                 <SlotItems items={slots?.['sidebar.panellist']} prefix="sidebar-panel" />
-                <span className={tw("sidebar-rail__separator [width:1.35rem] [height:1px] [margin:0.2rem_0] [background:var(--separator)]")} />
-                <button aria-label="打开设置" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 [border-radius:0.55rem] bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px] dark:hover:[background:#2a2a2d] dark:hover:[color:#ededee]")} onClick={onSettingsOpen} title="设置" type="button"><Icon name="settings" size={18} /></button>
+                <span className={tw("sidebar-rail__separator [width:1.35rem] [height:1px] my-1 mx-0 [background:var(--separator)]")} />
+                <button aria-label="打开设置" className={tw("sidebar-rail__item grid [width:2.15rem] [height:2.15rem] place-items-center p-0 border-0 rounded-lg bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:inherit] focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:1px]")} onClick={onSettingsOpen} title="设置" type="button"><Icon name="settings" size={18} /></button>
               </>
             )}
           </nav>
         ) : (
           <>
             <div aria-label="工作模式" className={tw('mx-3 mb-2 flex w-fit gap-0.5 rounded-full border border-[var(--panel-border)] p-0.5 max-[700px]:mx-auto')}>
-              {(['coding', 'general'] as const).map(mode => <button aria-label={mode === 'coding' ? '编程模式' : '通用模式'} aria-pressed={behavior.workMode === mode} className={tw('flex h-6 items-center gap-1.5 rounded-full border-0 px-2 text-xs', behavior.workMode === mode ? 'bg-[var(--surface-tertiary)] text-[var(--foreground)]' : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} key={mode} onClick={() => updateBehavior({ workMode: mode })} type="button"><Icon name={mode === 'coding' ? 'code' : 'sparkle'} size={14} />{behavior.workMode === mode ? <span className={tw('max-[700px]:hidden')}>{mode === 'coding' ? '编程' : '通用'}</span> : null}</button>)}
+              {(['coding', 'general'] as const).map(mode => <button aria-label={mode === 'coding' ? '编程模式' : '通用模式'} aria-pressed={behavior.workMode === mode} className={tw("flex h-control-xs items-center gap-1.5 rounded-full border-0 px-2 text-xs", behavior.workMode === mode ? 'bg-[var(--surface-tertiary)] text-[var(--foreground)]' : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} key={mode} onClick={() => updateBehavior({ workMode: mode })} type="button"><Icon name={mode === 'coding' ? 'code' : 'sparkle'} size={14} />{behavior.workMode === mode ? <span className={tw('max-[700px]:hidden')}>{mode === 'coding' ? '编程' : '通用'}</span> : null}</button>)}
             </div>
-            <nav aria-label="导航" className={tw("sidebar-nav grid [gap:0.15rem] [padding:0.35rem_0.65rem_0] max-[700px]:[padding:0.25rem_0.45rem]")}>
-              <button aria-label="新任务" className={tw("sidebar-nav__item group grid min-h-8 grid-cols-[auto_1fr_auto] items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 text-left text-sm hover:bg-[var(--surface-hover)] max-[700px]:size-11 max-[700px]:min-h-11 max-[700px]:place-items-center max-[700px]:p-0")} onClick={onNewTask} type="button">
+            <nav aria-label="导航" className={tw("sidebar-nav grid gap-0.5 pt-1.5 px-2.5 pb-0 max-[700px]:py-1 max-[700px]:px-2")}>
+              <button aria-label="新任务" className={tw("sidebar-nav__item group grid min-h-control grid-cols-[auto_1fr_auto] items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 text-left text-sm hover:bg-[var(--surface-hover)] max-[700px]:size-11 max-[700px]:min-h-11 max-[700px]:place-items-center max-[700px]:p-0")} onClick={onNewTask} type="button">
                 <Icon name="compose" size={16} />
                 <span className={tw("max-[700px]:hidden")}>新任务</span>
-                <kbd className={tw("pointer-events-none font-sans text-xs text-[#6f6f6f] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 dark:border-[#3c3c41] dark:bg-[#2f2f33] dark:text-[#9d9da1] max-[700px]:hidden")}>⌘ N</kbd>
+                <kbd className={tw("pointer-events-none font-sans text-xs text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 border-[var(--panel-border)] bg-[var(--surface)] max-[700px]:hidden")}>⌘ N</kbd>
               </button>
-              <button aria-label="搜索" className={tw("sidebar-nav__item group grid min-h-8 grid-cols-[auto_1fr_auto] items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 text-left text-sm hover:bg-[var(--surface-hover)] max-[700px]:size-11 max-[700px]:min-h-11 max-[700px]:place-items-center max-[700px]:p-0")} onClick={onSearchOpen} type="button">
+              <button aria-label="搜索" className={tw("sidebar-nav__item group grid min-h-control grid-cols-[auto_1fr_auto] items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 text-left text-sm hover:bg-[var(--surface-hover)] max-[700px]:size-11 max-[700px]:min-h-11 max-[700px]:place-items-center max-[700px]:p-0")} onClick={onSearchOpen} type="button">
                 <Icon name="search" size={16} />
                 <span className={tw("max-[700px]:hidden")}>搜索</span>
-                <kbd className={tw("pointer-events-none font-sans text-xs text-[#6f6f6f] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 dark:border-[#3c3c41] dark:bg-[#2f2f33] dark:text-[#9d9da1] max-[700px]:hidden")}>⌘ K</kbd>
+                <kbd className={tw("pointer-events-none font-sans text-xs text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 border-[var(--panel-border)] bg-[var(--surface)] max-[700px]:hidden")}>⌘ K</kbd>
               </button>
               <SlotItems items={slots?.['sidebar.panellist']} prefix="sidebar-panel" />
             </nav>
 
-            <div className={tw("sidebar-projects flex min-h-0 flex-1 flex-col overflow-hidden [padding:0.7rem_0.5rem_1rem] max-[700px]:hidden")}>
+            <div className={tw("sidebar-projects flex min-h-0 flex-1 flex-col overflow-hidden pt-3 px-2 pb-4 max-[700px]:hidden")}>
               <div className={tw("sidebar-projects__toolbar group flex min-h-6 flex-none items-center gap-0.5 px-1 pb-px pl-2")}>
                 <button aria-expanded={taskViewState.sectionVisible} className={tw("sidebar-projects__heading mr-auto inline-flex flex-none cursor-pointer items-center justify-start border-0 bg-transparent py-1 text-left text-xs font-semibold [color:var(--text-tertiary)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")} onClick={() => { setTaskViewState(current => ({ ...current, sectionVisible: !current.sectionVisible })) }} type="button">
                   {taskViewState.view.groupBy === 'workspace' ? '工作区' : taskViewState.view.groupBy === 'activity' ? '最近对话' : '自定义分组'}
                 </button>
                 <span className={tw("sidebar-projects__info pointer-events-none inline-flex flex-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100")}>
                   <Tooltip delay={0} closeDelay={0} shouldSkipAnimation>
-                    <Tooltip.Trigger aria-label="工作区说明" className={tw("sidebar-projects__tool inline-flex items-center justify-center border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer [width:1.65rem] [height:1.65rem] flex-none [border-radius:0.35rem] hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")}><Icon name="info" size={14} /></Tooltip.Trigger>
-                    <Tooltip.Content className={tw("workspace-info-tooltip [max-width:min(29rem,_calc(100vw_-_3rem))] [padding:0.65rem_0.8rem] [border-radius:0.65rem] [background:#26251e] [box-shadow:0_0.5rem_1.5rem_#0003] [color:#fff] [font-size:0.88rem] [line-height:1.45] [white-space:normal]")} offset={10} placement="right">
+                    <Tooltip.Trigger aria-label="工作区说明" className={tw("sidebar-projects__tool inline-flex items-center justify-center border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer [width:1.65rem] [height:1.65rem] flex-none rounded-md hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")}><Icon name="info" size={14} /></Tooltip.Trigger>
+                    <Tooltip.Content className={tw("workspace-info-tooltip [max-width:min(29rem,_calc(100vw_-_3rem))] py-2.5 px-3 rounded-xl [background:var(--strong-background)] [box-shadow:var(--overlay-shadow)] [color:var(--on-strong)] text-sm [line-height:1.45] [white-space:normal]")} offset={10} placement="right">
                       工作区就是 Agent 动手的地方：它会在这里看文件、改文件、跑命令，也会读取这里的 Git 状态。
                     </Tooltip.Content>
                   </Tooltip>
@@ -1503,7 +1538,7 @@ export function LingShell(props: LingShellProps) {
             </div>
 
             <div className={tw("sidebar-bottom flex-none max-[700px]:mt-auto")}>
-              <nav aria-label="本地工具" className={tw("sidebar-bottom__links grid [gap:0.1rem] [padding:0.45rem_0_0] [margin:0_0.8rem] max-[700px]:hidden")}>
+              <nav aria-label="本地工具" className={tw("sidebar-bottom__links grid gap-0.5 pt-2 px-0 pb-0 my-0 mx-3 max-[700px]:hidden")}>
                 <button aria-expanded={utilityPanel === 'knowledge'} className={tw("sidebar-bottom__item flex min-h-9.5 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-sm [color:var(--foreground)] hover:bg-[var(--surface-hover)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]", utilityPanel === 'knowledge' && "sidebar-bottom__item--active bg-[var(--surface-selected)] hover:bg-[var(--surface-selected)]")} onClick={() => { toggleUtilityPanel('knowledge') }} type="button">
                   <Icon className={tw("flex-none [color:var(--text-secondary)]")} name="book" size={17} /><span>知识中心</span>
                 </button>
@@ -1515,7 +1550,7 @@ export function LingShell(props: LingShellProps) {
                 </button>
               </nav>
               <div className={tw("sidebar-footer flex min-h-13.5 flex-none items-center justify-start gap-1 px-3.5 pb-2.5 pt-2 max-[700px]:flex-col max-[700px]:justify-center max-[700px]:gap-0.5 max-[700px]:px-0 max-[700px]:py-2")}>
-                <Button aria-label="设置" className={tw("sidebar-footer__tool grid size-8 min-w-0 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)] max-[700px]:size-10")} isIconOnly size="sm" variant="ghost" onPress={onSettingsOpen} title="设置"><Icon name="settings" size={16} /></Button>
+                <Button aria-label="设置" className={tw("sidebar-footer__tool grid size-control min-w-0 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)] max-[700px]:size-10")} isIconOnly size="sm" variant="ghost" onPress={onSettingsOpen} title="设置"><Icon name="settings" size={16} /></Button>
                 <TokenUsagePopover tasks={tasks} selectedTask={selectedTask} />
                 <SlotItems items={slots?.['sidebar.footer.action']} prefix="sidebar-footer" />
               </div>
@@ -1531,7 +1566,7 @@ export function LingShell(props: LingShellProps) {
           aria-valuemax={sidebarAvailableWidth}
           aria-valuemin={0}
           aria-valuenow={displayedSidebarWidth}
-          className={tw("sidebar-resizer absolute [z-index:12] [top:0.3rem] [bottom:0.3rem] left-[calc(var(--sidebar-width)_+_var(--workspace-inset)_-_4px)] [width:8px] cursor-col-resize [touch-action:none] select-none after:absolute after:[top:var(--resize-marker-y,_50%)] after:[left:3px] after:[width:2px] after:[height:min(18rem,_100%)] after:[clip-path:polygon(50%_0,_100%_50%,_50%_100%,_0_50%)] after:[background:linear-gradient(to_bottom,_transparent,_rgb(201_99_67_/_0.18)_18%,_rgb(201_99_67_/_0.82)_50%,_rgb(201_99_67_/_0.18)_82%,_transparent)] after:[content:''] after:opacity-0 after:pointer-events-none after:[transform:translateY(-50%)] hover:after:opacity-100 focus-visible:after:opacity-100 active:after:opacity-100 focus-visible:[outline:none] max-[700px]:hidden")}
+          className={tw("sidebar-resizer absolute [z-index:12] [top:0.3rem] [bottom:0.3rem] left-[calc(var(--sidebar-width)_+_var(--workspace-inset)_-_4px)] [width:8px] cursor-col-resize [touch-action:none] select-none after:absolute after:[top:var(--resize-marker-y,_50%)] after:[left:3px] after:[width:2px] after:[height:min(18rem,_100%)] after:[clip-path:polygon(50%_0,_100%_50%,_50%_100%,_0_50%)] after:[background:linear-gradient(to_bottom,_transparent,_color-mix(in_srgb,var(--action)_18%,transparent)_18%,_color-mix(in_srgb,var(--action)_82%,transparent)_50%,_color-mix(in_srgb,var(--action)_18%,transparent)_82%,_transparent)] after:[content:''] after:opacity-0 after:pointer-events-none after:[transform:translateY(-50%)] hover:after:opacity-100 focus-visible:after:opacity-100 active:after:opacity-100 focus-visible:[outline:none] max-[700px]:hidden")}
           onPointerEnter={event => { positionResizeMarker(event, 'vertical') }}
           onKeyDown={event => {
             if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -1581,7 +1616,7 @@ export function LingShell(props: LingShellProps) {
       ) : null}
 
       <main className={tw(
-        "workspace relative min-h-0 min-w-0 overflow-hidden my-[0.3rem] mr-[0.3rem] ml-[var(--workspace-inset)] rounded-[0.9rem] border border-[var(--panel-border)] bg-[var(--surface)] shadow-[0_1px_8px_rgb(0_0_0_/_0.04)]",
+        "workspace relative min-h-0 min-w-0 overflow-hidden my-[0.3rem] mr-[0.3rem] ml-[var(--workspace-inset)] rounded-2xl border border-[var(--panel-border)] bg-[var(--surface)] shadow-[var(--overlay-shadow)]",
         workbenchOpen
           ? tw(
               "workspace--workbench-open grid grid-cols-[minmax(0,calc(100%_-_var(--workbench-width)))_minmax(0,var(--workbench-width))]",
@@ -1598,19 +1633,19 @@ export function LingShell(props: LingShellProps) {
       )} style={{ '--workbench-width': `${String(displayedWorkbenchWidth)}%`, '--terminal-height': `${String(displayedTerminalHeight)}px` } as CSSProperties}>
         {screen === 'settings' && sidebarCollapsed ? (
           <div className={tw("settings-collapsed-navigation [-webkit-app-region:no-drag] absolute z-2 top-2 left-3 flex items-center gap-1", isDarwin && "min-[701px]:top-1 min-[701px]:left-20 min-[701px]:gap-0")}>
-            <button aria-expanded={false} aria-label="切换侧边栏" className={tw("icon-button inline-grid size-7 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={() => { setSidebarCollapsed(false) }} title="展开侧边栏（⌘ B）" type="button"><Icon name="panelLeft" size={18} /></button>
-            <button aria-label="后退" className={tw("icon-button inline-grid size-8 place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7]", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
-            <button aria-label="前进" className={tw("icon-button inline-grid size-8 place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7]", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateForward} onClick={onNavigateForward} title="前进" type="button"><Icon name="arrowRight" size={16} /></button>
-            <button className={tw("settings-collapsed-navigation__return [padding:0.3rem_0.6rem] border-0 [border-radius:0.4rem] bg-transparent [color:var(--text-secondary)] [font-size:0.8rem] cursor-pointer hover:[background:var(--surface-hover)]")} onClick={props.onWorkspaceOpen} type="button">返回应用</button>
+            <button aria-expanded={false} aria-label="切换侧边栏" className={tw("icon-button inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={() => { setSidebarCollapsed(false) }} title="展开侧边栏（⌘ B）" type="button"><Icon name="panelLeft" size={18} /></button>
+            <button aria-label="后退" className={tw("icon-button inline-grid size-control place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
+            <button aria-label="前进" className={tw("icon-button inline-grid size-control place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateForward} onClick={onNavigateForward} title="前进" type="button"><Icon name="arrowRight" size={16} /></button>
+            <button className={tw("settings-collapsed-navigation__return py-1 px-2.5 border-0 rounded-md bg-transparent [color:var(--text-secondary)] text-compact cursor-pointer hover:[background:var(--surface-hover)]")} onClick={props.onWorkspaceOpen} type="button">返回应用</button>
           </div>
         ) : null}
         {screen === 'settings' ? <div aria-hidden="true" className={tw("h-10 shrink-0 select-none [-webkit-app-region:drag]")} /> : <header className={tw("workspace-header select-none [-webkit-app-region:drag] relative z-5 flex h-10 shrink-0 items-center justify-between bg-[var(--surface)] pr-2.5 pl-5", workbenchOpen && "col-start-1 row-start-1", workbenchMaximized && "hidden", workbenchOpen && "max-[700px]:hidden", sidebarCollapsed && isDarwin && "min-[701px]:pl-20")}>
-          <div className={tw("workspace-header__leading flex items-center min-w-0 flex-1 [gap:0.5rem]")}>
+          <div className={tw("workspace-header__leading flex items-center min-w-0 flex-1 gap-2")}>
             {sidebarCollapsed ? (
               <div className={tw("workspace-header__navigation [-webkit-app-region:no-drag] flex flex-none items-center gap-0.5", isDarwin && "min-[701px]:gap-0 min-[701px]:-translate-x-px min-[701px]:-translate-y-px")}>
-                <button aria-expanded={false} aria-label="切换侧边栏" className={tw("icon-button inline-grid size-8 flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7]", isDarwin && "min-[701px]:size-7.5")} onClick={() => { setSidebarCollapsed(false) }} title="展开侧边栏（⌘ B）" type="button"><Icon name="panelLeft" size={18} /></button>
-                <button aria-label="后退" className={tw("icon-button inline-grid size-8 flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7]", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
-                <button aria-label="前进" className={tw("icon-button inline-grid size-8 flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent dark:hover:bg-[#2a2a2d] dark:hover:text-[#e6e6e7]", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateForward} onClick={onNavigateForward} title="前进" type="button"><Icon name="arrowRight" size={16} /></button>
+                <button aria-expanded={false} aria-label="切换侧边栏" className={tw("icon-button inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)]", isDarwin && "min-[701px]:size-7.5")} onClick={() => { setSidebarCollapsed(false) }} title="展开侧边栏（⌘ B）" type="button"><Icon name="panelLeft" size={18} /></button>
+                <button aria-label="后退" className={tw("icon-button inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
+                <button aria-label="前进" className={tw("icon-button inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateForward} onClick={onNavigateForward} title="前进" type="button"><Icon name="arrowRight" size={16} /></button>
               </div>
             ) : null}
             <div className={tw("workspace-header__title flex min-w-0 items-center gap-1.5")}>
@@ -1619,7 +1654,7 @@ export function LingShell(props: LingShellProps) {
                 <Menu
                   align="start"
                   triggerAriaLabel="任务操作"
-                  triggerClassName="workspace-header__menu [-webkit-app-region:no-drag] size-7 rounded-md hover:bg-[var(--surface-hover)]"
+                  triggerClassName="workspace-header__menu [-webkit-app-region:no-drag] size-control-sm rounded-md hover:bg-[var(--surface-hover)]"
                   triggerLabel={<Icon name="more" size={18} />}
                 >
                   <MenuItem icon="edit" onPress={() => { setDialog({ kind: 'rename-task', id: selectedTask.taskId, initial: selectedTask.title }) }}>重命名</MenuItem>
@@ -1723,6 +1758,8 @@ export function LingShell(props: LingShellProps) {
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
                 onForkAt={selectedTask ? (seq: number) => props.onFork(selectedTask.taskId, seq) : undefined}
+                onEditMessage={props.onEditMessage}
+                onRetryMessage={props.onRetryMessage}
                 onAddReply={(text, preview) => {
                   props.onAddQuote(text, preview)
                   document.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.focus()
@@ -1739,7 +1776,7 @@ export function LingShell(props: LingShellProps) {
               />
             </section>
 
-            <div className={tw("composer-wrap relative [z-index:4] flex flex-col [width:min(48rem,_calc(100%_-_2rem))] [flex:0_1_auto] min-h-0 [margin:0_auto_0.45rem] max-[1180px]:[width:min(48rem,_calc(100%_-_2rem))] max-[700px]:[width:calc(100%_-_2rem)]", emptyConversation && "shrink-0")}>
+            <div className={tw("composer-wrap relative [z-index:4] flex flex-col [width:min(48rem,_calc(100%_-_2rem))] [flex:0_1_auto] min-h-0 mt-0 mx-auto mb-2 max-[1180px]:[width:min(48rem,_calc(100%_-_2rem))] max-[700px]:[width:calc(100%_-_2rem)]", emptyConversation && "shrink-0")}>
               {notice ? <ComposerNotice message={notice} onRetry={props.onNoticeRetry} /> : null}
               <InteractionPanel
                 interactions={pendingInteractions}
@@ -1751,8 +1788,8 @@ export function LingShell(props: LingShellProps) {
                 <Icon name="globe" size={15} />
                 <div className={tw('min-w-0 flex-1')}>
                   <div>{serverIssue.title}</div>
-                  {serverIssue.previous ? <div className={tw('break-all font-mono text-[0.68rem] text-[var(--text-tertiary)]')}>原 {serverIssue.previous.algorithm} · {serverIssue.previous.sha256}</div> : null}
-                  {serverIssue.observed ? <div className={tw('break-all font-mono text-[0.68rem] text-[var(--text-tertiary)]')}>现 {serverIssue.observed.algorithm} · {serverIssue.observed.sha256}</div> : null}
+                  {serverIssue.previous ? <div className={tw("break-all font-mono text-caption text-[var(--text-tertiary)]")}>原 {serverIssue.previous.algorithm} · {serverIssue.previous.sha256}</div> : null}
+                  {serverIssue.observed ? <div className={tw("break-all font-mono text-caption text-[var(--text-tertiary)]")}>现 {serverIssue.observed.algorithm} · {serverIssue.observed.sha256}</div> : null}
                 </div>
                 {nativeRemoteBroker() ? <button className={tw('shrink-0 rounded-md border border-[var(--panel-border)] bg-transparent px-2 py-1 text-xs hover:bg-[var(--surface-hover)] disabled:opacity-50')} disabled={serverIssuePending} onClick={() => {
                   const broker = nativeRemoteBroker()
@@ -1763,6 +1800,9 @@ export function LingShell(props: LingShellProps) {
               </div> : null}
               <Composer
                 attachments={attachments}
+                recordedAttachments={props.recordedAttachments}
+                onRemoveRecordedAttachment={props.onRemoveRecordedAttachment}
+                focusKey={props.composerFocusKey}
                 browserAnnotationCount={browserAnnotations.length}
                 disabled={connection.phase !== 'ready' || props.composerPresetPending === true || Boolean(taskServerId && serverIssue)}
                 getTaskCommands={props.getTaskCommands}
@@ -1795,12 +1835,12 @@ export function LingShell(props: LingShellProps) {
               <ComposerContext
                 agentPresetControl={props.agentPresetControl}
                 operationsControl={!activeServerId && props.serverManager ? activeOperationsServerId && selectedTask ? (
-                  <span className={tw('inline-flex h-6 max-w-40 items-center gap-1 rounded-md px-1 text-[var(--text-secondary)]')} title={`运维服务器：${servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}`}><Icon name="globe" size={14} /><span className={tw('truncate')}>运维 · {servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}</span></span>
+                  <span className={tw("inline-flex h-control-xs max-w-40 items-center gap-1 rounded-md px-1 text-[var(--text-secondary)]")} title={`运维服务器：${servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}`}><Icon name="globe" size={14} /><span className={tw('truncate')}>运维 · {servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}</span></span>
                 ) : <Menu
                   align="start"
                   side="top"
                   triggerAriaLabel="选择运维服务器"
-                  triggerClassName={tw('h-6 max-w-40 rounded-md px-1 text-xs hover:bg-[var(--surface-hover)]')}
+                  triggerClassName={tw("h-control-xs max-w-40 rounded-md px-1 text-xs hover:bg-[var(--surface-hover)]")}
                   triggerLabel={<><Icon name="globe" size={14} /><span className={tw('truncate')}>{activeOperationsServerId ? `运维 · ${servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}` : '运维服务器'}</span><Icon name="chevronDown" size={12} /></>}
                 >
                   {servers.length ? servers.map(server => <MenuItem key={server.id} checked={activeOperationsServerId === server.id} icon="globe" onPress={() => {
@@ -1852,17 +1892,17 @@ export function LingShell(props: LingShellProps) {
                 workbenchMaximized && "hidden",
                 monitorFloating
                   ? tw(
-                      "z-6 top-10 bottom-auto w-[min(17.5rem,calc(100%_-_1.1rem))] max-h-[calc(100%_-_3.25rem)] rounded-xl border border-[var(--panel-border)] px-4 pb-3 shadow-[0_12px_32px_rgb(0_0_0_/_0.11)]",
+                      "z-6 top-10 bottom-auto w-[min(17.5rem,calc(100%_-_1.1rem))] max-h-[calc(100%_-_3.25rem)] rounded-xl border border-[var(--panel-border)] px-4 pb-3 shadow-[var(--overlay-shadow)]",
                       workbenchOpen ? "right-[calc(var(--workbench-width)_+_0.55rem)]" : "right-2",
                       terminalVisible && "max-h-[calc(100%_-_var(--terminal-height)_-_4rem)]",
                     )
                   : tw(
                       "z-3 top-10 right-0 bottom-0 w-[var(--monitor-width)] px-3.5 pb-4 pl-8",
                       terminalVisible && "bottom-[var(--terminal-height)]",
-                      "max-[980px]:z-6 max-[980px]:top-10 max-[980px]:right-2 max-[980px]:bottom-auto max-[980px]:w-[min(22.5rem,calc(100%_-_0.9rem))] max-[980px]:max-h-[calc(100%_-_3.25rem)] max-[980px]:rounded-xl max-[980px]:border max-[980px]:border-[var(--panel-border)] max-[980px]:px-4 max-[980px]:pb-3 max-[980px]:shadow-[0_12px_32px_rgb(0_0_0_/_0.11)]",
+                      "max-[980px]:z-6 max-[980px]:top-10 max-[980px]:right-2 max-[980px]:bottom-auto max-[980px]:w-[min(22.5rem,calc(100%_-_0.9rem))] max-[980px]:max-h-[calc(100%_-_3.25rem)] max-[980px]:rounded-xl max-[980px]:border max-[980px]:border-[var(--panel-border)] max-[980px]:px-4 max-[980px]:pb-3 max-[980px]:shadow-[var(--overlay-shadow)]",
                     ),
               )} id="task-monitor">
-                {slots?.['rightbar.session'] ?? <EnvironmentPanel {...props} onGitReview={activeGitId && activeGitRequest ? () => { setReviewSource('git'); openWorkbenchTab('review') } : undefined} onGitOpen={activeGitId && activeGitRequest ? () => setGitOpen(true) : undefined} workspaceBranch={gitBranch} onEnvironmentPinToggle={toggleMonitorPin} onSelectSideChat={id => { setActiveWorkbenchTabId(id); if (!browserOpen) props.onBrowserToggle() }} preferences={monitorPreferences} presentation={monitorPresentation} sideChats={workbenchTabs.filter(tab => tab.kind === 'side-task')} />}
+                {slots?.['rightbar.session'] ?? <EnvironmentPanel {...props} gitLineChanges={gitLineChanges} onGitReview={activeGitId && activeGitRequest ? () => { setReviewSource('git'); openWorkbenchTab('review') } : undefined} onGitOpen={activeGitId && activeGitRequest ? () => setGitOpen(true) : undefined} workspaceBranch={gitBranch} onEnvironmentPinToggle={toggleMonitorPin} onSelectSideChat={id => { setActiveWorkbenchTabId(id); if (!browserOpen) props.onBrowserToggle() }} preferences={monitorPreferences} presentation={monitorPresentation} sideChats={workbenchTabs.filter(tab => tab.kind === 'side-task')} />}
               </aside>
             ) : null}
           </>
@@ -1875,7 +1915,7 @@ export function LingShell(props: LingShellProps) {
               <WorkbenchHeaderAction active={terminalOpen} controls="workspace-terminal" expanded={terminalOpen} icon="terminalPanel" label="终端面板" onClick={() => { setTerminalOpen(current => !current) }} />
               <button
                 aria-label={`关闭${utilityPanel === 'knowledge' ? '知识中心' : '自动化'}`}
-                className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-7 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")}
+                className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")}
                 onClick={closeWorkbench}
                 type="button"
               >
@@ -1884,20 +1924,20 @@ export function LingShell(props: LingShellProps) {
             </div>
           ) : null}
           {utilityPanel === 'knowledge' ? (
-            <p className={tw("sidebar-utility-panel__empty [margin:0.4rem_0] [color:var(--text-tertiary)] [font-size:0.76rem] [line-height:1.5]")}>知识中心尚未接入本地版。</p>
+            <p className={tw("sidebar-utility-panel__empty my-1.5 mx-0 [color:var(--text-tertiary)] text-xs [line-height:1.5]")}>知识中心尚未接入本地版。</p>
           ) : utilityPanel === 'automation' ? (
             <section className={tw("sidebar-utility-panel grid min-w-0 gap-3")}>
-              <div className={tw("sidebar-utility-panel__heading flex items-center justify-between [color:var(--foreground)] [font-size:0.78rem] [font-weight:590]")}><span>当前任务的本地定时提醒</span>{props.supportsSchedules && selectedTask ? <button aria-label="刷新定时提醒" className={tw("icon-button inline-grid size-7 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={props.onSchedulesRefresh} type="button"><Icon name="refresh" size={15} /></button> : null}</div>
+              <div className={tw("sidebar-utility-panel__heading flex items-center justify-between [color:var(--foreground)] text-xs [font-weight:590]")}><span>当前任务的本地定时提醒</span>{props.supportsSchedules && selectedTask ? <button aria-label="刷新定时提醒" className={tw("icon-button inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={props.onSchedulesRefresh} type="button"><Icon name="refresh" size={15} /></button> : null}</div>
               {props.supportsSchedules && selectedTask
                 ? <ScheduleList loading={props.schedulesLoading} message={props.schedulesMessage} schedules={props.schedules ?? []} />
-                : <p className={tw("sidebar-utility-panel__empty [margin:0.4rem_0] [color:var(--text-tertiary)] [font-size:0.76rem] [line-height:1.5]")}>{selectedTask ? '当前运行时尚不支持定时提醒。' : '打开一个任务后，可查看其本地定时提醒。'}</p>}
+                : <p className={tw("sidebar-utility-panel__empty my-1.5 mx-0 [color:var(--text-tertiary)] text-xs [line-height:1.5]")}>{selectedTask ? '当前运行时尚不支持定时提醒。' : '打开一个任务后，可查看其本地定时提醒。'}</p>}
             </section>
           ) : browserOpen ? (
             <>
               <div className={tw("workbench-header select-none [-webkit-app-region:drag] flex h-10 flex-none items-center justify-between gap-2 px-2.5", workbenchTabs.length > 0 && "border-b border-solid border-[var(--panel-border)]")}>
                 <WorkbenchTabs activeId={activeWorkbenchTabId} onClose={closeWorkbenchTab} onSelect={setActiveWorkbenchTabId} tabs={workbenchTabs} />
                 <div className={tw("workbench-header__actions [-webkit-app-region:no-drag] ml-auto grid shrink-0 grid-flow-col auto-cols-7 items-center gap-1")}>
-                  <Menu align="end" triggerAriaLabel="添加标签页" triggerClassName="size-7 shrink-0 rounded-md hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]" triggerLabel={<Icon name="plus" size={18} />}>
+                  <Menu align="end" triggerAriaLabel="添加标签页" triggerClassName="size-control-sm shrink-0 rounded-md hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]" triggerLabel={<Icon name="plus" size={18} />}>
                     {!activeServerId ? <MenuItem icon="sideChat" onPress={() => { openWorkbenchTab('side-task') }}>打开侧边任务</MenuItem> : null}
                   <MenuItem icon="folderOpen" onPress={() => { openWorkbenchTab('files') }}>打开工作区文件</MenuItem>
                     <MenuItem icon="globe" onPress={() => { openWorkbenchTab('browser') }}>打开内置浏览器</MenuItem>
@@ -1920,14 +1960,14 @@ export function LingShell(props: LingShellProps) {
               {browserInitialized ? <div className={tw("workbench-browser flex min-h-0 min-w-0 flex-1 [&[hidden]]:hidden")} hidden={activeWorkbenchTab?.kind !== 'browser'}><BrowserPanel navigationRequest={browserNavigation} onNavigationHandled={id => setBrowserNavigation(current => current?.id === id ? undefined : current)} active={activeWorkbenchTab?.kind === 'browser'} annotationResetKey={browserAnnotationResetKey} applicationOrigin={window.location.origin} onAnnotationsChange={setBrowserAnnotations} onSendAnnotations={submitWithBrowserAnnotations} /></div> : null}
               {activeWorkbenchTab?.kind === 'review' ? <section aria-label="审阅" className={tw('workbench-review flex min-h-0 flex-1 flex-col overflow-hidden pt-1')}>
                 {(reviewSource === 'git' || reviewSource === 'worktrees') && activeGitId && activeGitRequest ? <GitPanel key={`${activeGitId}:${reviewSource}`} workspaceId={activeGitId} request={activeGitRequest} view={reviewSource === 'worktrees' ? 'worktrees' : 'review'} onChanged={onGitChanged} onCommit={() => setGitOpen(true)} onTaskReview={() => setReviewSource('task')} /> : <>
-                  <div className={tw('flex h-9 shrink-0 items-center px-3')}><Menu align="start" triggerAriaLabel="选择改动来源" triggerClassName="h-7 gap-1.5 rounded-md px-2 text-xs" triggerLabel={<>最近一轮<Icon name="chevronDown" size={12} /></>}><MenuItem onPress={() => setReviewSource('task')}>最近一轮</MenuItem><MenuItem disabled={!activeGitId || !activeGitRequest} onPress={() => setReviewSource('git')}>未提交</MenuItem></Menu></div>
+                  <div className={tw("flex h-control-lg shrink-0 items-center px-3")}><Menu align="start" triggerAriaLabel="选择改动来源" triggerClassName="h-control-sm gap-1.5 rounded-md px-2 text-xs" triggerLabel={<>最近一轮<Icon name="chevronDown" size={12} /></>}><MenuItem onPress={() => setReviewSource('task')}>最近一轮</MenuItem><MenuItem disabled={!activeGitId || !activeGitRequest} onPress={() => setReviewSource('git')}>未提交</MenuItem></Menu></div>
                   <div className={tw('min-h-0 flex-1 overflow-auto px-4 pb-4')}><ChangeReview changes={props.changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} /></div>
                 </>}
               </section> : null}
               {activeWorkbenchTab?.kind === 'notes' && activeWorkbenchTab.notesTaskId ? <TaskNotes key={activeWorkbenchTab.notesTaskId} taskId={activeWorkbenchTab.notesTaskId} onAttach={text => onPromptChange([prompt, text].filter(Boolean).join('\n\n'))} /> : null}
-              {activeWorkbenchTab?.kind === 'terminal' ? (activeServerId || activeOperationsServerId) && selectedTask && props.serverManager
-                ? <ServerTerminalPanel service={props.serverManager} taskId={selectedTask.taskId} />
-                : <TerminalPanel service={props.terminalService} taskId={selectedTask?.taskId} placement="side" /> : null}
+              {activeWorkbenchTab?.kind === 'terminal' ? (activeServerId || activeOperationsServerId) && props.serverManager
+                ? <ServerTerminalPanel service={props.serverManager} taskId={selectedTask?.taskId} serverId={activeServerId ?? activeOperationsServerId} placement="side" />
+                : <TerminalPanel service={props.terminalService} taskId={selectedTask?.taskId} workspaceId={activeWorkspaceId} placement="side" /> : null}
               {!activeWorkbenchTab ? <div className={tw("workbench-home flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-auto p-4")}>
                 <WorkbenchHomeAction icon="folderOpen" onClick={() => { openWorkbenchTab('files') }} title="打开工作区文件" />
                 {!activeServerId ? <WorkbenchHomeAction icon="sideChat" onClick={() => { openWorkbenchTab('side-task') }} title="打开侧边任务" /> : null}
@@ -1946,7 +1986,7 @@ export function LingShell(props: LingShellProps) {
             aria-valuemax={Math.round((100 - workbenchBounds.minimum) * 10) / 10}
             aria-valuemin={Math.round((100 - workbenchBounds.maximum) * 10) / 10}
             aria-valuenow={Math.round((100 - displayedWorkbenchWidth) * 10) / 10}
-            className={tw("workspace-workbench__resizer absolute z-8 top-0 bottom-0 left-[calc(100%_-_var(--workbench-width)_-_5px)] w-2.5 cursor-col-resize touch-none select-none after:absolute after:top-[var(--resize-marker-y,50%)] after:left-1 after:h-[min(18rem,100%)] after:w-0.5 after:-translate-y-1/2 after:bg-[linear-gradient(to_bottom,transparent,rgb(201_99_67_/_0.18)_18%,rgb(201_99_67_/_0.82)_50%,rgb(201_99_67_/_0.18)_82%,transparent)] after:opacity-0 after:[clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)] after:[content:''] hover:after:opacity-100 focus-visible:outline-none focus-visible:after:opacity-100 active:after:opacity-100 max-[700px]:hidden", terminalVisible && "bottom-[var(--terminal-height)]")}
+            className={tw("workspace-workbench__resizer absolute z-8 top-0 bottom-0 left-[calc(100%_-_var(--workbench-width)_-_5px)] w-2.5 cursor-col-resize touch-none select-none after:absolute after:top-[var(--resize-marker-y,50%)] after:left-1 after:h-[min(18rem,100%)] after:w-0.5 after:-translate-y-1/2 after:bg-[linear-gradient(to_bottom,transparent,color-mix(in_srgb,var(--action)_18%,transparent)_18%,color-mix(in_srgb,var(--action)_82%,transparent)_50%,color-mix(in_srgb,var(--action)_18%,transparent)_82%,transparent)] after:opacity-0 after:[clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)] after:[content:''] hover:after:opacity-100 focus-visible:outline-none focus-visible:after:opacity-100 active:after:opacity-100 max-[700px]:hidden", terminalVisible && "bottom-[var(--terminal-height)]")}
             onPointerEnter={event => { positionResizeMarker(event, 'vertical') }}
             onKeyDown={event => {
               if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -1999,7 +2039,7 @@ export function LingShell(props: LingShellProps) {
               aria-valuemax={terminalHeightLimit(workspaceAvailableHeight)}
               aria-valuemin={terminalMinHeight}
               aria-valuenow={displayedTerminalHeight}
-              className={tw("workspace-terminal__resizer absolute [z-index:9] [top:-5px] [right:0] [left:0] [height:9px] cursor-row-resize [touch-action:none] select-none after:absolute after:[top:4px] after:[left:var(--resize-marker-x,_50%)] after:[width:min(18rem,_100%)] after:[height:2px] after:[clip-path:polygon(0_50%,_50%_0,_100%_50%,_50%_100%)] after:[background:linear-gradient(to_right,_transparent,_rgb(201_99_67_/_0.18)_18%,_rgb(201_99_67_/_0.82)_50%,_rgb(201_99_67_/_0.18)_82%,_transparent)] after:[content:''] after:opacity-0 after:pointer-events-none after:[transform:translateX(-50%)] hover:after:opacity-100 focus-visible:after:opacity-100 active:after:opacity-100 focus-visible:[outline:none]")}
+              className={tw("workspace-terminal__resizer absolute [z-index:9] [top:-5px] [right:0] [left:0] [height:9px] cursor-row-resize [touch-action:none] select-none after:absolute after:[top:4px] after:[left:var(--resize-marker-x,_50%)] after:[width:min(18rem,_100%)] after:[height:2px] after:[clip-path:polygon(0_50%,_50%_0,_100%_50%,_50%_100%)] after:[background:linear-gradient(to_right,_transparent,_color-mix(in_srgb,var(--action)_18%,transparent)_18%,_color-mix(in_srgb,var(--action)_82%,transparent)_50%,_color-mix(in_srgb,var(--action)_18%,transparent)_82%,_transparent)] after:[content:''] after:opacity-0 after:pointer-events-none after:[transform:translateX(-50%)] hover:after:opacity-100 focus-visible:after:opacity-100 active:after:opacity-100 focus-visible:[outline:none]")}
               onPointerEnter={event => { positionResizeMarker(event, 'horizontal') }}
               onKeyDown={event => {
                 if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
@@ -2037,9 +2077,9 @@ export function LingShell(props: LingShellProps) {
               role="separator"
               tabIndex={0}
             />
-            {activeServerId && selectedTask && props.serverManager ? <ServerTerminalPanel service={props.serverManager} taskId={selectedTask.taskId} onClose={() => setTerminalOpen(false)} />
+            {(activeServerId || activeOperationsServerId) && props.serverManager ? <ServerTerminalPanel service={props.serverManager} taskId={selectedTask?.taskId} serverId={activeServerId ?? activeOperationsServerId} placement="bottom" onClose={() => setTerminalOpen(false)} />
               : actionOutputOpen && workspaceTools.snapshot?.runs.length ? <WorkspaceActionOutput tools={workspaceTools} onClose={() => { setTerminalOpen(false) }} onShowTerminals={() => { setActionOutputOpen(false) }} />
-                : <TerminalPanel service={props.terminalService} taskId={selectedTask?.taskId} placement="bottom" onClose={() => setTerminalOpen(false)} />}
+                : <TerminalPanel service={props.terminalService} taskId={selectedTask?.taskId} workspaceId={activeWorkspaceId} placement="bottom" onClose={() => setTerminalOpen(false)} />}
           </section>
         ) : null}
       </main>

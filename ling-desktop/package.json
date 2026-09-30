@@ -8,7 +8,8 @@
   "exports": {
     "./client": "./src/client.tsx",
     "./runtime": "./src/runtime/contract.ts",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./theme": "./src/theme/tokens.ts"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
@@ -16,12 +17,13 @@
   "scripts": {
     "dev": "VITE_LING_DEMO=1 vite",
     "dev:demo": "VITE_LING_DEMO=1 vite",
-    "build": "yarn typecheck && vite build",
+    "build": "node scripts/generate-theme.mjs && yarn typecheck && vite build",
     "typecheck": "tsc --noEmit",
     "check:boundary": "node scripts/verify-boundary.mjs",
-    "check:heroui": "node scripts/verify-heroui-setup.mjs",
+    "check:heroui": "node scripts/generate-theme.mjs --check && node scripts/verify-heroui-setup.mjs",
     "test": "vitest run",
-    "check": "yarn build && yarn check:boundary && yarn check:heroui && yarn test"
+    "check": "yarn build && yarn check:boundary && yarn check:heroui && yarn check:theme && yarn test",
+    "check:theme": "node scripts/generate-theme.mjs --check && node scripts/verify-theme.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh-api-session-controller": "0.1.6-alpha.2",

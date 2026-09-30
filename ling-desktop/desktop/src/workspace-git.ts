@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { isAbsolute } from 'node:path'
 import { promisify } from 'node:util'
+import { readGitLineChanges } from './git-line-changes.ts'
 
 const execute = promisify(execFile)
 
@@ -30,14 +31,15 @@ function textValue(value: unknown, label: string, limit = 4096): string {
   if (typeof value !== 'string' || !value.trim() || value.includes('\0') || value.length > limit) throw new Error(`${label}无效。`)
   return value
 }
-async function git(path: string, args: readonly string[], network = false): Promise<string> {
+async function git(path: string, args: readonly string[], network = false, allowedCodes: readonly number[] = [0]): Promise<string> {
   try {
     return (await execute('git', ['--literal-pathspecs', '-C', path, ...args], {
       timeout: network ? 60_000 : 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true,
       env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes', LC_ALL: 'C' },
     })).stdout
   } catch (error) {
-    const failure = error as { stderr?: string; killed?: boolean; message?: string }
+    const failure = error as { stderr?: string; stdout?: string; code?: number; killed?: boolean; message?: string }
+    if (failure.code !== undefined && allowedCodes.includes(failure.code)) return failure.stdout ?? ''
     if (failure.killed) throw new Error('Git 操作超时，请刷新状态后再试。')
     throw new Error((failure.stderr || failure.message || 'Git 操作失败。').trim().slice(0, 4000))
   }
@@ -61,7 +63,7 @@ function parseWorktrees(raw: string): LingGitWorktree[] {
     return { path: value('worktree'), branch: value('branch').replace(/^refs\/heads\//, '') || null, head: value('HEAD'), main: index === 0, locked: fields.some(f => f === 'locked' || f.startsWith('locked ')), prunable: fields.some(f => f === 'prunable' || f.startsWith('prunable ')) }
   }).filter(item => item.path)
 }
-async function inspect(path: string): Promise<LingGitSnapshot> {
+async function inspect(path: string, includeLineChanges = false): Promise<LingGitSnapshot> {
   const empty: LingGitSnapshot = { repository: false, root: path, branch: null, detached: false, unborn: false, upstream: null, ahead: 0, behind: 0, files: [], branches: [], remotes: [], worktrees: [] }
   let root: string
   try { root = (await git(path, ['rev-parse', '--show-toplevel'])).trim() }
@@ -77,7 +79,9 @@ async function inspect(path: string): Promise<LingGitSnapshot> {
   ])
   const [status, branch, head, upstream, branches, remotes, worktrees] = results as [string, string, string, string, string, string, string]
   const counts = upstream ? (await git(root, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'])).trim().split(/\s+/).map(Number) : [0, 0]
-  return { repository: true, root, branch: branch.trim() || head.trim().slice(0, 8) || null, detached: !branch.trim() && !!head.trim(), unborn: !head.trim(), upstream: upstream.trim() || null, ahead: counts[0] ?? 0, behind: counts[1] ?? 0, files: parseFiles(status), branches: branches.trim().split('\n').filter(Boolean), remotes: remotes.trim().split('\n').filter(Boolean), worktrees: parseWorktrees(worktrees) }
+  const files = parseFiles(status)
+  const lineChanges = includeLineChanges ? await readGitLineChanges((args, allowed) => git(root, args, false, allowed), files, !head.trim()) : undefined
+  return { repository: true, root, branch: branch.trim() || head.trim().slice(0, 8) || null, detached: !branch.trim() && !!head.trim(), unborn: !head.trim(), upstream: upstream.trim() || null, ahead: counts[0] ?? 0, behind: counts[1] ?? 0, files, ...(lineChanges ? { lineChanges } : {}), branches: branches.trim().split('\n').filter(Boolean), remotes: remotes.trim().split('\n').filter(Boolean), worktrees: parseWorktrees(worktrees) }
 }
 
 /** Serialize writes across windows and linked worktrees without exposing arbitrary commands. */
@@ -89,7 +93,7 @@ export class WorkspaceGit {
     const directory = await realpath(pathValue(path))
     if (!input || typeof input !== 'object' || !('type' in input)) throw new Error('无效的 Git 操作。')
     const request = input as LingGitRequest
-    if (request.type === 'inspect') return { snapshot: await inspect(directory) }
+    if (request.type === 'inspect') return { snapshot: await inspect(directory, request.lineChanges === true) }
     const common = (await git(directory, ['rev-parse', '--git-common-dir'])).trim()
     const key = await realpath(resolve(directory, common))
     const previous = this.queues.get(key) ?? Promise.resolve()

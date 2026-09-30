@@ -1,8 +1,10 @@
+import { remoteFileResultSchema, type RemoteFileRequest, type RemoteFileResult } from '../ssh/contract.ts'
+import type { RemotePolicy } from '../ssh/runtime.ts'
 import type { ServerOutput } from '../server-execution.ts'
 import type { ServerCommandResult, ServerDirectoryManifest, ServerDownloadResult, ServerTerminalSnapshot, ServerUploadResult } from '../server-broker.ts'
 
 interface Pending {
-  readonly kind: 'run' | 'upload' | 'download' | 'manifest' | 'terminal-open' | 'terminal-poll' | 'terminal-action'
+  readonly kind: 'run' | 'upload' | 'download' | 'manifest' | 'terminal-open' | 'terminal-poll' | 'terminal-action' | 'file'
   readonly resolve: (value: never) => void
   readonly reject: (error: Error) => void
   readonly signal: AbortSignal
@@ -17,8 +19,12 @@ export class ServerBridge {
 
   constructor(private readonly send: (message: object) => void) {}
 
-  run(serverId: string, cwd: string, command: string, signal: AbortSignal, outputLimit?: number, onOutput?: (chunk: ServerOutput) => void): Promise<ServerCommandResult> {
-    return this.request('run', { type: 'server-request', serverId, cwd, command, ...(onOutput ? { stream: true } : {}), ...(outputLimit === undefined ? {} : { outputLimit }) }, signal, onOutput)
+  run(serverId: string, cwd: string, command: string, signal: AbortSignal, outputLimit?: number, onOutput?: (chunk: ServerOutput) => void, policy?: RemotePolicy): Promise<ServerCommandResult> {
+    return this.request('run', { type: 'server-request', serverId, cwd, command, ...(policy ? { policy } : {}), ...(onOutput ? { stream: true } : {}), ...(outputLimit === undefined ? {} : { outputLimit }) }, signal, onOutput)
+  }
+
+  file(request: RemoteFileRequest, signal: AbortSignal): Promise<RemoteFileResult> {
+    return this.request('file', { type: 'server-file-request', request }, signal)
   }
 
   upload(serverId: string, root: string, source: string, destination: string,
@@ -55,7 +61,7 @@ export class ServerBridge {
     return this.request('terminal-action', { type: 'server-terminal-request', action: 'close', terminalId }, signal)
   }
 
-  private request<T extends ServerCommandResult | ServerUploadResult | ServerDownloadResult | ServerDirectoryManifest | ServerTerminalSnapshot | { terminalId: string } | { ok: true }>(kind: Pending['kind'], request: object, signal: AbortSignal, onOutput?: (chunk: ServerOutput) => void): Promise<T> {
+  private request<T extends RemoteFileResult | ServerCommandResult | ServerUploadResult | ServerDownloadResult | ServerDirectoryManifest | ServerTerminalSnapshot | { terminalId: string } | { ok: true }>(kind: Pending['kind'], request: object, signal: AbortSignal, onOutput?: (chunk: ServerOutput) => void): Promise<T> {
     if (signal.aborted) return Promise.reject(new Error('远端命令已取消。'))
     const requestId = this.nextId++
     return new Promise((resolve, reject) => {
@@ -84,7 +90,7 @@ export class ServerBridge {
     }
     if (message.type !== 'server-response') return false
     if (!('requestId' in message) || !Number.isSafeInteger(message.requestId)) return true
-    const response = message as { requestId: number; result?: ServerCommandResult | ServerUploadResult | ServerDownloadResult | ServerDirectoryManifest | ServerTerminalSnapshot | { terminalId: string } | { ok: true }; error?: string }
+    const response = message as { requestId: number; result?: RemoteFileResult | ServerCommandResult | ServerUploadResult | ServerDownloadResult | ServerDirectoryManifest | ServerTerminalSnapshot | { terminalId: string } | { ok: true }; error?: string }
     this.settle(response.requestId, response.result, response.error)
     return true
   }
@@ -93,12 +99,13 @@ export class ServerBridge {
     for (const id of this.pending.keys()) this.settle(id, undefined, '远端服务已断开。')
   }
 
-  private settle(id: number, value?: ServerCommandResult | ServerUploadResult | ServerDownloadResult | ServerDirectoryManifest | ServerTerminalSnapshot | { terminalId: string } | { ok: true }, error?: string): void {
+  private settle(id: number, value?: RemoteFileResult | ServerCommandResult | ServerUploadResult | ServerDownloadResult | ServerDirectoryManifest | ServerTerminalSnapshot | { terminalId: string } | { ok: true }, error?: string): void {
     const pending = this.pending.get(id)
     if (!pending) return
     this.pending.delete(id)
     pending.signal.removeEventListener('abort', pending.abort)
     if (error !== undefined) pending.reject(new Error(error))
+    else if (pending.kind === 'file' && remoteFileResultSchema.safeParse(value).success) pending.resolve(value as never)
     else if (pending.kind === 'run' && value && 'stdout' in value && typeof value.stdout === 'string' && typeof value.stderr === 'string' && Number.isInteger(value.exitCode)) pending.resolve(value as never)
     else if ((pending.kind === 'upload' || pending.kind === 'download') && value && 'destination' in value && typeof value.destination === 'string' && Number.isSafeInteger(value.bytes) && typeof value.sha256 === 'string') pending.resolve(value as never)
     else if (pending.kind === 'manifest' && value && 'exists' in value && typeof value.exists === 'boolean' && 'entries' in value && Array.isArray(value.entries) && 'sha256' in value && typeof value.sha256 === 'string') pending.resolve(value as never)

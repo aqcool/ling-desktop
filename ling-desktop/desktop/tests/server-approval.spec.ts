@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LingServersController } from '../src/host/server-controller.ts'
 import { decodeApprovalDetails } from '../src/approval-details.ts'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 
 afterEach(() => { vi.unstubAllEnvs() })
 
@@ -11,6 +12,9 @@ describe('server approval integration', () => {
     vi.stubEnv('DSH_HOME', '/tmp/ling-approval-integration')
     const ctx = new Context()
     ctx.provide('typert', { register: () => () => {} } as never)
+    let mode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'workspace-write'
+    ctx.provide('sessionProjections', { register: () => {}, stateOf: () => mode } as never)
+    new SandboxPolicyService(ctx, { mode: 'read-only', workspaceRoot: '/local' })
     let policy!: (exec: ToolExecution, next: () => Promise<PreToolDecision>) => Promise<PreToolDecision>
     const on = ctx.on.bind(ctx)
     vi.spyOn(ctx, 'on').mockImplementation(((name: string, callback: unknown) => {
@@ -23,7 +27,8 @@ describe('server approval integration', () => {
       operations: { get: async () => ({ serverId: 'bound-server', cwd: '/srv/live' }) },
       store: { list: async () => [{ id: 'bound-server', name: '生产服务器' }] },
     })
-    const exec = (command: string, description: string) => ({ name: 'server_exec', arguments: { command, description }, agent: { id: 'task' } }) as ToolExecution
+    const exec = (command: string, description: string) => ({ name: 'server_exec', arguments: { command, description },
+      agent: { id: 'task', session: { header: { cwd: '/local' } } } }) as ToolExecution
     const next = async () => ({ kind: 'allow' as const })
     expect(await policy(exec('systemctl status nginx --no-pager', '检查服务'), next)).toEqual({ kind: 'allow' })
     const decision = await policy(exec('systemctl restart nginx', '读取信息'), next)
@@ -34,5 +39,10 @@ describe('server approval integration', () => {
     const inherited = await policy(exec('pwd', '检查目录'), async () => upstream)
     expect(inherited.kind).toBe('ask')
     if (inherited.kind === 'ask') expect(decodeApprovalDetails(inherited.reason)?.impact).toContain(upstream.reason)
+    mode = 'danger-full-access'
+    expect(await policy(exec('systemctl restart nginx', '重启'), next)).toEqual({ kind: 'allow' })
+    mode = 'read-only'
+    expect((await policy(exec('systemctl restart nginx', '重启'), next)).kind).toBe('deny')
+    expect((await policy(exec('systemctl restart nginx', '重启'), async () => upstream)).kind).toBe('deny')
   })
 })

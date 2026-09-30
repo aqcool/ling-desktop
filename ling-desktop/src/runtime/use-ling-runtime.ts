@@ -76,6 +76,8 @@ function requestId() {
 }
 
 export interface SubmitOptions {
+  readonly requestId?: string
+  readonly recordedAttachments?: { readonly seq: number; readonly attachmentIds: readonly string[] }
   readonly model?: LingModelSelection
   readonly agentPreset?: string
   readonly maxGoalRounds?: number
@@ -216,7 +218,8 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     const result = await (selectedTask
       ? runtime.dispatch({
         type: 'task.send-message',
-        requestId: requestId(),
+        requestId: options.requestId ?? requestId(),
+        ...(options.recordedAttachments ? { recordedAttachments: options.recordedAttachments } : {}),
         taskId: selectedTask.taskId,
         text,
         ...(options.mode ? { mode: options.mode } : {}),
@@ -226,7 +229,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
         type: 'task.create',
         ...(options.model ? { model: options.model } : {}),
         ...(options.agentPreset ? { agentPreset: options.agentPreset } : {}),
-        requestId: requestId(),
+        requestId: options.requestId ?? requestId(),
         prompt: text,
         ...(options.maxGoalRounds === undefined ? {} : { maxGoalRounds: options.maxGoalRounds }),
         ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
@@ -278,8 +281,8 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     type: 'task.load-older', requestId: requestId(), taskId,
   }), [runtime])
 
-  const runCommand = useCallback(async (taskId: string, line: string, maxGoalRounds?: number): Promise<LingCommandResult> => {
-    return await runtime.dispatch({ type: 'task.run-command', requestId: requestId(), taskId, line, ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }) })
+  const runCommand = useCallback(async (taskId: string, line: string, maxGoalRounds?: number, attemptId?: string): Promise<LingCommandResult> => {
+    return await runtime.dispatch({ type: 'task.run-command', requestId: attemptId ?? requestId(), taskId, line, ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }) })
   }, [runtime])
 
   const createWorkspace = useCallback(async (path: string): Promise<LingCommandResult> => {

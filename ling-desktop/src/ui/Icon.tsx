@@ -131,6 +131,7 @@ export function Icon({ name, size = 18, className, active = false }: { readonly 
   return (
     <svg
       aria-hidden="true"
+      data-icon={name}
       className={tw("icon block shrink-0 align-middle", className)}
       fill={name === 'closeCircleFill' ? 'currentColor' : 'none'}
       fillRule={name === 'closeCircleFill' ? 'evenodd' : undefined}

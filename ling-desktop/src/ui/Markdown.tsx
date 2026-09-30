@@ -18,11 +18,11 @@ function CodeBlock({ code, lang }: { readonly code: string; readonly lang?: stri
     return () => { clearTimeout(timer) }
   }, [copied])
   return <div className={tw("md__pre-wrap my-3 min-w-0 overflow-hidden rounded-lg border border-[var(--md-border)] bg-[var(--md-pre-bg)] first:mt-0 last:mb-0")}>
-    <div data-copy-ignore className={tw("flex h-8 items-center justify-between gap-2 px-3 text-xs text-[var(--md-muted)]")}>
+    <div data-copy-ignore className={tw("flex h-control items-center justify-between gap-2 px-3 text-xs text-[var(--md-muted)]")}>
       <span>{lang || 'code'}</span>
       <button className={tw("rounded px-1.5 py-0.5 hover:bg-[var(--md-hover)]")} onClick={() => { void navigator.clipboard.writeText(code).then(() => { setCopied(true) }, () => { setCopied(false) }) }} type="button">{copied ? '已复制' : '复制'}</button>
     </div>
-    <pre className={tw("m-0 overflow-x-auto px-3 pb-3 text-[var(--md-pre-text)]")}><code className={tw("block font-mono text-[13px] leading-5")}>{code}</code></pre>
+    <pre className={tw("m-0 overflow-x-auto px-3 pb-3 text-[var(--md-pre-text)]")}><code className={tw("block font-mono text-compact leading-5")}>{code}</code></pre>
   </div>
 }
 
@@ -37,7 +37,7 @@ export function renderedMarkdownText(root: HTMLElement): string {
     if (node.tagName === 'PRE') return `${node.textContent ?? ''}\n\n`
     if (node.tagName === 'BR') return '\n'
     if (node.tagName === 'IMG') return node.getAttribute('alt') ?? ''
-    if (node.tagName === 'INPUT') return (node as HTMLInputElement).checked ? '[x] ' : '[ ] '
+    if (node.tagName === 'INPUT') return (node as HTMLInputElement).checked ? "[x]" : "[ ]"
     const text = Array.from(node.childNodes, read).join('')
     if (node.tagName === 'LI') return `• ${text.trim()}\n`
     if (node.tagName === 'TD' || node.tagName === 'TH') return `${text.trim()}\t`
@@ -55,9 +55,9 @@ const components: Components = {
   h1: ({ children }) => <h1 className={tw(headingClass, "md__h-1 text-xl leading-7")}>{children}</h1>,
   h2: ({ children }) => <h2 className={tw(headingClass, "md__h-2 text-lg")}>{children}</h2>,
   h3: ({ children }) => <h3 className={tw(headingClass, "md__h-3 mt-5 text-base")}>{children}</h3>,
-  h4: ({ children }) => <h4 className={tw(headingClass, "mt-4 text-[15px]")}>{children}</h4>,
+  h4: ({ children }) => <h4 className={tw(headingClass, "mt-4 text-md")}>{children}</h4>,
   h5: ({ children }) => <h5 className={tw(headingClass, "mt-4 text-sm")}>{children}</h5>,
-  h6: ({ children }) => <h6 className={tw(headingClass, "mt-4 text-[13px] text-[var(--md-muted)]")}>{children}</h6>,
+  h6: ({ children }) => <h6 className={tw(headingClass, "mt-4 text-compact text-[var(--md-muted)]")}>{children}</h6>,
   p: ({ children }) => <p className={tw("md__p my-3 leading-[var(--md-paragraph-leading)] first:mt-0 last:mb-0")}>{children}</p>,
   strong: ({ children }) => <strong className={tw("font-semibold")}>{children}</strong>,
   em: ({ children }) => <em className={tw("italic")}>{children}</em>,
@@ -68,7 +68,7 @@ const components: Components = {
   input: ({ checked }) => <input aria-label={checked ? '已完成' : '未完成'} checked={checked} disabled type="checkbox" className={tw("mr-2 align-middle accent-[var(--focus)]")} />,
   blockquote: ({ children }) => <blockquote className={tw("md__quote my-4 border-l-2 border-[var(--md-border)] pl-4 text-[var(--md-muted)] first:mt-0 last:mb-0")}>{children}</blockquote>,
   hr: () => <hr className={tw("md__hr my-6 border-0 border-t border-[var(--md-border)]")} />,
-  code: ({ children }) => <code className={tw("md__code rounded bg-[var(--md-code-bg)] px-1 py-0.5 font-mono text-[13px] text-[var(--md-code-text)] [overflow-wrap:anywhere]")}>{children}</code>,
+  code: ({ children }) => <code className={tw("md__code rounded bg-[var(--md-code-bg)] px-1 py-0.5 font-mono text-compact text-[var(--md-code-text)] [overflow-wrap:anywhere]")}>{children}</code>,
   pre: ({ node }) => {
     const code = node?.children.find(child => child.type === 'element' && child.tagName === 'code')
     if (!code || code.type !== 'element') return null
@@ -93,10 +93,10 @@ const components: Components = {
 export function Markdown({ source, inverted = false, chat = false, subdued = false }: { readonly source: string; readonly inverted?: boolean; readonly chat?: boolean; readonly subdued?: boolean }): ReactNode {
   return <div className={tw(
     "md min-w-0 text-sm leading-6 text-[var(--md-text)] [overflow-wrap:anywhere]",
-    chat ? "[--md-paragraph-leading:28px]" : "[--md-paragraph-leading:24px]",
-      inverted
-        ? "[--md-border:#3d3d3b] [--md-code-bg:#34343a] [--md-code-text:#eceae6] [--md-heading:#f4f4f2] [--md-hover:rgb(255_255_255_/_0.09)] [--md-link:#a8c4f0] [--md-muted:#c9c9c4] [--md-pre-bar-bg:#141414] [--md-pre-bg:#141414] [--md-pre-text:#e8e8e6] [--md-table-head-bg:#2a2a29] [--md-text:#f4f4f2]"
-        : "[--md-border:#e8e8e6] [--md-code-bg:#f2f2f0] [--md-code-text:inherit] [--md-heading:#1f1f1f] [--md-hover:var(--separator)] [--md-link:#4a6fa5] [--md-muted:#6a6a6a] [--md-pre-bar-bg:#fafaf9] [--md-pre-bg:#fafaf9] [--md-pre-text:inherit] [--md-table-head-bg:#f7f7f5] [--md-text:#353535] dark:[--md-border:#34343a] dark:[--md-code-bg:#2a2a2e] dark:[--md-code-text:#e2e2e5] dark:[--md-heading:#ececee] dark:[--md-hover:#2c2c31] dark:[--md-link:#8ab0e8] dark:[--md-muted:#bcbcc2] dark:[--md-pre-bar-bg:#202024] dark:[--md-pre-bg:#202024] dark:[--md-pre-text:#d8d8da] dark:[--md-table-head-bg:#26262a] dark:[--md-text:#d4d4d7]",
+    chat ? "[--md-paragraph-leading:calc(var(--font-size-sm)*var(--line-chat))]" : "[--md-paragraph-leading:calc(var(--font-size-sm)*var(--line-copy))]",
+    inverted
+      ? "[--md-border:var(--inverse-panel-border)] [--md-code-bg:var(--inverse-surface-tertiary)] [--md-code-text:var(--inverse-foreground)] [--md-heading:var(--inverse-foreground)] [--md-hover:var(--on-strong-surface)] [--md-link:var(--inverse-link)] [--md-muted:var(--inverse-text-secondary)] [--md-pre-bg:var(--inverse-surface)] [--md-pre-text:var(--inverse-foreground)] [--md-table-head-bg:var(--inverse-surface-secondary)] [--md-text:var(--inverse-foreground)]"
+      : "[--md-border:var(--panel-border)] [--md-code-bg:var(--code-background)] [--md-code-text:inherit] [--md-heading:var(--foreground)] [--md-hover:var(--surface-hover)] [--md-link:var(--link)] [--md-muted:var(--text-secondary)] [--md-pre-bg:var(--surface-secondary)] [--md-pre-text:inherit] [--md-table-head-bg:var(--surface-secondary)] [--md-text:var(--foreground)]",
     subdued && "[--md-text:var(--text-secondary)] [--md-heading:var(--text-secondary)] dark:[--md-text:var(--text-secondary)] dark:[--md-heading:var(--text-secondary)]",
   )}>
     <ReactMarkdown components={components} remarkPlugins={[remarkGfm]} urlTransform={url => safeHref(url) ?? ''}>{source}</ReactMarkdown>

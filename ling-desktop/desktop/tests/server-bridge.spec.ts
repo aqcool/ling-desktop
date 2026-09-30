@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { ServerBridge } from '../src/host/server-bridge.ts'
 
 describe('server bridge', () => {
+  it('carries resolved session policy to file and process providers and validates file results', async () => {
+    const sent: object[] = []
+    const bridge = new ServerBridge(message => { sent.push(message) })
+    const policy = { mode: 'read-only' as const, workspaceRoot: '/remote' }
+    const signal = new AbortController().signal
+    const command = bridge.run('server', '/remote', 'pwd', signal, undefined, undefined, policy)
+    expect(sent[0]).toMatchObject({ policy })
+    bridge.receive({ type: 'server-response', requestId: 1, result: { stdout: '/remote', stderr: '', exitCode: 0 } })
+    await command
+    const request = { action: 'write' as const, serverId: 'server', path: '/remote/a', text: 'text', expected: null, policy }
+    const writing = bridge.file(request, signal)
+    expect(sent[1]).toMatchObject({ type: 'server-file-request', request })
+    bridge.receive({ type: 'server-response', requestId: 2, result: { path: '/remote/a', sha256: 'a'.repeat(64) } })
+    await expect(writing).resolves.toMatchObject({ sha256: 'a'.repeat(64) })
+    const reading = bridge.file({ action: 'read', serverId: 'server', path: '/remote/a' }, signal)
+    bridge.receive({ type: 'server-response', requestId: 3, result: { path: '/remote/a', text: 'partial' } })
+    await expect(reading).rejects.toThrow('无效结果')
+  })
   it('streams correlated output before completion, and ignores late or private terminal output', async () => {
     const sent: object[] = []
     const output: string[] = []

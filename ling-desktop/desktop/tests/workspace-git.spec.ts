@@ -49,6 +49,32 @@ describe('workspace Git operations', () => {
   afterEach(() => { rmSync(root, { recursive: true, force: true }) })
   const seed = () => { writeFileSync(join(root, 'file.txt'), 'one\ntwo\n'); git('add', '.'); git('commit', '-m', 'initial') }
 
+  it('counts current tracked and untracked lines against HEAD without changing the index', async () => {
+    seed()
+    writeFileSync(join(root, 'file.txt'), 'replacement\n')
+    git('add', 'file.txt')
+    writeFileSync(join(root, 'file.txt'), 'one\ntwo\nthird\n')
+    writeFileSync(join(root, 'new [a]\nfile.txt'), 'new\nlast')
+    writeFileSync(join(root, 'binary.dat'), Buffer.from([0, 1, 2]))
+    const index = readFileSync(join(root, '.git', 'index'))
+    expect((await service.handle(root, { type: 'inspect', lineChanges: true })).snapshot.lineChanges).toEqual({ added: 3, deleted: 0 })
+    expect(readFileSync(join(root, '.git', 'index'))).toEqual(index)
+    git('mv', 'file.txt', 'renamed.txt')
+    expect((await service.handle(root, { type: 'inspect', lineChanges: true })).snapshot.lineChanges).toEqual({ added: 3, deleted: 0 })
+    rmSync(join(root, 'renamed.txt'))
+    expect((await service.handle(root, { type: 'inspect', lineChanges: true })).snapshot.lineChanges).toEqual({ added: 2, deleted: 2 })
+  })
+
+  it('counts the current contents of an unborn repository and omits stats unless requested', async () => {
+    writeFileSync(join(root, 'new.txt'), 'staged\n')
+    git('add', 'new.txt')
+    writeFileSync(join(root, 'new.txt'), 'current\nsecond\n')
+    expect((await service.handle(root, { type: 'inspect' })).snapshot.lineChanges).toBeUndefined()
+    expect((await service.handle(root, { type: 'inspect', lineChanges: true })).snapshot.lineChanges).toEqual({ added: 2, deleted: 0 })
+    rmSync(join(root, 'new.txt'))
+    expect((await service.handle(root, { type: 'inspect', lineChanges: true })).snapshot.lineChanges).toEqual({ added: 0, deleted: 0 })
+  })
+
   it('stages literal filenames and unstages an unborn index without removing newer contents', async () => {
     const name = '中文 [a]*\nfile.txt'
     writeFileSync(join(root, name), 'first')

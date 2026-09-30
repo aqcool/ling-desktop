@@ -15,7 +15,8 @@ import { isTaskWindowUrl } from './task-window-url.ts'
 import { authenticateWebHost, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { ServerBroker, type HostFingerprint } from './server-broker.ts'
 import { ServerStore } from './server-store.ts'
-import { CREDENTIAL_HTML } from './credential-window.ts'
+import { themeTokens, parseWindowAppearance, type WindowAppearance } from 'ling-desktop/theme'
+import { credentialDocument } from './credential-window.ts'
 
 const root = dirname(LING_HOST_PACKAGE)
 const workspaceGit = new WorkspaceGit(path => shell.openPath(path))
@@ -59,7 +60,10 @@ const serverBroker = new ServerBroker(home, {
   },
   encrypt: value => safeStorage.encryptStringAsync(value),
   decrypt: async value => (await safeStorage.decryptStringAsync(value)).result,
-})
+}, join(root, 'lib'))
+let appearance: WindowAppearance = { mode: 'system', palette: 'default' }
+const themeSnapshot = () => ({ ...appearance, resolved: nativeTheme.shouldUseDarkColors ? 'dark' as const : 'light' as const })
+const windowColors = () => themeTokens(themeSnapshot().resolved, appearance.palette)
 const credentialWindows = new Map<number, { window: BrowserWindow; serverId: string; pendingKey?: string }>()
 
 
@@ -90,14 +94,14 @@ function isBrowserUrl(url: unknown): url is string {
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280, height: 840, minWidth: 800, minHeight: 580,
-    show: false, title: '灵创', backgroundColor: nativeTheme.shouldUseDarkColors ? '#1d1d20' : '#ffffff',
+    show: false, title: '灵创', backgroundColor: windowColors().surface,
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
       trafficLightPosition: { x: 16, y: 18 },
     } : {}),
     ...(process.platform === 'win32' ? {
       titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { height: 40, color: nativeTheme.shouldUseDarkColors ? '#1d1d20' : '#ffffff', symbolColor: nativeTheme.shouldUseDarkColors ? '#ededee' : '#252525' },
+      titleBarOverlay: { height: 40, color: windowColors().surface, symbolColor: windowColors().foreground },
     } : {}),
     webPreferences: {
       preload: join(root, 'lib', 'preload-app.cjs'),
@@ -154,17 +158,23 @@ async function startHost(): Promise<void> {
     process.execPath, root, projectDir, undefined,
     { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' },
     reportFailure, undefined, 'runtime', undefined, join(root, 'lib', 'host.js'), undefined,
-    (serverId, cwd, command, signal, outputLimit, onOutput) => serverBroker.run(serverId, cwd, command, signal, outputLimit, onOutput),
+    (serverId, cwd, command, signal, outputLimit, onOutput, policy) => serverBroker.run(serverId, cwd, command, signal, outputLimit, onOutput, policy),
     (serverId, root, source, destination, sha256, remoteSha256, signal) => serverBroker.upload(serverId, root, source, destination, sha256, remoteSha256, signal),
     (serverId, root, source, destination, sha256, localSha256, signal) => serverBroker.download(serverId, root, source, destination, sha256, localSha256, signal),
     (serverId, directory, signal, shallow) => serverBroker.directoryManifest(serverId, directory, signal, shallow),
     async (request, signal) => {
       if (request.action === 'open') return serverBroker.terminalOpen(request.serverId, request.cwd, request.cols, request.rows, signal)
       if (request.action === 'poll') return serverBroker.terminalPoll(request.terminalId, request.offset)
-      if (request.action === 'write') serverBroker.terminalWrite(request.terminalId, request.data)
-      else if (request.action === 'resize') serverBroker.terminalResize(request.terminalId, request.cols, request.rows)
-      else serverBroker.terminalClose(request.terminalId)
+      if (request.action === 'write') await serverBroker.terminalWrite(request.terminalId, request.data)
+      else if (request.action === 'resize') await serverBroker.terminalResize(request.terminalId, request.cols, request.rows)
+      else await serverBroker.terminalClose(request.terminalId)
       return { ok: true as const }
+    },
+    async (request, signal) => {
+      if (request.action === 'read') return serverBroker.readFile(request.serverId, request.path, signal)
+      if (request.action === 'write') return serverBroker.writeFile(request.serverId, request.path, request.text, request.expected, request.policy, signal)
+      const entries = await serverBroker.listFiles(request.serverId, request.path, signal)
+      return { path: request.path, entries: entries.map(entry => ({ name: entry.name, type: entry.type })) }
     },
   )
   const ready = await host.start()
@@ -196,7 +206,7 @@ async function main(): Promise<void> {
     const existing = [...credentialWindows.values()].find(item => item.serverId === id && !item.window.isDestroyed())
     if (existing) { existing.window.focus(); return }
     const window = new BrowserWindow({ width: 560, height: 330, minWidth: 500, minHeight: 320, useContentSize: true,
-      parent: owner, modal: true, show: false, title: '服务器认证', backgroundColor: '#ffffff',
+      parent: owner, modal: true, show: false, title: '服务器认证', backgroundColor: windowColors().surface,
       webPreferences: { preload: join(root, 'lib', 'preload-credentials.cjs'), contextIsolation: true,
         sandbox: true, nodeIntegration: false, webSecurity: true, partition: 'ling-credentials' },
     })
@@ -206,9 +216,10 @@ async function main(): Promise<void> {
     window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
     window.once('ready-to-show', () => window.show())
     const closed = new Promise<void>(resolve => window.once('closed', () => { credentialWindows.delete(window.webContents.id); resolve() }))
-    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(CREDENTIAL_HTML)}`)
+    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(credentialDocument(appearance, themeSnapshot().resolved))}`)
     return closed
   })
+  ipcMain.handle(IPC.credentialTheme, event => { credentialSession(event); return themeSnapshot() })
   ipcMain.handle(IPC.credentialInfo, async event => {
     const { serverId } = credentialSession(event)
     const server = (await serverStore.list()).find(value => value.id === serverId)
@@ -254,17 +265,19 @@ async function main(): Promise<void> {
     const [width = 560, currentHeight = 0] = window.getContentSize()
     if (Math.abs(currentHeight - next) > 2) window.setContentSize(width, next)
   })
-  const themePath = join(home, 'appearance-mode')
-  try {
-    const saved = readFileSync(themePath, 'utf8').trim()
-    if (saved === 'light' || saved === 'dark' || saved === 'system') nativeTheme.themeSource = saved
-  } catch {}
+  const themePath = join(home, 'appearance.json')
+  try { appearance = parseWindowAppearance(JSON.parse(readFileSync(themePath, 'utf8'))) ?? appearance }
+  catch {
+    try { appearance = parseWindowAppearance({ mode: readFileSync(join(home, 'appearance-mode'), 'utf8').trim(), palette: 'default' }) ?? appearance } catch {}
+  }
+  nativeTheme.themeSource = appearance.mode
   const updateWindows = () => {
-    const dark = nativeTheme.shouldUseDarkColors
-    for (const window of windows) {
+    const colors = windowColors()
+    for (const window of [...windows, ...[...credentialWindows.values()].map(item => item.window)]) {
       if (window.isDestroyed()) continue
-      window.setBackgroundColor(dark ? '#1d1d20' : '#ffffff')
-      if (process.platform === 'win32') window.setTitleBarOverlay({ color: dark ? '#1d1d20' : '#ffffff', symbolColor: dark ? '#ededee' : '#252525' })
+      window.setBackgroundColor(colors.surface!)
+      if (windows.has(window) && process.platform === 'win32') window.setTitleBarOverlay({ color: colors.surface, symbolColor: colors.foreground })
+      if (credentialWindows.has(window.webContents.id)) window.webContents.send(IPC.themeChanged, themeSnapshot())
     }
   }
   nativeTheme.on('updated', updateWindows)
@@ -273,13 +286,16 @@ async function main(): Promise<void> {
     if (!isBrowserUrl(url)) throw new Error('无效的浏览器链接。')
     await shell.openExternal(url)
   })
-  ipcMain.handle(IPC.theme, (event, mode: unknown) => {
+  ipcMain.handle(IPC.theme, (event, value: unknown) => {
     assertAppSender(event)
-    if (mode !== 'system' && mode !== 'light' && mode !== 'dark') throw new Error('Invalid appearance mode')
-    if (nativeTheme.themeSource === mode) return
-    nativeTheme.themeSource = mode
+    // Old renderers can remain open during a build; accept their mode-only payload.
+    const next = parseWindowAppearance(typeof value === 'string' ? { mode: value, palette: appearance.palette } : value)
+    if (!next) throw new Error('Invalid appearance')
+    if (next.mode === appearance.mode && next.palette === appearance.palette) return
+    appearance = next
+    nativeTheme.themeSource = next.mode
     updateWindows()
-    writeFileSync(themePath, mode, { mode: 0o600 })
+    writeFileSync(themePath, JSON.stringify(next), { mode: 0o600 })
   })
   const embeddedBrowserSession = session.fromPartition(browserPartition)
   embeddedBrowserSession.setPermissionCheckHandler(() => false)
@@ -427,7 +443,7 @@ app.on('before-quit', event => {
   tray?.destroy()
   for (const notification of activeNotifications) notification.close()
   workspaceTools.dispose()
-  void host?.stop().then(() => app.quit(), error => { console.error(error); app.exit(1) })
+  void Promise.all([host?.stop(), serverBroker.close()]).then(() => app.quit(), error => { console.error(error); app.exit(1) })
 })
 if (claimDesktopSingleInstance(app, () => { mainWindow?.show(); mainWindow?.focus() })) {
   void main().catch(reportFailure)

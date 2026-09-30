@@ -28,7 +28,7 @@ import { ChangeReview, ConversationChangeSummary } from '../src/ui/ChangeReview.
 import { AgentPresetPicker } from '../src/ui/AgentPresetPicker.js'
 import { Composer, isComposerCommand } from '../src/ui/Composer.js'
 import { ComposerNotice, retryPending } from '../src/ui/ComposerNotice.js'
-import { Conversation, conversationAnchors, groupTimeline, placeSelectionToolbar } from '../src/ui/Conversation.js'
+import { Conversation, conversationAnchors, displayTimeline, groupTimeline, placeSelectionToolbar, retrySource, failureSummary } from '../src/ui/Conversation.js'
 import { ExtensionSettings } from '../src/ui/ExtensionSettings.js'
 import { DocumentBody, FileBrowser, ordered, parentPath, sizeLabel } from '../src/ui/FileBrowser.js'
 import { gitDiffRows } from '../src/ui/GitPanel.js'
@@ -116,9 +116,58 @@ const renderConversation = (
     onReconnect={() => {}}
     running={running}
     onForkAt={() => {}}
+    onEditMessage={async () => {}}
+    onRetryMessage={async () => {}}
     threadKey="task-1"
   />,
 )
+
+describe('message edit and retry actions', () => {
+  const user: LingTimelineItem = { ...item, itemId: 'user', kind: 'user-message', seq: 1, text: '检查服务' }
+  const failure: LingTimelineItem = { ...item, itemId: 'failure', kind: 'system-notice', status: 'failed', text: 'fetch failed' }
+
+  it('offers retry and edit on the latest failed turn only', () => {
+    const oldFailure = { ...failure, itemId: 'old-failure' }
+    const markup = renderConversation([user, oldFailure, { ...user, itemId: 'new-user', seq: 4 }, failure], { phase: 'ready' })
+    expect(markup.match(/aria-label="重试这轮消息"/g)).toHaveLength(1)
+    expect(markup).not.toContain('编辑后重试')
+    expect(markup.match(/aria-label="编辑问题"/g)).toHaveLength(2)
+    expect(retrySource([user, failure])).toEqual({ failureId: 'failure', message: user })
+  })
+
+  it('does not retry an earlier turn or a recovered tool failure', () => {
+    expect(retrySource([user, failure, { ...user, itemId: 'new' }])).toBeUndefined()
+    expect(retrySource([user, { ...failure, kind: 'tool-activity' }, { ...item, turnComplete: true }])).toBeUndefined()
+    expect(retrySource([user, failure, { ...item, turnComplete: true }])).toBeUndefined()
+    expect(retrySource([failure])).toBeUndefined()
+    expect(renderConversation([{ ...item, turnComplete: true }], { phase: 'ready' })).not.toContain('编辑问题')
+  })
+
+  it('uses explicit turn ownership and hides retries when the opening question is not loaded', () => {
+    const question = { ...user, turn: 2 }
+    const failedTurn = { ...failure, turn: 2, retrySourceId: question.itemId }
+    expect(retrySource([question, failedTurn])).toEqual({ failureId: failure.itemId, message: question })
+    expect(retrySource([question, { ...failedTurn, retrySourceId: undefined }])).toBeUndefined()
+    expect(retrySource([{ ...question, turn: 1 }, failedTurn])).toBeUndefined()
+    expect(retrySource([question, { ...question, itemId: 'steering' }, failedTurn])).toBeUndefined()
+  })
+
+  it('shows a readable failure reason without expanding the technical payload', () => {
+    expect(failureSummary({ title: 'TRANSPORT', text: 'fetch failed' })).toBe('连接失败，请检查网络后重试')
+    expect(failureSummary({ title: 'TIMEOUT', text: 'timeout' })).toBe('请求超时，请重试')
+    expect(failureSummary({ text: 'Error: 远端命令超时。' })).toBe('请求超时，请重试')
+    expect(failureSummary({ text: 'Error: invalid arguments: missing required property' })).toBe('工具参数不完整，展开查看详情')
+    expect(failureSummary({ title: 'MISSING_CREDENTIAL', text: 'key' })).toBe('请先配置模型凭据')
+    expect(renderConversation([user, { ...failure, title: 'TRANSPORT' }], { phase: 'ready' })).toContain('连接失败，请检查网络后重试')
+  })
+
+  it('disables message changes while running or disconnected', () => {
+    for (const markup of [renderConversation([user, failure], { phase: 'ready' }, true), renderConversation([user, failure], failed)]) {
+      expect(markup).toMatch(/<button[^>]*aria-label="重试这轮消息"[^>]*disabled|<button[^>]*disabled[^>]*aria-label="重试这轮消息"/)
+      expect(markup).toMatch(/<button[^>]*aria-label="编辑问题"[^>]*disabled|<button[^>]*disabled[^>]*aria-label="编辑问题"/)
+    }
+  })
+})
 
 describe('remote execution and approval UI', () => {
   it('shows plain-language purpose, target, impact and exact command without an opaque call ID', () => {
@@ -133,7 +182,7 @@ describe('remote execution and approval UI', () => {
   it('opens the active command and output even when tool details are collapsed by default', () => {
     const execution = { callId: 'call', summary: '构建项目', server: '测试服务器', cwd: '/srv/app', command: 'make', output: 'building 25%\n', status: 'running' as const }
     const markup = renderConversation([{ ...item, kind: 'tool-activity', status: 'running', execution }], { phase: 'ready' }, true)
-    expect(markup).toContain('正在执行命令')
+    expect(markup).toContain('正在执行中')
     expect(markup).toContain('building 25%')
     expect(markup.match(/<details[^>]*open=""/g)).toHaveLength(2)
     const failure = renderConversation([{ ...item, kind: 'tool-activity', status: 'failed', execution: { ...execution, status: 'failed', exitCode: 2 } }], { phase: 'ready' })
@@ -177,11 +226,12 @@ describe('assistant reasoning disclosure', () => {
   it('keeps collapsed reasoning before the answer and renders its Markdown', () => {
     const markup = renderConversation([{ ...item, detail: '**检查实现**\n\n- 确认顺序' }], { phase: 'ready' })
     expect(markup.indexOf('data-reasoning')).toBeLessThan(markup.indexOf('已完成改动。'))
-    expect(markup).toContain('思考过程')
+    expect(markup).toContain('已思考')
     expect(markup).toContain('data-state="completed"')
     expect(markup).toMatch(/<strong[^>]*>检查实现<\/strong>/)
     expect(markup).toMatch(/<ul[^>]*>/)
-    expect(markup).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
+    expect(markup).toMatch(/<details class="timeline-process[^>]*open=""/)
+    expect(markup).not.toMatch(/<details class="timeline-activity[^>]*open=""/)
   })
 
   it('shows the newest thinking line only while the reasoning tail is streaming', () => {
@@ -189,9 +239,9 @@ describe('assistant reasoning disclosure', () => {
     expect(thinking).toContain('正在思考')
     expect(thinking).toMatch(/<summary[^>]*>.*最新一步.*<\/summary>/)
     const answering = renderConversation([{ ...item, status: 'running', detail: '第一步\n最新一步', streaming: true, reasoningStreaming: false }], { phase: 'ready' }, true)
-    const answerSummary = answering.match(/<summary[^>]*>.*<\/summary>/)?.[0]
+    const answerSummary = answering.match(/<summary data-reasoning[^>]*>.*?<\/summary>/)?.[0]
     expect(answerSummary).not.toContain('正在思考')
-    expect(answerSummary).toContain('思考过程')
+    expect(answerSummary).toContain('已思考')
     expect(answerSummary).toContain('第一步')
   })
 
@@ -200,6 +250,17 @@ describe('assistant reasoning disclosure', () => {
     expect(markup).not.toContain('data-reasoning')
     expect(markup).toContain('已完成改动。')
   })
+
+  it('keeps an attachment-only answer separate from its reasoning preview', () => {
+    const attachment = { attachmentId: 'image', name: '结果.png', kind: 'image' as const }
+    const events = [{ ...item, text: '', detail: '检查截图', attachments: [attachment] }]
+    const groups = displayTimeline(events, false, false)
+    expect(groups[0]?.items[0]?.attachments).toBeUndefined()
+    expect(groups[1]?.items[0]?.attachments).toEqual([attachment])
+    const markup = renderConversation(events, { phase: 'ready' })
+    expect(markup.match(/timeline-item__attachment-name/g)).toHaveLength(1)
+    expect(markup).toContain('结果.png')
+  })
 })
 
 const renderComposer = (
@@ -207,9 +268,11 @@ const renderComposer = (
   permission?: LingTaskPermission,
   mode?: LingTaskMode,
   value = '继续修复测试',
+  recordedAttachments?: readonly import('../src/runtime/contract.js').LingTimelineAttachment[],
 ) => renderToStaticMarkup(
   <Composer
     attachments={[]}
+    recordedAttachments={recordedAttachments}
     disabled={disabled}
     hasTask
     modelLabel="DeepSeek Chat"
@@ -232,6 +295,16 @@ const renderComposer = (
   />,
 )
 
+describe('edited message composer', () => {
+  it('shows retained original attachments with removal and enables attachment-only sending', () => {
+    const markup = renderComposer(false, undefined, undefined, '', [{ attachmentId: 'original-file', kind: 'file', name: '原文件.txt', bytes: 1024 }])
+    expect(markup).toContain('原文件.txt')
+    expect(markup).toContain('1.0 KB')
+    expect(markup).toContain('aria-label="移除附件"')
+    expect(markup).not.toMatch(/<button[^>]*aria-label="发送消息"[^>]*disabled|<button[^>]*disabled[^>]*aria-label="发送消息"/)
+  })
+})
+
 describe('conversation connection affordance', () => {
   it('keeps the reconnect entry visible while an existing conversation is disconnected', () => {
     const markup = renderConversation([item], failed)
@@ -250,6 +323,38 @@ describe('conversation connection affordance', () => {
 })
 
 describe('conversation process disclosure', () => {
+  it('joins reasoning-only messages with adjacent tools while keeping the answer and its actions separate', () => {
+    const thought = { ...item, itemId: 'thought', text: '', detail: '先检查文件' }
+    const tool = { ...item, itemId: 'tool', kind: 'tool-activity' as const, text: '文件内容' }
+    const answer = { ...item, itemId: 'answer', detail: '汇总检查结果', turnComplete: true }
+    const events = [thought, tool, answer]
+    for (const collapse of [false, true]) {
+      const groups = displayTimeline(events, false, collapse)
+      expect(groups.map(group => [group.process, group.items.map(event => [event.itemId, event.presentation])])).toEqual([
+        [true, [['thought', 'reasoning'], ['tool', undefined], ['answer', 'reasoning']]],
+        [false, [['answer', undefined]]],
+      ])
+      expect(groups[1]?.items[0]?.text).toBe(answer.text)
+      expect(groups[1]?.items[0]?.detail).toBeUndefined()
+    }
+    expect(answer.detail).toBe('汇总检查结果')
+    const markup = renderConversation(events, { phase: 'ready' })
+    expect(markup.match(/class="timeline-process/g)).toHaveLength(1)
+    expect(markup.match(/aria-label="复制消息"/g)).toHaveLength(1)
+    expect(markup.match(/data-conversation-message="answer"/g)).toHaveLength(1)
+  })
+
+  it('opens the current process preview without exposing the entire tool result by default', () => {
+    const markup = renderConversation([{ ...item, kind: 'tool-activity', status: 'running', title: 'Shell', text: 'ls src\n完整输出' }], { phase: 'ready' }, true)
+    expect(markup).toMatch(/<details class="timeline-process[^>]*open=""/)
+    expect(markup).not.toMatch(/<details class="timeline-activity[^>]*open=""/)
+    expect(markup).toContain('Shell 运行中')
+    const summary = markup.match(/<details class="timeline-activity[^>]*><summary[^>]*>(.*?)<\/summary>/)?.[1]
+    expect(summary).toContain('ls src')
+    expect(summary).not.toContain('完整输出')
+    expect(markup).toContain('完整输出')
+  })
+
   it('groups adjacent context and tool events without swallowing messages or failures', () => {
     const events: readonly LingTimelineItem[] = [
       { ...item, itemId: 'user', kind: 'user-message', text: '检查项目' },
@@ -278,7 +383,7 @@ describe('conversation process disclosure', () => {
     ]
     for (const running of [false, true]) {
       const markup = renderConversation(failedTurn, { phase: 'ready' }, running)
-      expect(markup).not.toContain('正在处理…')
+      expect(markup).not.toContain('正在执行中')
       expect(markup).not.toContain('进行中')
       expect(markup).toContain('任务未能完成')
     }
@@ -289,7 +394,7 @@ describe('conversation process disclosure', () => {
       { ...item, itemId: 'new-process', kind: 'system-notice', status: 'running', text: '重新检查' },
     ]
     const markup = renderConversation(newTurn, { phase: 'ready' }, true)
-    expect(markup.match(/正在处理…/g)).toHaveLength(1)
+    expect(markup.match(/正在执行中/g)).toHaveLength(1)
     expect(markup.match(/进行中/g)).toHaveLength(1)
   })
 })

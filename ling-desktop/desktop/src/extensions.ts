@@ -4,6 +4,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { LingSkillsController } from './host/skill-controller.ts'
 import { LingAuthorizationController } from './host/authorization-controller.ts'
 import { LingServersController } from './host/server-controller.ts'
+import { LingWorkspaceTerminalsController } from './host/workspace-terminal-controller.ts'
+import { LingMessageActionsController } from './host/message-actions-controller.ts'
 
 /** The LING bundle anchors its client projections in the DSH profile. */
 export const name = 'ling-desktop-host'
@@ -12,6 +14,8 @@ export function apply(ctx: Context): void {
   ctx.plugin(LingAuthorizationController)
   ctx.plugin(LingSkillsController)
   ctx.plugin(LingServersController)
+  ctx.plugin(LingWorkspaceTerminalsController)
+  ctx.plugin(LingMessageActionsController)
 }
 
 export function bundledPnpmEntry(anchor: string): string {

@@ -62,10 +62,10 @@ export function WorkspaceCreateDialog({ onCancel, onChooseDirectory, onConfirm }
   }
 
   return (
-    <Modal.Backdrop className={tw("workspace-create-dialog__backdrop bg-black/35")} isOpen onOpenChange={(open: boolean) => { if (!open) onCancel() }} variant="opaque">
+    <Modal.Backdrop className={tw("workspace-create-dialog__backdrop bg-[var(--overlay-scrim)]")} isOpen onOpenChange={(open: boolean) => { if (!open) onCancel() }} variant="opaque">
       <Modal.Container className={tw("workspace-create-dialog__container h-[min(31.25rem,calc(100vh-1.5rem))] w-[min(36rem,calc(100vw-1.5rem))] flex-[0_1_auto] p-0")} placement="center" scroll="inside" size="cover">
         <Modal.Dialog className={tw("workspace-create-dialog h-full min-h-0 w-full max-w-none rounded-xl bg-[var(--surface-secondary)] p-2")}>
-          <Modal.CloseTrigger className={tw("workspace-create-dialog__close right-3 top-3 grid size-7 place-items-center rounded-md bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)]")}><Icon className={tw("size-4")} name="close" size={23} /></Modal.CloseTrigger>
+          <Modal.CloseTrigger className={tw("workspace-create-dialog__close right-3 top-3 grid size-control-sm place-items-center rounded-md bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)]")}><Icon className={tw("size-4")} name="close" size={23} /></Modal.CloseTrigger>
           <Modal.Header className={tw("workspace-create-dialog__header min-h-11 flex-none justify-center px-3")}><Modal.Heading className={tw("text-lg font-bold")}>新建工作区</Modal.Heading></Modal.Header>
           <form className={tw("workspace-create-dialog__form flex min-h-0 flex-1 flex-col")} onSubmit={event => { void submit(event) }}>
             <Modal.Body className={tw("workspace-create-dialog__body m-0 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-lg bg-[var(--surface)] p-3.5 text-[var(--foreground)] max-[600px]:gap-3.5")}>
@@ -82,25 +82,25 @@ export function WorkspaceCreateDialog({ onCancel, onChooseDirectory, onConfirm }
                 )}
               </div>
               <TextField className={tw("workspace-create-dialog__section workspace-create-dialog__name grid min-w-0 gap-1.5")} onChange={setName} value={name} variant="secondary">
-                <Label className={tw("text-sm font-bold text-[var(--foreground)]")}>工作区名称</Label><Input autoFocus className={tw("min-h-8 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--foreground)] focus:border-[#d4c9bd] focus:outline-none focus:ring-1 focus:ring-[#d4c9bd]")} placeholder="输入名称..." />
+                <Label className={tw("text-sm font-bold text-[var(--foreground)]")}>工作区名称</Label><Input autoFocus className={tw("min-h-control w-full rounded-md border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--foreground)] focus:border-[var(--panel-border)] focus:outline-none focus:ring-1 focus:ring-[var(--focus)]")} placeholder="输入名称..." />
               </TextField>
               <div className={tw("workspace-create-dialog__section grid min-w-0 gap-1.5")}>
                 <Label className={tw("text-sm font-bold text-[var(--foreground)]")}>工作区图标</Label>
-                <div aria-label="工作区图标" className={tw("workspace-create-dialog__choices grid [grid-template-columns:repeat(15,_minmax(0,_1fr))] [gap:0.25rem] max-[600px]:[grid-template-columns:repeat(8,_minmax(0,_1fr))]")} role="group">
-                  {markers.map(value => <button aria-label={`图标 ${value}`} aria-pressed={marker === value} className={tw("workspace-create-dialog__choice grid aspect-square w-full max-w-8 cursor-pointer place-items-center rounded-md border border-transparent bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--surface-tertiary)] hover:text-[var(--foreground)] aria-pressed:border-[#c96343] aria-pressed:bg-[var(--surface)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]")} key={value} onClick={() => { setMarker(value) }} type="button"><Icon className={tw("size-[1.15rem]")} name={value} size={23} /></button>)}
+                <div aria-label="工作区图标" className={tw("workspace-create-dialog__choices grid [grid-template-columns:repeat(15,_minmax(0,_1fr))] gap-1 max-[600px]:[grid-template-columns:repeat(8,_minmax(0,_1fr))]")} role="group">
+                  {markers.map(value => <button aria-label={`图标 ${value}`} aria-pressed={marker === value} className={tw("workspace-create-dialog__choice grid aspect-square w-full max-w-8 cursor-pointer place-items-center rounded-md border border-transparent bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--surface-tertiary)] hover:text-[var(--foreground)] aria-pressed:border-[var(--action)] aria-pressed:bg-[var(--surface)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]")} key={value} onClick={() => { setMarker(value) }} type="button"><Icon className={tw("size-[1.15rem]")} name={value} size={23} /></button>)}
                 </div>
               </div>
               <div className={tw("workspace-create-dialog__section grid min-w-0 gap-1.5")}>
                 <Label className={tw("text-sm font-bold text-[var(--foreground)]")}>工作区颜色</Label>
-                <div aria-label="工作区颜色" className={tw("workspace-create-dialog__choices grid [grid-template-columns:repeat(15,_minmax(0,_1fr))] [gap:0.25rem] max-[600px]:[grid-template-columns:repeat(8,_minmax(0,_1fr))]")} role="group">
-                  {colors.map(value => <button aria-label={`颜色 ${value}`} aria-pressed={color === value} className={tw("workspace-create-dialog__choice workspace-create-dialog__swatch grid aspect-square w-full max-w-8 cursor-pointer place-items-center rounded-md border border-transparent bg-[var(--surface-secondary)] text-[var(--text-secondary)] after:size-4 after:rounded-full after:bg-[var(--workspace-swatch)] after:content-[''] hover:bg-[var(--surface-tertiary)] hover:text-[var(--foreground)] aria-pressed:border-[#c96343] aria-pressed:bg-[var(--surface)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]")} key={value} onClick={() => { setColor(value) }} style={{ '--workspace-swatch': value } as CSSProperties} type="button" />)}
+                <div aria-label="工作区颜色" className={tw("workspace-create-dialog__choices grid [grid-template-columns:repeat(15,_minmax(0,_1fr))] gap-1 max-[600px]:[grid-template-columns:repeat(8,_minmax(0,_1fr))]")} role="group">
+                  {colors.map(value => <button aria-label={`颜色 ${value}`} aria-pressed={color === value} className={tw("workspace-create-dialog__choice workspace-create-dialog__swatch grid aspect-square w-full max-w-8 cursor-pointer place-items-center rounded-md border border-transparent bg-[var(--surface-secondary)] text-[var(--text-secondary)] after:size-4 after:rounded-full after:bg-[var(--workspace-swatch)] after:content-[''] hover:bg-[var(--surface-tertiary)] hover:text-[var(--foreground)] aria-pressed:border-[var(--action)] aria-pressed:bg-[var(--surface)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]")} key={value} onClick={() => { setColor(value) }} style={{ '--workspace-swatch': value } as CSSProperties} type="button" />)}
                 </div>
               </div>
-              {error ? <p className={tw("prompt-dialog__error [margin:0.55rem_0_0] [color:#a6473f] [font-size:0.75rem]")} role="status">{error}</p> : null}
+              {error ? <p className={tw("prompt-dialog__error mt-2 mx-0 mb-0 [color:var(--danger)] text-xs")} role="status">{error}</p> : null}
             </Modal.Body>
             <Modal.Footer className={tw("workspace-create-dialog__footer mt-0 min-h-11 flex-none gap-1.5 pt-1")}>
-              <Button className={tw("workspace-create-dialog__cancel min-h-8 min-w-15 text-sm font-bold")} isDisabled={pending} onPress={onCancel} variant="ghost">取消</Button>
-              <Button className={tw("workspace-create-dialog__create min-h-8 min-w-15 bg-[#c96343] text-sm font-bold text-white data-disabled:bg-[#e8b9aa] data-disabled:text-white data-disabled:opacity-100")} isDisabled={!path.trim() || !name.trim()} isPending={pending} type="submit" variant="primary">创建</Button>
+              <Button className={tw("workspace-create-dialog__cancel min-h-control min-w-15 text-sm font-bold")} isDisabled={pending} onPress={onCancel} variant="ghost">取消</Button>
+              <Button className={tw("workspace-create-dialog__create min-h-control min-w-15 bg-[var(--action)] text-sm font-bold text-[var(--action-foreground)] data-disabled:bg-[var(--action)] data-disabled:text-[var(--action-foreground)] data-disabled:opacity-100")} isDisabled={!path.trim() || !name.trim()} isPending={pending} type="submit" variant="primary">创建</Button>
             </Modal.Footer>
           </form>
         </Modal.Dialog>
