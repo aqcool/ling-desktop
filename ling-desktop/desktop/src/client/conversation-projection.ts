@@ -221,12 +221,14 @@ function projectTool(
   const settled = 'kind' in node
   const aborted = settled && stopped && node.isError
   const seq = 'seq' in node ? node.seq : undefined
+  const attachments = settled ? contentAttachments(node.content) : []
   return {
     itemId: `${taskId}:tool:${node.callId}:${suffix}`,
     taskId,
     ...(seq === undefined ? {} : { seq }),
     kind: 'tool-activity',
     title: toolName(node),
+    ...(attachments.length > 0 ? { attachments } : {}),
     text: aborted ? '已停止' : toolText(node),
     createdAt: isoTime(node.time),
     status: aborted ? 'interrupted' : settled ? (node.isError ? 'failed' : 'completed') : 'running',

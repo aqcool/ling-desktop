@@ -6,7 +6,7 @@ import { type IconName } from './Icon.js'
 import type { LingSettingsTab } from './settings-navigation.js'
 import { tw } from './tailwind.js'
 
-type CatalogTab = Exclude<LingSettingsTab, 'usage' | 'shortcuts' | 'appearance' | 'models' | 'archived' | 'monitor' | 'git' | 'worktrees' | 'general' | 'modes' | 'agent-presets' | 'builtin-plugins' | 'connections'>
+type CatalogTab = Exclude<LingSettingsTab, 'usage' | 'shortcuts' | 'appearance' | 'models' | 'archived' | 'monitor' | 'git' | 'worktrees' | 'general' | 'modes' | 'agent-presets' | 'builtin-plugins' | 'connections' | 'control'>
 type Control = { kind: 'toggle'; selected?: boolean } | { kind: 'select' | 'button' | 'input'; label: string } | { kind: 'none' }
 interface Row { title: string; description: string; icon: IconName; control?: Control }
 interface Group { title?: string; rows: readonly Row[]; empty?: { title: string } }
@@ -69,14 +69,6 @@ const pages: Record<CatalogTab, Page> = {
     title: '钩子', description: '查看本机配置中声明的 Hooks。', groups: [
       { title: '配置来源', rows: [{ title: '用户级 settings.json', description: '此页面只展示磁盘配置，不代表运行时已加载。', icon: 'file', control: select('未读取') }] },
       { title: '已配置的 Hooks', rows: [], empty: { title: '尚未读取 Hooks' } },
-    ],
-  },
-  control: {
-    title: '电脑操控', description: '管理本机 Agent 可使用的浏览器与桌面操控能力。', groups: [
-      { title: '浏览器', rows: [{ title: '浏览器连接', description: '允许本机任务操控已连接的浏览器。', icon: 'globe', control: toggle }] },
-      { title: '应用快照', rows: [{ title: '全局快捷键', description: '截取前台窗口及其可访问性内容。', icon: 'keyboard', control: select('未设置') }] },
-      { title: '电脑操控', rows: [{ title: '启用电脑操控', description: '允许本机 Agent 查看并操作桌面应用。', icon: 'desktop', control: toggle }] },
-      { title: '录制与回放', rows: [{ title: '启用录制与回放', description: '录制演示流程并保存以供复用。', icon: 'refresh', control: toggle }] },
     ],
   },
   security: {

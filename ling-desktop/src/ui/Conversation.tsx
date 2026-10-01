@@ -19,6 +19,7 @@ import { ConversationChangeSummary, type ChangeSelection } from './ChangeReview.
 import { Markdown, renderedMarkdownText } from './Markdown.js'
 import { tw } from './tailwind.js'
 import { Menu, MenuItem } from './Menu.js'
+import { toolLabel } from './tool-labels.js'
 
 const connectionLabels: Record<LingRuntimeConnection['phase'], string> = {
   offline: '未连接',
@@ -112,12 +113,6 @@ function Disclosure({ expanded, className, children }: { expanded: boolean; clas
 
 type PresentationItem = LingTimelineItem & { readonly presentation?: 'reasoning' }
 
-const toolLabels: Readonly<Record<string, string>> = {
-  bash: '终端命令', pwsh: 'PowerShell 命令', terminal: '终端命令',
-  read: '读取文件', read_image: '查看图片', write: '写入文件', edit: '编辑文件',
-  grep: '搜索内容', glob: '查找文件', web_fetch: '读取网页', web_search: '搜索网页',
-}
-
 function ProcessState({ active, completed }: { active: boolean; completed: boolean }) {
   return <span aria-hidden="true" className={tw('grid size-3 shrink-0 place-items-center border [border-radius:50%] [corner-shape:round]', active ? 'animate-spin border-[var(--text-tertiary)] border-r-transparent motion-reduce:animate-none' : completed ? 'border-[var(--success)] text-[var(--success)]' : 'border-[var(--text-tertiary)]')}>
     {completed ? <Icon name="check" size={9} /> : null}
@@ -125,7 +120,7 @@ function ProcessState({ active, completed }: { active: boolean; completed: boole
 }
 
 /** A compact preview stays visible; the full thought or tool result is one click away. */
-function ProcessActivity({ item, live, expanded }: { item: PresentationItem; live: boolean; expanded: boolean }) {
+function ProcessActivity({ item, live, expanded, loadAttachment }: { item: PresentationItem; live: boolean; expanded: boolean; loadAttachment?: ConversationProps['loadAttachment'] }) {
   const reasoning = item.presentation === 'reasoning'
   const active = live && (reasoning ? item.reasoningStreaming === true : item.status === 'running')
   const completed = reasoning ? !active : item.status === 'completed'
@@ -134,7 +129,7 @@ function ProcessActivity({ item, live, expanded }: { item: PresentationItem; liv
   const preview = (active && reasoning ? lines.at(-1) : lines[0])?.replaceAll('**', '')
   const label = reasoning ? (active ? '正在思考' : '已思考')
     : item.kind === 'assistant-message' ? '回复'
-    : `${item.title && item.kind === 'tool-activity' ? toolLabels[item.title] ?? item.title : item.title ?? (item.kind === 'tool-activity' ? '工具执行' : '上下文')}${item.kind === 'tool-activity' ? active ? ' 运行中' : completed ? ' 已运行' : ' 已停止' : active ? ' 进行中' : ''}`
+    : `${item.title && item.kind === 'tool-activity' ? toolLabel(item.title) : item.title ?? (item.kind === 'tool-activity' ? '工具执行' : '上下文')}${item.kind === 'tool-activity' ? active ? ' 运行中' : completed ? ' 已运行' : ' 已停止' : active ? ' 进行中' : ''}`
   return <Disclosure expanded={expanded} className={tw('timeline-activity group/activity min-w-0 text-[var(--text-secondary)]')}>
     <summary data-reasoning={reasoning ? '' : undefined} data-state={active ? 'running' : completed ? 'completed' : 'interrupted'} className={tw('flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-md px-1 py-0.5 text-compact leading-6 outline-none hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]')}>
       <ProcessState active={active} completed={completed} />
@@ -143,6 +138,7 @@ function ProcessActivity({ item, live, expanded }: { item: PresentationItem; liv
     </summary>
     <div className={tw('mb-2 ml-6 mt-1 min-w-0')}>
       {reasoning || item.kind === 'assistant-message' ? <Markdown source={source} subdued /> : <pre className={tw('m-0 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--surface-secondary)] p-3 font-mono text-xs leading-5')}>{source}</pre>}
+      {item.attachments?.length ? <div className={tw('mt-2 flex flex-wrap gap-1.5')}>{item.attachments.map(attachment => <AttachmentChip attachment={attachment} key={attachment.attachmentId} load={loadAttachment} taskId={item.taskId} />)}</div> : null}
     </div>
   </Disclosure>
 }
@@ -876,7 +872,7 @@ export function Conversation({
           <ProcessGroup items={group.items} liveIds={liveItemIds} preferences={preferences} key={`process:${group.items[0]?.itemId}`}>
             {group.items.map(item => item.execution || item.status === 'failed' && item.presentation !== 'reasoning'
               ? <TimelineRow expandTools={preferences.expandTools} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={running} />
-              : <ProcessActivity expanded={preferences.expandTools} item={item} key={`${item.itemId}:${item.presentation ?? 'activity'}`} live={liveItemIds.has(item.itemId)} />)}
+              : <ProcessActivity expanded={preferences.expandTools} item={item} key={`${item.itemId}:${item.presentation ?? 'activity'}`} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} />)}
           </ProcessGroup>
         ) : group.items.map(item => <TimelineRow articleRef={item.kind === 'user-message' ? node => {
           if (node) messageRefs.current.set(item.itemId, node)

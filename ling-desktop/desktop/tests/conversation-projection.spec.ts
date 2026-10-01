@@ -5,6 +5,12 @@ import {
   projectConversation,
 } from '../src/client/conversation-projection.js'
 
+it('retains computer-use screenshots as durable attachments rather than raw base64', () => {
+  const view = snapshot({ nodes: [{ kind: 'tool-result', seq: 4, time: 2000, callId: 'desktop', call: { name: 'cua_driver_native__get_window_state', argsRaw: '{}' }, callTime: 1000,
+    content: [{ type: 'text', text: 'window state' }, { type: 'image', attachment: { attachmentId: 'screenshot', name: '窗口截图', mediaType: 'image/png', bytes: 500 } } as never], isError: false, subCalls: [] }] })
+  expect(projectConversation('task', view)).toEqual([expect.objectContaining({ title: 'cua_driver_native__get_window_state', attachments: [{ attachmentId: 'screenshot', name: '窗口截图', kind: 'image', mediaType: 'image/png', bytes: 500 }] })])
+})
+
 function snapshot(
   overrides: Partial<ChatSnapshot['legacy']> = {},
   turns: ChatSnapshot['timeline']['turns'] = new Map(),

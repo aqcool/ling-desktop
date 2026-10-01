@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { LingPendingInteraction, LingQuestion, LingQuestionAnswer } from '../runtime/contract.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
+import { toolLabel } from './tool-labels.js'
 
 interface InteractionPanelProps {
   readonly interactions: readonly LingPendingInteraction[]
@@ -169,7 +170,7 @@ function ApprovalInteraction({
     <div className={tw("interaction interaction--approval grid min-w-0 gap-3 rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] p-4")}>
       <div className={tw("interaction__title flex items-center gap-1.5 [color:var(--foreground)] text-sm [font-weight:620]")}>
         <Icon className={tw("shrink-0")} name="shield" size={16} />
-        <span className={tw("min-w-0 [overflow-wrap:anywhere]")}>{interaction.details?.summary ?? `${interaction.toolName} 想要执行一个操作`}</span>
+        <span className={tw("min-w-0 [overflow-wrap:anywhere]")}>{interaction.details?.summary ?? `${toolLabel(interaction.toolName)} 想要执行一个操作`}</span>
       </div>
       {interaction.details ? <>
         <p className={tw('m-0 break-words text-xs leading-5 text-[var(--text-secondary)]')}>{interaction.details.server} · <span className={tw('font-mono')}>{interaction.details.cwd}</span></p>

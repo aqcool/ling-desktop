@@ -123,6 +123,12 @@ const renderConversation = (
 )
 
 describe('message edit and retry actions', () => {
+  it('keeps computer actions and screenshots inside the existing process disclosure', () => {
+    const markup = renderConversation([{ ...item, itemId: 'desktop', kind: 'tool-activity', title: 'cua_driver_native__get_window_state', text: 'window state', status: 'completed', attachments: [{ attachmentId: 'screen', kind: 'image', name: '窗口截图', mediaType: 'image/png' }] }], { phase: 'ready' })
+    expect(markup).toContain('电脑操作 · 查看窗口')
+    expect(markup).toContain('窗口截图')
+    expect(markup).not.toContain('cua_driver_native__')
+  })
   const user: LingTimelineItem = { ...item, itemId: 'user', kind: 'user-message', seq: 1, text: '检查服务' }
   const failure: LingTimelineItem = { ...item, itemId: 'failure', kind: 'system-notice', status: 'failed', text: 'fetch failed' }
 

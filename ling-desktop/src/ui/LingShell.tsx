@@ -55,6 +55,7 @@ import type {
 import { BrowserPanel, type BrowserAnnotation } from './BrowserPanel.js'
 import { GitBranchMenu, GitDialog, GitPanel, GitSettings, type GitRequest } from './GitPanel.js'
 import { CatalogSettings } from './CatalogSettings.js'
+import { ComputerControlSettings } from './ComputerControlSettings.js'
 import { ServerSettings } from './ServerSettings.js'
 import { ArchivedSettings } from './ArchivedSettings.js'
 import { ChangeReview, type ChangeSelection } from './ChangeReview.js'
@@ -1738,6 +1739,8 @@ export function LingShell(props: LingShellProps) {
                 />
               ) : props.settingsTab === 'connections' ? (
                 <ServerSettings service={props.serverManager} />
+              ) : props.settingsTab === 'control' ? (
+                <ComputerControlSettings service={props.extensions?.manager} />
               ) : (
                 <CatalogSettings tab={props.settingsTab} modelSettings={props.modelSettings} onTestProvider={props.onProviderTest} />
               )}

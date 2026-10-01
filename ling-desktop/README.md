@@ -51,6 +51,10 @@ acceptance criteria, native DSH composition and verified boundaries.
 
 ## Desktop UI conventions
 
+Computer use is an opt-in built-in plugin, controlled in **设置 → 电脑操控**.
+It reuses the pinned DSH Cua Driver provider and the normal tool/approval flow.
+See [COMPUTER_USE.md](docs/COMPUTER_USE.md) for selection, permissions and limits.
+
 Settings and form controls share `src/ui/SettingsControls.tsx`. HeroUI owns
 selection, keyboard navigation, focus and switch hit targets; the wrappers only
 provide desktop sizing with colocated Tailwind utilities. Use these controls

@@ -9,6 +9,7 @@ export default defineConfig([
       host: 'src/host/index.ts',
       profile: 'src/profile.ts',
       extensions: 'src/extensions.ts',
+      'computer-use': 'src/computer-use.ts',
       webserver: 'src/webserver.ts',
       'host-process': 'src/host-process.ts',
       'web-document': 'src/web-document.ts',

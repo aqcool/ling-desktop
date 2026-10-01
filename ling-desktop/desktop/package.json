@@ -74,6 +74,7 @@
     "@deepseek-ai/dsh-commands": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-compaction": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-compaction-image-offload": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-computer-use": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-cordis-client-runner": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-cordis-host-runner": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-credentials": "0.1.6-alpha.2",
@@ -82,6 +83,7 @@
     "@deepseek-ai/dsh-experimental-agent-team-profile": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-experimental-agent-team-web-profile": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-experimental-client-ui-agent-team": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-experimental-computer-use-cua-driver-native": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-experimental-tool-agent-team": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-file-reference": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-fs": "0.1.6-alpha.2",
@@ -201,7 +203,8 @@
     "./package.json": "./package.json",
     "./webserver": "./lib/webserver.js",
     "./ssh-runtime": "./lib/ssh-runtime.js",
-    "./ssh": "./lib/ssh-plugin.js"
+    "./ssh": "./lib/ssh-plugin.js",
+    "./computer-use": "./lib/computer-use.js"
   },
   "dsh": {
     "client": {

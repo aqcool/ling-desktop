@@ -3,5 +3,10 @@
       name: '@deepseek-ai/dsh-authorization'
     - id: ling-desktop-host
       name: ling-desktop-host
+    - id: ling-computer-use
+      name: ling-desktop-host/computer-use
+      disabled: true
+    - id: ling-computer-use-registry
+      name: '@deepseek-ai/dsh-computer-use'
     - id: schedule
       name: '@deepseek-ai/dsh-schedule'
