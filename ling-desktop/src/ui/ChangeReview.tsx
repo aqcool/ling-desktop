@@ -3,6 +3,7 @@ import { Button } from '@heroui/react/button'
 import { Spinner } from '@heroui/react/spinner'
 import type { LingFileDiff, LingTaskChanges } from '../runtime/contract.js'
 import { Icon } from './Icon.js'
+import { FileIcon } from './FileIcon.js'
 import { tw } from './tailwind.js'
 
 export interface ChangeSelection {
@@ -138,7 +139,7 @@ export function ChangeReview({
                 onClick={() => { onSelect({ seq: change.seq, index }) }}
                 type="button"
               >
-                <Icon name={file.binary || file.oversized ? 'file' : 'code'} size={16} />
+                <FileIcon path={file.path} simpleIcon={file.binary || file.oversized ? 'file' : 'code'} size={16} />
                 <span className={tw("overflow-hidden text-ellipsis whitespace-nowrap text-xs")} title={file.path}>{file.display}</span>
                 <small className={tw("flex gap-1 font-mono text-micro text-[var(--text-tertiary)]")}>
                   {file.binary ? '二进制' : file.oversized ? '文件过大' : <><i className={tw("not-italic text-[var(--success)]")}>+{String(file.added)}</i><em className={tw("not-italic text-[var(--danger)]")}>−{String(file.deleted)}</em></>}

@@ -23,6 +23,8 @@ const paths = {
   annotation: ['M4 8V5a1 1 0 011-1h3', 'M16 4h3a1 1 0 011 1v3', 'M20 16v3a1 1 0 01-1 1h-3', 'M8 20H5a1 1 0 01-1-1v-3'],
   archive: ['M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8', 'M3 4h18v4H3z', 'M10 12h4'],
   book: ['M12 6c-2-2-5-2.5-9-2v15c4-.5 7 0 9 2', 'M12 6c2-2 5-2.5 9-2v15c-4-.5-7 0-9 2', 'M12 6v15'],
+  clipboard: ['M9 4H5a1 1 0 00-1 1v15h16V5a1 1 0 00-1-1h-4', 'M9 2h6v4H9z'],
+  feather: ['M20 4c-6-1-12 3-13 10l-3 6', 'M7 14c6 1 11-4 13-10', 'M7 14l8-6', 'M13 5l1 4'],
   arrowLeft: ['M19 12H5', 'M12 19l-7-7 7-7'],
   arrowRight: ['M5 12h14', 'M12 5l7 7-7 7'],
   back: ['M15 18l-6-6 6-6'],
@@ -81,6 +83,7 @@ const paths = {
   mailUnread: ['M15 5H4a1 1 0 00-1 1v13a1 1 0 001 1h16a1 1 0 001-1V10', 'M3 7l9 7 5-4', 'M20 3a2 2 0 110 4 2 2 0 010-4z'],
   martini: ['M3 4h18l-9 10z', 'M12 14v6', 'M7 20h10'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
+  save: ['M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z', 'M7 3v6h9V3', 'M7 21v-8h10v8'],
   palette: ['M12 3a9 9 0 100 18h1a2 2 0 001.4-3.4 1.5 1.5 0 011.1-2.6H18a3 3 0 003-3 9 9 0 00-9-9z', 'M7.5 10h.01', 'M10.5 6.5h.01', 'M15 7h.01', 'M17.5 10.5h.01'],
   pacman: ['M12 12l8-7a10 10 0 101 12l-9-5z', 'M11 6h.01'],
   playCircle: ['M12 21a9 9 0 110-18 9 9 0 010 18z', 'M10 8l6 4-6 4z'],
@@ -126,12 +129,12 @@ const paths = {
 
 export type IconName = keyof typeof paths
 
-export function Icon({ name, size = 18, className, active = false }: { readonly name: IconName; readonly size?: number; readonly className?: string; readonly active?: boolean }) {
+export function Icon({ name, size = 18, className, active = false, themeArtwork = true }: { readonly name: IconName; readonly size?: number; readonly className?: string; readonly active?: boolean; readonly themeArtwork?: boolean }) {
   const indicator = name in panelIndicators ? panelIndicators[name as keyof typeof panelIndicators] : undefined
   return (
     <svg
       aria-hidden="true"
-      data-icon={name}
+      data-icon={themeArtwork ? name : undefined}
       className={tw("icon block shrink-0 align-middle", className)}
       fill={name === 'closeCircleFill' ? 'currentColor' : 'none'}
       fillRule={name === 'closeCircleFill' ? 'evenodd' : undefined}

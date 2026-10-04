@@ -1,10 +1,11 @@
+import { CompactionActivity } from './CompactionActivity.js'
 import { saveTaskNote, openTaskNotes } from './TaskNotes.js'
 import { useBehavior, formatElapsed, type BehaviorPreferences } from './behavior-preferences.js'
 import { Button } from '@heroui/react/button'
 import { Toolbar } from '@heroui/react/toolbar'
 import { Tooltip } from '@heroui/react/tooltip'
 import { createPortal } from 'react-dom'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type {
   LingAttachmentContent,
   LingReadResult,
@@ -15,11 +16,17 @@ import type {
 } from '../runtime/contract.js'
 import { formatBytes } from './attachments.js'
 import { Icon, type IconName } from './Icon.js'
+import { FileIcon } from './FileIcon.js'
 import { ConversationChangeSummary, type ChangeSelection } from './ChangeReview.js'
 import { Markdown, renderedMarkdownText } from './Markdown.js'
 import { tw } from './tailwind.js'
 import { Menu, MenuItem } from './Menu.js'
 import { toolLabel } from './tool-labels.js'
+import { ReplyAnnotationDialog, type ReplyAnnotationDraft } from './ReplyAnnotationDialog.js'
+import { sameTimelineProps } from './timeline-item-equality.js'
+import { DeliveryCards, type OpenDelivery } from './DeliveryCards.js'
+import { ReplySuggestions, suggestionReply } from './ReplySuggestions.js'
+import type { LingReplyFeatures, LingPresentedFile } from '../runtime/reply-features.js'
 
 const connectionLabels: Record<LingRuntimeConnection['phase'], string> = {
   offline: '未连接',
@@ -36,6 +43,11 @@ function formatTime(createdAt: string): string {
 }
 
 interface ConversationProps {
+  readonly replyFeatures?: LingReplyFeatures
+  readonly suggestionDraftEmpty?: boolean
+  readonly onChooseSuggestion?: (text: string) => void
+  readonly onOpenDelivery?: OpenDelivery
+  readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
   readonly latestChanges?: LingTaskChanges
   readonly onReviewChanges?: (selection: ChangeSelection) => void
   readonly items: readonly LingTimelineItem[]
@@ -51,6 +63,8 @@ interface ConversationProps {
   readonly onForkAt?: (seq: number) => void | Promise<void>
   readonly onAddReply?: (text: string, preview: string) => void
   readonly onEditMessage?: (item: LingTimelineItem) => void
+  readonly onCompactContext?: () => void
+  readonly compactDisabled?: boolean
   readonly onRetryMessage?: (item: LingTimelineItem) => Promise<void>
   readonly onAskInSideTask?: (text: string, preview: string) => void
   readonly onReconnect: () => void
@@ -89,7 +103,7 @@ function AttachmentChip({ attachment, inverted = false, load, taskId }: Attachme
   const meta = attachment.bytes !== undefined ? formatBytes(attachment.bytes) : attachment.mediaType
   const chip = (
     <span className={tw("timeline-item__attachment inline-flex max-w-64 items-center gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-2 py-1", inverted && "border-[var(--on-strong-border)] bg-[var(--on-strong-surface)]")} title={attachment.name}>
-      <Icon name={attachment.kind === 'image' ? 'image' : 'file'} size={16} />
+      <FileIcon path={attachment.name} mediaType={attachment.mediaType} simpleIcon={attachment.kind === 'image' ? 'image' : 'file'} size={16} />
       <span className={tw("timeline-item__attachment-name overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[var(--foreground)]", inverted && "text-[var(--text-tertiary)]")}>{attachment.name}</span>
       {meta ? <small className={tw("text-micro text-[var(--text-tertiary)]", inverted && "text-[var(--text-tertiary)]")}>{meta}</small> : null}
     </span>
@@ -120,7 +134,7 @@ function ProcessState({ active, completed }: { active: boolean; completed: boole
 }
 
 /** A compact preview stays visible; the full thought or tool result is one click away. */
-function ProcessActivity({ item, live, expanded, loadAttachment }: { item: PresentationItem; live: boolean; expanded: boolean; loadAttachment?: ConversationProps['loadAttachment'] }) {
+const ProcessActivity = memo(function ProcessActivity({ item, live, expanded, loadAttachment }: { item: PresentationItem; live: boolean; expanded: boolean; loadAttachment?: ConversationProps['loadAttachment'] }) {
   const reasoning = item.presentation === 'reasoning'
   const active = live && (reasoning ? item.reasoningStreaming === true : item.status === 'running')
   const completed = reasoning ? !active : item.status === 'completed'
@@ -141,7 +155,7 @@ function ProcessActivity({ item, live, expanded, loadAttachment }: { item: Prese
       {item.attachments?.length ? <div className={tw('mt-2 flex flex-wrap gap-1.5')}>{item.attachments.map(attachment => <AttachmentChip attachment={attachment} key={attachment.attachmentId} load={loadAttachment} taskId={item.taskId} />)}</div> : null}
     </div>
   </Disclosure>
-}
+}, sameTimelineProps)
 
 function ProcessGroup({ items, liveIds, preferences, children }: { items: readonly PresentationItem[]; liveIds: ReadonlySet<string>; preferences: BehaviorPreferences; children: ReactNode }) {
   const activeItems = items.filter(item => liveIds.has(item.itemId) && (item.presentation === 'reasoning' ? item.reasoningStreaming : item.status === 'running'))
@@ -151,12 +165,12 @@ function ProcessGroup({ items, liveIds, preferences, children }: { items: readon
   useEffect(() => { if (!active) return; setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [active])
   const tools = items.filter(item => item.kind === 'tool-activity' && !item.title?.startsWith('/')).length
   return <Disclosure expanded={active || !preferences.collapseProcess} className={tw('timeline-process group/process min-w-0 text-[var(--text-secondary)]')}>
-    <summary className={tw('flex min-h-7 w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-md px-2 text-compact leading-6 text-[var(--text-tertiary)] outline-none hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]')}>
-      <span className={tw('grid size-5 shrink-0 place-items-center rounded-md border border-[var(--panel-border)] bg-[var(--surface)] shadow-sm')}><Icon className={tw('transition-transform group-open/process:rotate-90')} name="chevronRight" size={12} /></span>
+    <summary className={tw('flex min-h-7 w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-md px-4 text-compact leading-6 text-[var(--text-tertiary)] outline-none hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]')}>
+      <span className={tw('grid size-5 shrink-0 place-items-center rounded-md border border-[var(--panel-border)] bg-[var(--surface)]')}><Icon className={tw('transition-transform group-open/process:rotate-90')} name="chevronRight" size={12} /></span>
       <span className={tw('shrink-0')}>{active ? '正在执行中' : items.some(item => item.status === 'interrupted') ? '已停止' : '已处理'}</span>
       {active && Number.isFinite(started) ? <span className={tw('tabular-nums')}>· {formatElapsed(Math.max(0, now - started), preferences.elapsedFormat)}</span> : preferences.toolCounts && tools > 0 ? <span className={tw('truncate text-xs')}>· 执行工具 {tools} 次</span> : null}
     </summary>
-    <div className={tw('ml-[17px] mt-1 grid min-w-0 gap-0.5 border-l border-[var(--panel-border)] pl-3')}>{children}</div>
+    <div className={tw('ml-[25px] mt-1 grid min-w-0 gap-0.5 border-l border-[var(--panel-border)] pl-3')}>{children}</div>
   </Disclosure>
 }
 
@@ -254,13 +268,16 @@ interface ConversationSelection {
   readonly rect: SelectionToolbarRect
   readonly taskId: string
   readonly text: string
+  readonly messageId: string
+  readonly assistant: boolean
 }
 
-function SelectionToolbar({ selection, container, onAddReply, onAskInSideTask, onDismiss }: {
+function SelectionToolbar({ selection, container, onAddReply, onAskInSideTask, onAnnotate, onDismiss }: {
   readonly selection: ConversationSelection
   readonly container: HTMLElement | null
   readonly onAddReply?: (text: string, preview: string) => void
   readonly onAskInSideTask?: (text: string, preview: string) => void
+  readonly onAnnotate: () => void
   readonly onDismiss: () => void
 }) {
   const behavior = useBehavior()
@@ -340,6 +357,7 @@ function SelectionToolbar({ selection, container, onAddReply, onAskInSideTask, o
         {onAddReply ? <Button aria-label="添加到任务" className={tw(buttonClass, 'bg-[var(--surface-secondary)] hover:bg-[var(--surface-hover)]')} onPress={() => { onAddReply(selection.text, selection.text); onDismiss() }} size="sm" variant="ghost">
           <Icon name="quote" size={14} />添加到任务
         </Button> : null}
+        {behavior.replyAnnotations && selection.assistant && onAddReply ? <Button aria-label="添加批注" className={tw(buttonClass)} onPress={onAnnotate} size="sm" variant="ghost"><Icon name="edit" size={14} />批注</Button> : null}
         {!compact && onAskInSideTask ? <Button aria-label="在侧边任务中提问" className={tw(buttonClass)} onPress={() => { onAskInSideTask(selection.text, selection.text); onDismiss() }} size="sm" variant="ghost">
           <Icon name="sideChat" size={14} />在侧边任务中提问
         </Button> : null}
@@ -396,7 +414,7 @@ function MessageActions({ item, plainText, onForkAt, onAddReply, onEdit, forkDis
     </Tooltip>
   )
   const time = formatTime(item.createdAt)
-  return <div aria-label={assistant ? '回复操作' : '消息操作'} role="group" className={tw("mt-1 flex min-h-control-xs flex-wrap items-center gap-0.5 text-caption text-[var(--text-tertiary)]", !assistant && 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100')}>
+  return <div aria-label={assistant ? '回复操作' : '消息操作'} role="group" className={tw("mt-1 flex min-h-control-xs flex-wrap items-center gap-0.5 text-caption text-[var(--text-tertiary)]", !assistant && 'absolute right-0 top-full opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100')}>
     {item.text ? action(copied === 'plain' ? '已复制消息' : '复制消息', copied === 'plain' ? 'check' : 'copy', () => { void copy('plain') }, { hint: copied === 'plain' ? '已复制文本' : '复制文本', color: copied === 'plain' ? 'text-[var(--success)]' : undefined }) : null}
     {!assistant && onEdit ? action('编辑问题', 'edit', onEdit, { disabled: forkDisabled }) : null}
     {onForkAt && item.seq !== undefined ? action(pending ? '正在创建分支任务' : '从这条消息分叉', assistant ? 'replyBranch' : 'fork', () => { void fork() }, { disabled: pending || forkDisabled, hint: forkDisabled ? '任务运行结束后可创建分支任务' : '从此处创建新的分支任务' }) : null}
@@ -430,7 +448,7 @@ function FailureActions({ item, disabled, onRetry }: { item: LingTimelineItem; d
 /** Only the latest failed turn can resend its original user message. Tool failures may be recovered by the agent. */
 export function retrySource(items: readonly LingTimelineItem[]): { failureId: string; message: LingTimelineItem } | undefined {
   const user = items.findLastIndex(item => item.kind === 'user-message')
-  const failure = items.findLastIndex(item => item.kind === 'system-notice' && item.status === 'failed')
+  const failure = items.findLastIndex(item => item.kind === 'system-notice' && item.status === 'failed' && !item.compaction)
   if (user < 0 || failure <= user || items.slice(failure + 1).some(item => item.kind === 'assistant-message' && item.turnComplete)) return undefined
   const failed = items[failure]!
   const question = items[user]!
@@ -452,13 +470,13 @@ export function failureSummary(item: Pick<LingTimelineItem, 'title' | 'text'>): 
   return firstLine && firstLine.length <= 120 && !/^[{[]/.test(firstLine) ? firstLine : '本轮执行失败，展开查看详情'
 }
 
-function TimelineRow({
+const TimelineRow = memo(function TimelineRow({
   item,
   loadAttachment,
   onForkAt,
   onAddReply,
   forkDisabled,
-  articleRef,
+  registerMessage,
   showActions = false,
   expandTools = false,
   live = false,
@@ -466,11 +484,15 @@ function TimelineRow({
   onRetryMessage,
   onEditMessage,
   onEditRequest,
+  onCompactContext,
+  compactDisabled,
+  onOpenDelivery,
+  onPreviewDelivery,
 }: {
   readonly item: LingTimelineItem
   readonly showActions?: boolean
   readonly expandTools?: boolean
-  readonly articleRef?: Ref<HTMLElement>
+  readonly registerMessage?: (itemId: string, node: HTMLElement | null) => void
   readonly loadAttachment?: (
     taskId: string,
     attachmentId: string,
@@ -482,16 +504,22 @@ function TimelineRow({
   readonly retryItem?: LingTimelineItem
   readonly onRetryMessage?: (item: LingTimelineItem) => Promise<void>
   readonly onEditMessage?: (item: LingTimelineItem) => void
+  readonly onCompactContext?: () => void
+  readonly compactDisabled?: boolean
   readonly onEditRequest?: (item: LingTimelineItem) => void
+  readonly onOpenDelivery?: OpenDelivery
+  readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
 }) {
   const textRef = useRef<HTMLDivElement>(null)
+  const articleRef = useCallback((node: HTMLElement | null) => registerMessage?.(item.itemId, node), [item.itemId, registerMessage])
   const isUser = item.kind === 'user-message'
   const isProcess = item.kind === 'system-notice' || item.kind === 'tool-activity'
   const detailLabel = item.kind === 'tool-activity' ? '执行详情' : '思考过程'
+  if (item.compaction) return <CompactionActivity item={item} disabled={compactDisabled !== false} onRetry={onCompactContext} />
   if (item.execution) return <ServerExecutionView item={item} live={live} expanded={expandTools} />
   if (isProcess && item.status === 'failed') {
     const missingCredential = item.title === 'MISSING_CREDENTIAL'
-    return <article className={tw('timeline-item flex min-w-0 items-start gap-2 px-2')} data-status="failed">
+    return <article className={tw('timeline-item flex min-w-0 items-start gap-2 px-4')} data-status="failed">
       <details className={tw('group/failure min-w-0 flex-1 text-xs text-[var(--text-secondary)]')}>
         <summary aria-label="查看错误详情" className={tw('flex min-h-control-xs max-w-full cursor-pointer list-none items-center gap-2 rounded-sm text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] [&::-webkit-details-marker]:hidden')}>
           <Icon className={tw('shrink-0 text-[var(--warning)]')} name="bolt" size={15} />
@@ -506,9 +534,9 @@ function TimelineRow({
   }
   return (
     <article className={tw(
-      "timeline-item group relative flex min-w-0 max-w-full items-start gap-2 px-2 text-[var(--foreground)]",
-      isUser && "timeline-item--user-message max-w-[min(47rem,100%)] justify-self-end px-0",
-    )} data-conversation-message={item.itemId} data-status={item.status} data-task-id={item.taskId} ref={articleRef}>
+      "timeline-item group relative flex min-w-0 max-w-full items-start gap-2 px-4 text-[var(--foreground)]",
+      isUser && "timeline-item--user-message max-w-[min(40rem,85%)] justify-self-end px-0 mb-2 [&:not(:first-child)]:mt-[var(--conversation-turn-gap)]",
+    )} data-conversation-message={item.itemId} data-message-kind={item.kind} data-status={item.status} data-task-id={item.taskId} ref={articleRef}>
       <div className={tw("timeline-item__body min-w-0 flex-1", isUser && "flex flex-col items-end")}>
         <div className={tw("min-w-0 max-w-full", isUser && "rounded-2xl [corner-shape:squircle] bg-[var(--surface-secondary)] px-[13px] py-2.5")} >
         {item.title ? <div className={tw("mb-1 flex min-w-0 items-center gap-2 text-xs")}>
@@ -521,18 +549,19 @@ function TimelineRow({
         </div> : null}
 
         </div>
+        {item.presentedFiles?.length && onOpenDelivery && onPreviewDelivery ? <DeliveryCards taskId={item.taskId} files={item.presentedFiles} onOpen={onOpenDelivery} onPreview={onPreviewDelivery} /> : null}
         {(isUser || showActions) ? <MessageActions item={item} plainText={() => !isUser && textRef.current ? renderedMarkdownText(textRef.current) : item.text} onForkAt={onForkAt} onAddReply={onAddReply} onEdit={isUser && onEditMessage && onEditRequest ? () => onEditRequest(item) : undefined} forkDisabled={forkDisabled} /> : null}
       </div>
       {item.streaming && live ? <span className={tw("mt-1 h-4 w-1 shrink-0 animate-pulse bg-current")} aria-hidden="true" /> : null}
     </article>
   )
-}
+}, sameTimelineProps)
 
 /** Keep consecutive runtime context and tool events together, without hiding failures. */
 export function groupTimeline(items: readonly LingTimelineItem[]): readonly { readonly process: boolean; readonly items: readonly LingTimelineItem[] }[] {
   const groups: { process: boolean; items: LingTimelineItem[] }[] = []
   for (const item of items) {
-    const process = (item.kind === 'system-notice' || item.kind === 'tool-activity') && item.status !== 'failed'
+    const process = !item.compaction && !item.presentedFiles?.length && (item.kind === 'system-notice' || item.kind === 'tool-activity') && item.status !== 'failed'
     const previous = groups.at(-1)
     if (process && previous?.process) previous.items.push(item)
     else groups.push({ process, items: [item] })
@@ -568,12 +597,12 @@ export function displayTimeline(items: readonly LingTimelineItem[], running: boo
   for (const [index, item] of items.entries()) {
     // Split only the presentation: runtime identity, turn actions and anchors stay intact.
     const parts: PresentationItem[] = item.kind === 'assistant-message' && item.detail?.trim()
-      ? [{ ...item, presentation: 'reasoning', text: '', attachments: undefined }, ...(item.text || item.title || item.attachments?.length ? [{ ...item, detail: undefined }] : [])]
+      ? [{ ...item, presentation: 'reasoning', text: '', attachments: undefined, presentedFiles: undefined }, ...(item.text || item.title || item.attachments?.length || item.presentedFiles?.length ? [{ ...item, detail: undefined }] : [])]
       : [item]
     for (const part of parts) {
-      const process = part.presentation === 'reasoning'
+      const process = !item.compaction && !part.presentedFiles?.length && (part.presentation === 'reasoning'
         || collapse && item.status !== 'failed' && item.kind !== 'user-message' && !finals.has(item.itemId) && (index < lastUser || !running)
-        || item.status !== 'failed' && (item.kind === 'tool-activity' || item.kind === 'system-notice')
+        || item.status !== 'failed' && (item.kind === 'tool-activity' || item.kind === 'system-notice'))
       if (process && groups.at(-1)?.process) groups.at(-1)!.items.push(part)
       else groups.push({ process, items: [part] })
     }
@@ -615,6 +644,32 @@ export function conversationAnchors(items: readonly LingTimelineItem[]): readonl
   return anchors
 }
 
+const MessageAnchor = memo(function MessageAnchor({ itemId, title, excerpt, index, active, distance, onHover, onNavigate }: {
+  readonly itemId: string
+  readonly title: string
+  readonly excerpt: string
+  readonly index: number
+  readonly active: boolean
+  readonly distance: number
+  readonly onHover: (index: number | undefined) => void
+  readonly onNavigate: (itemId: string) => void
+}) {
+  return <Tooltip closeDelay={0} delay={100} shouldSkipAnimation>
+    <Button aria-current={active ? 'location' : undefined} aria-label={`定位消息：${title}`}
+      className={tw("h-3.5 min-h-0 w-6 min-w-0 shrink-0 justify-end rounded-sm bg-transparent p-0 shadow-none hover:bg-transparent data-[hovered=true]:bg-transparent data-[pressed=true]:scale-100")}
+      onBlur={() => { onHover(undefined) }} onFocus={() => { onHover(index) }}
+      onHoverStart={() => { onHover(index) }} onHoverEnd={() => { onHover(undefined) }}
+      onPress={() => { onNavigate(itemId) }} variant="ghost">
+      <span aria-hidden="true" className={tw("h-0.5 w-1.5 bg-[var(--text-tertiary)] opacity-35 transition-[width,opacity] duration-150 motion-reduce:transition-none",
+        active && "w-2.5 opacity-65", distance === 2 && "w-2.5", distance === 1 && "w-3.5", distance === 0 && "w-5 opacity-75")} />
+    </Button>
+    <Tooltip.Content className={tw("block w-70 max-w-[calc(100vw_-_3rem)] rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-3.5 py-3 text-left text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} offset={12} placement="left">
+      <p className={tw("m-0 truncate text-sm font-semibold leading-5")}>{title}</p>
+      {excerpt ? <p className={tw("m-0 mt-1 line-clamp-3 break-words text-compact font-normal leading-[22px] text-[var(--text-secondary)]")}>{excerpt}</p> : null}
+    </Tooltip.Content>
+  </Tooltip>
+})
+
 function MessageAnchors({ anchors, activeId, onNavigate }: {
   readonly anchors: readonly ConversationAnchor[]
   readonly activeId: string | undefined
@@ -624,28 +679,18 @@ function MessageAnchors({ anchors, activeId, onNavigate }: {
   if (anchors.length < 2) return null
   return <nav aria-label="消息锚点" className={tw("absolute inset-y-4 right-2 z-1 flex w-6 items-center")}>
     <div className={tw("flex max-h-full w-full flex-col overflow-y-auto overscroll-contain [scrollbar-width:none]")}>
-      {anchors.map((anchor, index) => {
-        const distance = hovered === undefined ? Infinity : Math.abs(index - hovered)
-        return <Tooltip closeDelay={0} delay={100} key={anchor.itemId} shouldSkipAnimation>
-          <Button aria-current={activeId === anchor.itemId ? 'location' : undefined} aria-label={`定位消息：${anchor.title}`}
-            className={tw("h-3.5 min-h-0 w-6 min-w-0 shrink-0 justify-end rounded-sm bg-transparent p-0 shadow-none hover:bg-transparent data-[hovered=true]:bg-transparent data-[pressed=true]:scale-100")}
-            onBlur={() => { setHovered(undefined) }} onFocus={() => { setHovered(index) }}
-            onHoverStart={() => { setHovered(index) }} onHoverEnd={() => { setHovered(undefined) }}
-            onPress={() => { onNavigate(anchor.itemId) }} variant="ghost">
-            <span aria-hidden="true" className={tw("h-0.5 w-1.5 bg-[var(--text-tertiary)] opacity-35 transition-[width,opacity] duration-150 motion-reduce:transition-none",
-              activeId === anchor.itemId && "w-2.5 opacity-65", distance === 2 && "w-2.5", distance === 1 && "w-3.5", distance === 0 && "w-5 opacity-75")} />
-          </Button>
-          <Tooltip.Content className={tw("block w-70 max-w-[calc(100vw_-_3rem)] rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-3.5 py-3 text-left text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} offset={12} placement="left">
-            <p className={tw("m-0 truncate text-sm font-semibold leading-5")}>{anchor.title}</p>
-            {anchor.excerpt ? <p className={tw("m-0 mt-1 line-clamp-3 break-words text-compact font-normal leading-[22px] text-[var(--text-secondary)]")}>{anchor.excerpt}</p> : null}
-          </Tooltip.Content>
-        </Tooltip>
-      })}
+      {anchors.map((anchor, index) => <MessageAnchor key={anchor.itemId} {...anchor} index={index}
+        active={activeId === anchor.itemId} distance={hovered === undefined ? Infinity : Math.abs(index - hovered)} onHover={setHovered} onNavigate={onNavigate} />)}
     </div>
   </nav>
 }
 
 export function Conversation({
+  replyFeatures,
+  suggestionDraftEmpty = true,
+  onChooseSuggestion,
+  onOpenDelivery,
+  onPreviewDelivery,
   items,
   latestChanges,
   onReviewChanges,
@@ -660,12 +705,15 @@ export function Conversation({
   onAskInSideTask,
   onEditMessage,
   onRetryMessage,
+  onCompactContext,
+  compactDisabled,
   onReconnect,
   running,
   threadKey,
 }: ConversationProps) {
   const preferences = useBehavior()
   const latestUser = items.findLast(item => item.kind === 'user-message')
+  const suggestedReply = preferences.promptSuggestions && suggestionDraftEmpty && connection.phase === 'ready' ? suggestionReply(items, running) : undefined
   const previousUser = useRef({ thread: threadKey, id: latestUser?.itemId })
   const readingAnchor = useRef<string | undefined>(undefined)
   const [readingSpace, setReadingSpace] = useState(0)
@@ -675,15 +723,20 @@ export function Conversation({
   wasRunning.current = running
   const scrollRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<ConversationSelection>()
+  const [annotation, setAnnotation] = useState<ReplyAnnotationDraft>()
   const anchorRef = useRef({ firstItemId: '', height: 0, threadKey: '' })
   const [following, setFollowing] = useState(true)
   const inspecting = useRef(false)
   const messageRefs = useRef(new Map<string, HTMLElement>())
   const retry = useMemo(() => retrySource(items), [items])
   const messageActionsDisabled = running || connection.phase !== 'ready'
-  const beginEdit = (item: LingTimelineItem) => {
+  const beginEdit = useCallback((item: LingTimelineItem) => {
     if (!messageActionsDisabled) onEditMessage?.(item)
-  }
+  }, [messageActionsDisabled, onEditMessage])
+  const registerMessage = useCallback((itemId: string, node: HTMLElement | null) => {
+    if (node) messageRefs.current.set(itemId, node)
+    else messageRefs.current.delete(itemId)
+  }, [])
   const anchors = useMemo(() => conversationAnchors(items), [items])
   const actionIds = useMemo(() => replyActionIds(items, running), [items, running])
   const liveItemIds = useMemo(() => {
@@ -731,6 +784,8 @@ export function Conversation({
       rect: { bottom: rect.bottom, left: rect.left, right: rect.right, top: rect.top },
       taskId,
       text,
+      messageId: message.dataset.conversationMessage ?? '',
+      assistant: message.dataset.messageKind === 'assistant-message',
     })
   }, [])
 
@@ -743,7 +798,8 @@ export function Conversation({
     }
   }, [captureSelection])
 
-  useEffect(() => { dismissSelection() }, [dismissSelection, threadKey])
+  useEffect(() => { dismissSelection(); setAnnotation(undefined) }, [dismissSelection, threadKey])
+  useEffect(() => { if (!preferences.replyAnnotations) setAnnotation(undefined) }, [preferences.replyAnnotations])
 
   const updateActiveAnchor = useCallback(() => {
     const node = scrollRef.current
@@ -771,7 +827,7 @@ export function Conversation({
     return () => { observer.disconnect() }
   }, [items, following, updateActiveAnchor])
 
-  const navigateToMessage = (itemId: string) => {
+  const navigateToMessage = useCallback((itemId: string) => {
     const node = scrollRef.current
     const row = messageRefs.current.get(itemId)
     if (!node || !row) return
@@ -779,7 +835,7 @@ export function Conversation({
     setFollowing(false)
     node.scrollTop += row.getBoundingClientRect().top - node.getBoundingClientRect().top - 24
     setActiveAnchor(itemId)
-  }
+  }, [])
 
   const nearBottom = () => {
     const node = scrollRef.current
@@ -846,7 +902,7 @@ export function Conversation({
     <div className={tw("conversation-canvas__inner relative flex min-h-0 flex-1 flex-col")}>
       {connectionStrip}
       <div className={tw("relative flex min-h-0 min-w-0 flex-1 flex-col")}><div
-        className={tw("conversation-stream conversation-scroll [scrollbar-width:auto] [&::-webkit-scrollbar]:w-[5px]! [&::-webkit-scrollbar-track]:bg-transparent! [&::-webkit-scrollbar-thumb]:min-h-6! [&::-webkit-scrollbar-thumb]:rounded-full! [&::-webkit-scrollbar-thumb]:border-y-[6px]! [&::-webkit-scrollbar-thumb]:border-solid! [&::-webkit-scrollbar-thumb]:border-transparent! [&::-webkit-scrollbar-thumb]:bg-[var(--text-tertiary)]/30! [&::-webkit-scrollbar-thumb]:bg-clip-padding! [&::-webkit-scrollbar-thumb:hover]:bg-[var(--text-tertiary)]/50! [&::-webkit-scrollbar-button]:hidden! grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-6 overflow-y-auto overflow-x-hidden px-[max(1rem,calc((100%_-_48rem)/2))] pb-6 pt-4 [overflow-anchor:none] [overscroll-behavior:contain]")}
+        className={tw("conversation-stream conversation-scroll [scrollbar-width:auto] [&::-webkit-scrollbar]:w-[5px]! [&::-webkit-scrollbar-track]:bg-transparent! [&::-webkit-scrollbar-thumb]:min-h-6! [&::-webkit-scrollbar-thumb]:rounded-full! [&::-webkit-scrollbar-thumb]:border-y-[6px]! [&::-webkit-scrollbar-thumb]:border-solid! [&::-webkit-scrollbar-thumb]:border-transparent! [&::-webkit-scrollbar-thumb]:bg-[var(--text-tertiary)]/30! [&::-webkit-scrollbar-thumb]:bg-clip-padding! [&::-webkit-scrollbar-thumb:hover]:bg-[var(--text-tertiary)]/50! [&::-webkit-scrollbar-button]:hidden! grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-[var(--conversation-gap)] overflow-y-auto overflow-x-hidden px-[max(var(--reading-gutter),calc((100%_-_var(--reading-width))/2))] pb-6 pt-5 [overflow-anchor:none] [overscroll-behavior:contain]")}
         ref={scrollRef}
         onClickCapture={event => {
           if (event.target instanceof Element && event.target.closest('summary')) {
@@ -874,16 +930,15 @@ export function Conversation({
               ? <TimelineRow expandTools={preferences.expandTools} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={running} />
               : <ProcessActivity expanded={preferences.expandTools} item={item} key={`${item.itemId}:${item.presentation ?? 'activity'}`} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} />)}
           </ProcessGroup>
-        ) : group.items.map(item => <TimelineRow articleRef={item.kind === 'user-message' ? node => {
-          if (node) messageRefs.current.set(item.itemId, node)
-          else messageRefs.current.delete(item.itemId)
-        } : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />))}
+        ) : group.items.map(item => <TimelineRow onOpenDelivery={onOpenDelivery} onPreviewDelivery={onPreviewDelivery} registerMessage={item.kind === 'user-message' ? registerMessage : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onCompactContext={onCompactContext} compactDisabled={compactDisabled} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />))}
         {clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} running={running} start={clockStart.current.start} preferences={preferences} /> : null}
         {latestChanges && onReviewChanges ? <ConversationChangeSummary change={latestChanges} key={`${threadKey}-${String(latestChanges.seq)}`} onSelect={onReviewChanges} /> : null}
+        {suggestedReply && replyFeatures && onChooseSuggestion ? <ReplySuggestions key={`${suggestedReply.taskId}:${suggestedReply.seq}`} reply={suggestedReply} service={replyFeatures} onChoose={onChooseSuggestion} /> : null}
         {readingSpace > 0 ? <div aria-hidden style={{ height: readingSpace }} /> : null}
       </div>
       <MessageAnchors activeId={activeAnchor} anchors={anchors} key={threadKey} onNavigate={navigateToMessage} />
-      {selection ? <SelectionToolbar container={scrollRef.current} onAddReply={onAddReply} onAskInSideTask={onAskInSideTask} onDismiss={dismissSelection} selection={selection} /> : null}
+      {selection ? <SelectionToolbar container={scrollRef.current} onAddReply={onAddReply} onAskInSideTask={onAskInSideTask} onAnnotate={() => { setAnnotation({ taskId: selection.taskId, messageId: selection.messageId, quote: selection.text }); dismissSelection() }} onDismiss={dismissSelection} selection={selection} /> : null}
+      {annotation && onAddReply ? <ReplyAnnotationDialog source={annotation} onClose={() => setAnnotation(undefined)} onAdd={onAddReply} /> : null}
       {!following ? (
         <button aria-label="回到最新消息" title="回到最新消息" className={tw("conversation-jump absolute bottom-4 left-1/2 grid size-control-sm -translate-x-1/2 place-items-center rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] text-[var(--text-secondary)] shadow-sm hover:bg-[var(--surface-hover)]")} onClick={() => {
           inspecting.current = false

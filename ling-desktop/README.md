@@ -21,11 +21,15 @@ From the repository root:
 corepack yarn dev:ling    # build the renderer and launch LING Electron
 corepack yarn serve:ling  # serve the real local Host in a browser
 corepack yarn check:ling  # build, typecheck, and test both LING workspaces
+corepack yarn dist:ling:mac # build and verify a local macOS arm64 app and DMG
 ```
 
 `corepack yarn workspace ling-desktop dev` starts the demo renderer only.
 The real entry points do not silently fall back to demo data when the Host is
 unavailable.
+
+See [PACKAGING.md](docs/PACKAGING.md) for the LING package layout, headless
+verification and the boundary between local testing and a notarized release.
 
 ## Servers (connection onboarding)
 

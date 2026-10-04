@@ -11,9 +11,7 @@ export const settingsGroups = [
     { id: 'voice', label: '语音', icon: 'waveform' },
     { id: 'models', label: '模型', icon: 'robot' },
     { id: 'agent-presets', label: '智能体预设', icon: 'agentPreset' },
-    { id: 'pet', label: '桌面宠物', icon: 'ghost' },
     { id: 'memory', label: '记忆', icon: 'memory' },
-    { id: 'import', label: '数据导入', icon: 'download' },
   ] },
   { label: '集成', items: [
     { id: 'extensions', label: '扩展管理', icon: 'grid' },
@@ -25,7 +23,6 @@ export const settingsGroups = [
     { id: 'git', label: 'Git', icon: 'branch' },
     { id: 'worktrees', label: 'Worktrees', icon: 'fork' },
     { id: 'connections', label: '连接', icon: 'link' },
-    { id: 'security', label: '安全', icon: 'shield' },
   ] },
   { label: '归档管理', items: [
     { id: 'archived', label: '已归档', icon: 'archive' },

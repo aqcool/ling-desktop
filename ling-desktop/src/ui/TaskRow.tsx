@@ -96,7 +96,7 @@ export function TaskRow({ task, workspaceLabel, archived, selected, unread, glob
       ref={rowRef}
     >
       <button className={tw("sidebar-task__main flex min-h-control-sm min-w-0 flex-1 items-center gap-1 rounded-md border-0 bg-transparent py-0.5 pr-1.5 pl-5 text-left")} onClick={() => { onSelect(task.taskId) }} title={task.title} type="button">
-        <span className={tw("sidebar-task__title flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-compact font-medium text-[var(--text-secondary)]", selected && "font-semibold text-[var(--foreground)]", unread && "font-[650] text-[var(--foreground)]")}>{task.title}</span>
+        <span className={tw("sidebar-task__title flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-compact font-normal text-[var(--text-secondary)]", selected && "font-medium text-[var(--foreground)]", unread && "font-[650] text-[var(--foreground)]")}>{task.title}</span>
         {globallyPinned || workspacePinned ? <Icon className={tw("flex-none text-[var(--text-tertiary)]")} active name="pin" size={12} /> : null}
         {unread ? <span className={tw("sidebar-task__unread-dot [width:0.4rem] [height:0.4rem] flex-none [border-radius:50%] [background:var(--action)]")} aria-label="未读" /> : null}
       </button>

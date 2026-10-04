@@ -10,7 +10,8 @@ import { Dropdown } from '@heroui/react/dropdown'
 import type { LingReadResult, LingSlashCommand, LingSkill, LingModelSelection, LingModelSettings, LingTaskGoal, LingTaskMode, LingTaskPermission, LingTimelineAttachment } from '../runtime/contract.js'
 import { enabledModelOptions } from '../model-visibility.js'
 import { Icon, type IconName } from './Icon.js'
-import { formatBytes, type ComposerAttachment } from './attachments.js'
+import { FileIcon } from './FileIcon.js'
+import { formatBytes, workspaceContextPresentation, type ComposerAttachment } from './attachments.js'
 import { Menu, MenuItem, placeList } from './Menu.js'
 import { tw } from './tailwind.js'
 import { ProviderIcon } from './ProviderIcon.js'
@@ -516,7 +517,7 @@ export function Composer({
   const quotes = attachments.filter(attachment => attachment.quote !== undefined)
   const files = [
     ...attachments.filter(attachment => attachment.quote === undefined),
-    ...recordedAttachments.map(attachment => ({ id: attachment.attachmentId, name: attachment.name, size: attachment.bytes, isImage: attachment.kind === 'image', previewUrl: undefined, recorded: true })),
+    ...recordedAttachments.map(attachment => ({ id: attachment.attachmentId, name: attachment.name, size: attachment.bytes, isImage: attachment.kind === 'image', previewUrl: undefined, context: undefined, recorded: true })),
   ]
   const goal = mode?.goal
 
@@ -599,7 +600,7 @@ export function Composer({
   return (
     <div
       ref={composerRef}
-      className={tw("composer relative flex-none overflow-visible rounded-2xl border border-[var(--panel-border)] bg-[var(--surface)] [container:composer_/_inline-size]", dragOver && "composer--dragover border-[var(--panel-border)] shadow-[var(--overlay-shadow)]")}
+      className={tw("composer relative flex-none overflow-visible rounded-2xl border border-[var(--panel-border)] bg-[var(--field-background)] [container:composer_/_inline-size]", dragOver && "composer--dragover border-[var(--panel-border)] shadow-[var(--overlay-shadow)]")}
       onDragOver={event => { event.preventDefault(); setDragOver(true) }}
       onDragLeave={() => { setDragOver(false) }}
       onDrop={handleDrop}
@@ -676,18 +677,21 @@ export function Composer({
       ) : null}
       {files.length > 0 ? (
         <div className={tw("composer__attachments flex flex-wrap gap-1.5 pt-2 px-3 pb-0")}>
-          {files.map(attachment => (
-            <div className={tw("composer__attachment grid max-w-60 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-1.5 py-1")} key={attachment.id}>
+          {files.map(attachment => {
+            const context = attachment.context
+            const presentation = context ? workspaceContextPresentation(context) : undefined
+            return <div className={tw("composer__attachment grid max-w-60 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface-secondary)] px-1.5 py-1")} data-context-kind={context?.kind} title={presentation?.title} key={attachment.id}>
               {attachment.isImage && attachment.previewUrl
                 ? <img alt={attachment.name} className={tw("composer__attachment-thumb [width:1.6rem] [height:1.6rem] object-cover rounded-md")} src={attachment.previewUrl} />
-                : <Icon name="file" size={18} />}
-              <span className={tw("composer__attachment-name overflow-hidden [color:var(--foreground)] text-xs text-ellipsis whitespace-nowrap")} title={attachment.name}>{attachment.name}</span>
-              <small className={tw("text-micro text-[var(--text-tertiary)]")}>{attachment.size === undefined ? '' : formatBytes(attachment.size)}</small>
-              <button aria-label="移除附件" className={tw("composer__attachment-remove flex p-0.5 border-0 rounded-sm bg-transparent [color:var(--text-tertiary)] hover:[background:var(--surface-tertiary)] hover:[color:var(--text-secondary)]")} onClick={() => { if ('recorded' in attachment) onRemoveRecordedAttachment?.(attachment.id); else onRemoveAttachment(attachment.id) }} type="button">
+                : context?.kind === 'selection' ? <Icon name="textSelection" size={18} />
+                : <FileIcon path={context?.path ?? attachment.name} directory={context?.kind === 'directory'} mediaType={attachment.isImage ? 'image/png' : undefined} size={18} />}
+              <span className={tw("composer__attachment-name overflow-hidden [color:var(--foreground)] text-xs text-ellipsis whitespace-nowrap")} title={presentation?.title ?? attachment.name}>{presentation?.label ?? attachment.name}</span>
+              <small className={tw("text-micro text-[var(--text-tertiary)]")}>{presentation?.typeLabel ?? (attachment.size === undefined ? '' : formatBytes(attachment.size))}</small>
+              <button aria-label={presentation ? `移除${presentation.typeLabel}引用：${presentation.label}` : '移除附件'} className={tw("composer__attachment-remove flex p-0.5 border-0 rounded-sm bg-transparent [color:var(--text-tertiary)] hover:[background:var(--surface-tertiary)] hover:[color:var(--text-secondary)]")} onClick={() => { if ('recorded' in attachment) onRemoveRecordedAttachment?.(attachment.id); else onRemoveAttachment(attachment.id) }} type="button">
                 <Icon name="close" size={14} />
               </button>
             </div>
-          ))}
+          })}
         </div>
       ) : null}
 
@@ -711,7 +715,7 @@ export function Composer({
             aria-label="消息"
             aria-controls={slashOpen && !skillsOpen ? suggestionId : undefined}
             aria-autocomplete="list"
-            className={tw("composer__textarea min-h-18 w-full resize-none rounded-none border-0 bg-transparent px-1 pt-3 pb-1.5 text-sm leading-[1.45] shadow-none outline-0 [--field-background:transparent] placeholder:text-[var(--text-tertiary)]")}
+            className={tw("composer__textarea min-h-18 w-full resize-none rounded-none border-0 bg-transparent px-1 pt-3 pb-1.5 text-sm leading-[1.6] shadow-none outline-0 [--field-background:transparent] placeholder:text-[var(--text-tertiary)]")}
             style={{ textIndent: skillPrefixLayout.indent, paddingTop: 12 + skillPrefixLayout.top }}
             maxLength={8000}
             onChange={event => { onChange(event.target.value) }}
@@ -729,12 +733,12 @@ export function Composer({
         </div>
       </div>
 
-      <div className={tw("composer__footer flex [min-height:2.65rem] items-center justify-between py-0.5 px-1.5 border-t border-dashed border-[var(--panel-border)]")}>
+      <div className={tw("composer__footer flex min-h-10 items-center justify-between gap-2 py-1 px-2")}>
         <div ref={toolsRef} className={tw("composer__tools flex items-center min-w-0 gap-0.5")}>
           <Menu
             align="start"
             triggerAriaLabel="添加内容"
-            triggerClassName="composer__add size-control-sm rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] shadow-sm"
+            triggerClassName="composer__add size-control-sm rounded-lg border border-[var(--panel-border)] bg-[var(--surface)]"
             listClassName="composer-menu composer-menu--add"
             triggerLabel={open => <Icon name={open ? 'close' : 'plus'} size={18} />}
           >
@@ -742,14 +746,14 @@ export function Composer({
             <MenuItem checked={selectedMode === 'plan'} disabled={disabled} icon="calendar" onPress={() => { selectMode('plan') }} suffix="⇧Tab">计划</MenuItem>
             <MenuItem disabled={disabled} icon="hammer" onPress={() => { setSkillQuery(''); setSkillsOpen(true) }}>技能</MenuItem>
           </Menu>
-          <button aria-label="添加附件" className={tw("composer__attach flex items-center justify-center [width:1.65rem] [height:1.65rem] border-0 rounded-lg bg-transparent [color:var(--text-secondary)] hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { fileInputRef.current?.click() }} type="button">
+          <button aria-label="添加附件" className={tw("composer__attach flex items-center justify-center size-control-sm border-0 rounded-lg bg-transparent [color:var(--text-secondary)] hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { fileInputRef.current?.click() }} type="button">
             <Icon name="paperclip" size={16} />
           </button>
           {permissionOptions.length > 0 ? (
             <Menu
               align="start"
               triggerAriaLabel="切换权限预设"
-              triggerClassName={tw("composer__pill composer__pill--permission h-control-sm min-w-0 gap-1 rounded-md px-1.5 text-compact font-medium hover:bg-[var(--surface-hover)]", currentPermission.danger && "text-[var(--permission-danger)]")}
+              triggerClassName={tw("composer__pill composer__pill--permission h-control-sm min-w-0 gap-1 rounded-md px-1.5 text-xs font-normal hover:bg-[var(--surface-hover)]", currentPermission.danger && "text-[var(--permission-danger)]")}
               listClassName="composer-menu composer-menu--permission w-72 min-w-0 max-w-[calc(100vw_-_16px)] rounded-lg p-1 shadow-[var(--overlay-shadow)]"
               triggerLabel={<><Icon className={tw(currentPermission.danger && "text-[var(--permission-danger)]")} name={currentPermission.icon} size={16} /><span className={tw("composer__permission-label whitespace-nowrap @max-[22rem]/composer:hidden", currentPermission.danger && "text-[var(--permission-danger)]")}>{currentPermission.label}</span><Icon name="chevronDown" size={12} /></>}
             >
@@ -801,7 +805,7 @@ export function Composer({
             <Dropdown isOpen={modelPickerOpen} onOpenChange={setModelPickerOpen}>
               <Button
                 aria-label={taskScoped ? '选择当前任务模型' : '选择默认模型'}
-                className={tw("h-7.5 max-w-[min(15rem,35vw)] min-w-0 gap-1 rounded-xl bg-surface-secondary px-2 text-xs font-medium text-[var(--text-secondary)] @max-[22rem]/composer:max-w-26")}
+                className={tw("h-control-sm max-w-[min(15rem,35vw)] min-w-0 gap-1 rounded-md bg-transparent px-1.5 text-xs font-normal text-[var(--text-secondary)] @max-[22rem]/composer:max-w-26")}
                 isDisabled={disabled}
                 size="sm"
                 variant="ghost"

@@ -2,7 +2,7 @@
   disabled: true
 - id: session-query-sqlite
   config:
-    path: ':memory:'
+    path: !!js dshHomePath('ling-session-search.sqlite')
     openAt: first-search
 - insert:
     - id: ling-desktop-webserver
@@ -11,3 +11,27 @@
       config:
         host: 127.0.0.1
         port: 0
+
+- id: agent-loop
+  disabled: true
+- id: session-persistence-jsonl
+  disabled: true
+- id: session-controller
+  disabled: true
+- insert:
+    - id: ling-session-lifecycle
+      name: ling-desktop-host/session-lifecycle
+      config:
+        agents: []
+    - id: ling-session-storage
+      name: ling-desktop-host/session-storage
+      config:
+        root: !!js dshHomePath('sessions')
+    - id: ling-session-controller
+      name: ling-desktop-host/session-controller
+
+# The published Web presets retain their isolated DSH compaction engines.
+# Register global preferences before a preset is mounted, without a second engine.
+- insert:
+    - id: ling-compaction-settings
+      name: ling-desktop-host/compaction

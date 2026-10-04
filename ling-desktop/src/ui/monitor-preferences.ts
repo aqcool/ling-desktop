@@ -21,8 +21,9 @@ export interface MonitorPreferences {
 export function effectiveMonitorPresentation(
   preferred: MonitorPreferences['presentation'],
   workbenchOpen: boolean,
+  availableWidth = Infinity,
 ): MonitorPreferences['presentation'] {
-  return workbenchOpen ? 'floating' : preferred
+  return workbenchOpen || availableWidth < 800 ? 'floating' : preferred
 }
 
 export const defaultMonitorPreferences: MonitorPreferences = {

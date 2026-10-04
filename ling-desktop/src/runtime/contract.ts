@@ -1,8 +1,15 @@
+export * from './compaction.js'
 import type { LingPluginManager } from './plugins.js'
+import type { LingComputerControlService } from './computer-control.js'
+export * from './computer-control.js'
 import type { LingServerService } from './servers.js'
 export type * from './plugins.js'
 export type * from './servers.js'
 export type LingConnectionPhase = 'offline' | 'connecting' | 'ready' | 'failed'
+
+export * from './knowledge.js'
+export * from './automation.js'
+export * from './hooks.js'
 
 export interface LingRuntimeConnection {
   readonly phase: LingConnectionPhase
@@ -270,6 +277,8 @@ export interface LingTimelineAttachment {
 }
 
 export interface LingTimelineItem {
+  readonly presentedFiles?: readonly import('./reply-features.js').LingPresentedFile[]
+  readonly compaction?: import('./compaction.js').LingCompactionRecord
   readonly itemId: string
   readonly taskId: string
   readonly seq?: number
@@ -729,7 +738,7 @@ export type LingRuntimeCommand =
       readonly increaseTitle?: boolean
     })
   | (LingRuntimeCommandBase & {
-      readonly type: 'task.archive' | 'task.unarchive'
+      readonly type: 'task.archive' | 'task.unarchive' | 'task.delete'
       readonly taskId: string
     })
   | (LingRuntimeCommandBase & {
@@ -786,6 +795,7 @@ export type LingCommandRejectionReason =
   | 'runtime-unavailable'
   | 'invalid-command'
   | 'settings-conflict'
+  | 'document-conflict'
   | 'task-not-found'
   | 'interaction-stale'
   | 'permission-denied'
@@ -822,6 +832,11 @@ export type LingReadResult<Value> =
 export type LingRuntimeAdapterKind = 'dsh' | 'offline' | 'offline-demo'
 
 export interface LingRuntimeAdapter {
+  readonly hooks?: import('./hooks.js').LingHooksService
+  readonly replyFeatures?: import('./reply-features.js').LingReplyFeatures
+  readonly automation?: import('./automation.js').LingAutomationService
+  readonly knowledge?: import('./knowledge.js').LingKnowledgeService
+  readonly computerControl?: LingComputerControlService
   readonly pluginManager?: LingPluginManager
   readonly serverManager?: LingServerService
   readonly extensionSettings?: LingExtensionSettingsService
@@ -867,6 +882,16 @@ export interface LingRuntimeAdapter {
     path: string,
     signal?: AbortSignal,
   ): Promise<LingReadResult<LingWorkspaceDocument>>
+  saveWorkspaceDocument?(
+    taskId: string,
+    path: string,
+    text: string,
+    version: string,
+    signal?: AbortSignal,
+  ): Promise<LingReadResult<{ readonly version: string }>>
+  listDraftWorkspaceDirectory?(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>>
+  readDraftWorkspaceDocument?(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>>
+  saveDraftWorkspaceDocument?(workspaceId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>>
   getTaskAttachment?(taskId: string, attachmentId: string): Promise<LingReadResult<LingAttachmentContent>>
   getTaskModel?(taskId: string): Promise<LingReadResult<LingModelSelection | undefined>>
   readonly terminalService?: LingTerminalService
@@ -889,3 +914,4 @@ export interface LingRuntimeAdapter {
   subscribeTaskModel?(taskId: string, listener: (model: LingModelSelection | undefined) => void): () => void
   subscribeTaskTimeline(taskId: string, listener: (items: readonly LingTimelineItem[]) => void): () => void
 }
+export type { LingPresentedFile, LingReplyFeatures } from './reply-features.js'

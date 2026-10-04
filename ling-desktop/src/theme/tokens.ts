@@ -9,24 +9,52 @@ export const palettes = [
   ...themePacks.map(({ id, label }) => ({ id, label })),
 ] as const
 export type LingPalette = typeof palettes[number]['id']
+export const fontStyles = [
+  { id: 'system', label: '默认', description: '跟随主题字体' },
+  { id: 'sans', label: '无衬线', description: '清晰简洁' },
+  { id: 'serif', label: '衬线', description: '适合长文阅读' },
+] as const
+export type LingFontStyle = typeof fontStyles[number]['id']
+export const contentWidths = [
+  { id: 'narrow', label: '紧凑', width: '40rem' },
+  { id: 'standard', label: '标准', width: '48rem' },
+  { id: 'wide', label: '宽松', width: '64rem' },
+] as const
+export type LingContentWidth = typeof contentWidths[number]['id']
+export const fileIconStyles = [
+  { id: 'simple', label: '简约' },
+  { id: 'color', label: '彩色' },
+] as const
+export type LingFileIconStyle = typeof fileIconStyles[number]['id']
 export interface Appearance {
   mode: LingTheme
   palette: LingPalette
   terminal: 'follow' | 'manual'
   terminalDark: boolean
+  fontStyle: LingFontStyle
+  contentWidth: LingContentWidth
+  fileIcons: LingFileIconStyle
+  glass: boolean
 }
 export type WindowAppearance = Pick<Appearance, 'mode' | 'palette'>
-export const appearanceKeys = ['ling.theme', 'ling.palette', 'ling.terminal-theme', 'ling.terminal-dark'] as const
+export const appearanceKeys = ['ling.theme', 'ling.palette', 'ling.terminal-theme', 'ling.terminal-dark', 'ling.font-style', 'ling.content-width', 'ling.file-icons', 'ling.glass'] as const
 export function isPalette(value: unknown): value is LingPalette { return palettes.some(palette => palette.id === value) }
 export function parseAppearance(values: readonly (string | null)[]): Appearance {
-  const [mode, palette, terminal, terminalDark] = values
+  const [mode, palette, terminal, terminalDark, fontStyle, contentWidth, fileIcons, glass] = values
   return { mode: mode === 'light' || mode === 'dark' ? mode : 'system', palette: isPalette(palette) ? palette : 'default',
-    terminal: terminal === 'manual' ? 'manual' : 'follow', terminalDark: terminalDark === 'true' }
+    terminal: terminal === 'manual' ? 'manual' : 'follow', terminalDark: terminalDark === 'true',
+    fontStyle: fontStyle === 'sans' || fontStyle === 'serif' ? fontStyle : 'system',
+    contentWidth: contentWidth === 'narrow' || contentWidth === 'wide' ? contentWidth : 'standard',
+    fileIcons: fileIcons === 'color' ? 'color' : 'simple', glass: glass !== 'false' }
+}
+/** Keep storage ordering explicit so existing mode/palette entries retain their meaning. */
+export function appearanceValues(appearance: Appearance): readonly string[] {
+  return [appearance.mode, appearance.palette, appearance.terminal, String(appearance.terminalDark), appearance.fontStyle, appearance.contentWidth, appearance.fileIcons, String(appearance.glass)]
 }
 export function resolveTheme(mode: LingTheme, systemDark: boolean): ResolvedTheme {
   return mode === 'system' ? systemDark ? 'dark' : 'light' : mode
 }
-export function terminalMode(appearance: Appearance, resolved: ResolvedTheme): ResolvedTheme {
+export function terminalMode(appearance: Pick<Appearance, 'terminal' | 'terminalDark'>, resolved: ResolvedTheme): ResolvedTheme {
   return appearance.terminal === 'follow' ? resolved : appearance.terminalDark ? 'dark' : 'light'
 }
 /** Only these two enum values may cross the native appearance boundary. */
@@ -47,9 +75,22 @@ export const metrics = {
   'corner-xs': 'calc(var(--radius) * 0.25)', 'corner-sm': 'calc(var(--radius) * 0.5)',
   'corner-md': 'calc(var(--radius) * 0.75)', 'corner-lg': 'var(--radius)', 'corner-xl': 'calc(var(--radius) * 1.5)',
   'corner-2xl': 'calc(var(--radius) * 2)', 'corner-3xl': 'calc(var(--radius) * 3)',
-  'line-body': '1.5', 'line-copy': '1.75', 'line-chat': '2',
+  'line-body': '1.5', 'line-copy': '1.75', 'line-chat': '1.8',
+  // One reading column for messages and composer, independent of panel state.
+  'reading-width': '48rem', 'reading-gutter': 'clamp(1rem, 2vw, 1.5rem)',
+  'conversation-gap': '1rem', 'conversation-turn-gap': '1.5rem',
+  'monitor-docked-width': 'clamp(16.5rem, 17vw, 18.5rem)',
   'disabled-opacity': '0.5', 'border-width': '1px', 'field-border-width': '1px',
 } as const
+
+/** Optional presentation overrides; undefined retains each theme's original metrics. */
+export function appearanceStyles(appearance: Pick<Appearance, 'fontStyle' | 'contentWidth'>): Readonly<Record<'font-ui' | 'reading-width', string | undefined>> {
+  return {
+    'font-ui': appearance.fontStyle === 'sans' ? metrics['font-ui']
+      : appearance.fontStyle === 'serif' ? 'Charter, "Iowan Old Style", "Palatino Linotype", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : undefined,
+    'reading-width': appearance.contentWidth === 'standard' ? undefined : contentWidths.find(width => width.id === appearance.contentWidth)?.width,
+  }
+}
 
 const light: Record<string, string> = {
   "background": "#fafafa",
@@ -88,7 +129,7 @@ const light: Record<string, string> = {
   "panel-border": "#e5e5e5",
   "info": "#345ac0",
   "link": "#4a6fa5",
-  "action": "#c96343",
+  "action": "var(--focus)",
   "action-foreground": "#ffffff",
   "terminal-background": "#ffffff",
   "terminal-foreground": "#252525",
@@ -124,13 +165,13 @@ const dark: Record<string, string> = {
   "panel-border": "#39393d",
   "skill-tag-foreground": "#5ebcff",
   "skill-tag-background": "#1a2838",
-  "focus": "#e3977c",
+  "focus": "#91b69d",
   "success": "#7fd39a",
   "warning": "#e7bb67",
   "danger": "#ef968d",
   "info": "#8ab0e8",
   "link": "#8ab0e8",
-  "action": "#e3977c",
+  "action": "var(--focus)",
   "action-foreground": "#252525",
   "terminal-background": "#1b1b1e",
   "terminal-foreground": "#e8e8e9",
@@ -169,6 +210,12 @@ export function themeTokens(mode: ResolvedTheme, palette: LingPalette = 'default
     'terminal-background': 'var(--surface)', 'terminal-foreground': 'var(--foreground)',
   })
   Object.assign(tokens, {
+    'file-icon-file': 'var(--text-secondary)', 'file-icon-folder': 'var(--warning)',
+    'file-icon-code': 'var(--info)', 'file-icon-markdown': 'var(--link)',
+    'file-icon-document': 'var(--info)', 'file-icon-pdf': 'var(--danger)',
+    'file-icon-spreadsheet': 'var(--success)', 'file-icon-presentation': 'var(--warning)',
+    'file-icon-image': 'var(--success)', 'file-icon-audio': 'var(--focus)',
+    'file-icon-video': 'var(--danger)', 'file-icon-archive': 'var(--warning)',
     'overlay': 'var(--surface)', 'overlay-foreground': 'var(--foreground)',
     'default': 'var(--surface-tertiary)', 'default-foreground': 'var(--foreground)',
     'segment': 'var(--surface)', 'segment-foreground': 'var(--foreground)',
@@ -182,6 +229,7 @@ export function themeTokens(mode: ResolvedTheme, palette: LingPalette = 'default
     'on-strong': '#f4f4f2', 'on-strong-muted': '#c9c9c4', 'strong-background': '#252525',
     'terminal-selection': mode === 'dark' ? '#ffffff35' : '#00000025',
     'shadow-color': mode === 'dark' ? '#00000060' : '#00000020',
+    'canvas-shadow': '0 1px 8px color-mix(in srgb, var(--shadow-color) 35%, transparent)',
     'surface-shadow': '0 1px 3px var(--shadow-color)', 'overlay-shadow': '0 12px 32px var(--shadow-color)',
     'field-shadow': '0 1px 2px var(--shadow-color)',
   })

@@ -1,6 +1,15 @@
 # Computer use
 
-LING loads computer use as one disabled-by-default built-in Loader entry, controlled in **设置 → 电脑操控**. This is the product's only feature switch; it is not duplicated in extension management. The page shows the actual plugin state and uses the existing plugin manager and profile patch to enable/disable it; there is no additional settings database, model loop, HTTP endpoint or Renderer-to-native command bridge. Disabling the entry removes its tools and waits for in-flight work and native shutdown. A missing native binary or startup error is surfaced by the existing plugin manager response.
+LING loads computer use as one disabled-by-default built-in Loader entry, controlled in **设置 → 电脑操控**. It is not duplicated in extension management. The page shows the actual plugin state and uses the existing plugin manager and profile patch to enable/disable it. Optional feature preferences live in the existing Settings service's `ling-computer-control` namespace; there is no additional settings database or model loop. Disabling the entry removes its tools and waits for in-flight work and native shutdown. A missing native binary or startup error is surfaced by the existing plugin manager response.
+
+## Settings
+
+- **浏览器连接**: permits the native provider's browser tools, including browser preparation, state inspection and actions. Off by default. The switch does not launch a browser, grant access to a personal browser profile or relax session approvals. See [Cua browser tools](https://cua.ai/docs/reference/cua-driver/mcp-tools).
+- **应用快照 → 全局快捷键**: defaults to unset. Choose Cmd/Ctrl + Shift + S or X. Registration conflicts are reported before saving. The shortcut captures the frontmost visible window before revealing LING, and stages the screenshot and accessibility text in the current unsent draft. It neither sends a message nor creates a session. Switching conversations during capture discards the result. Native shutdown, window closure and feature disable unregister the shortcut.
+- **启用电脑操控**: the real opt-in native provider switch, with Loader startup state.
+- **启用录制与回放**: permits new `start_recording` and `replay_trajectory` calls; defaults off. It records Agent actions and their surrounding snapshots, rather than automatically starting a video recording. Disabling prevents new recording/replay; `stop_recording` remains available under the ordinary session policy so an existing recording can be stopped.
+
+Feature flags are rechecked at admission, guard and queued dispatch. No feature switch grants a mutation approval. The bounded Remote exposes only capability discovery and a user-requested foreground snapshot. Snapshot inspection uses the same ToolRuntime, native provider, queue and session ownership as Agent tools. Electron IPC only registers an allowlisted shortcut, delivers its event to a trusted application window and reveals that window; it exposes no generic native command execution.
 
 ## Selection (2026-10-01)
 
@@ -28,8 +37,8 @@ The integration uses unchanged, vendored DSH `0.1.6-alpha.2` packages `dsh-compu
 
 ## Validation
 
-`corepack yarn check:ling` checks LING's builds, types and tests. Computer-use tests cover opt-in composition, failure containment, unload, permission decisions, turn ownership, serialization, cancellation, permission downgrade and screenshot projection without operating a real desktop.
+`corepack yarn check:ling` checks LING's builds, types and tests. Computer-use tests cover opt-in composition, failure containment, unload, permission decisions, turn ownership, serialization, cancellation, permission downgrade, live feature revocation, foreground target selection, snapshot draft isolation and shortcut conflicts/ownership without operating a real desktop.
 
 The optional `LING_COMPUTER_USE_NATIVE_SMOKE=1` test reads only the installed native tool catalog and `check_permissions({prompt:false})`, then shuts down. It does not screenshot, click, type or prompt for grants. Run this outside a filesystem/OS sandbox in the responsible GUI login session; do not interpret successful catalog discovery as verification of actual input or screen capture.
 
-Current validation: LING builds, typechecks and headless tests pass. The dedicated native check has not completed: initialization inside the development sandbox failed when accessing the macOS pasteboard, and the outside-sandbox approval review timed out twice. The built-in plugin has since been enabled in the user's real LING instance and its settings page reports active. This confirms provider startup; actual screen capture and input remain unverified. The shipped default is still disabled.
+Current validation: LING builds, typechecks and headless tests pass (295 Renderer tests and 324 Host tests; the optional native smoke is skipped). The built-in plugin has been enabled in the user's real LING instance. After restarting that instance, its settings page reports active and browser, snapshot shortcut and recording controls are available; the optional flags remain off and the shortcut unset. This verifies provider startup, capability discovery and settings metadata. Actual native screen capture, input and trajectory replay remain unverified. The shipped default is still disabled.

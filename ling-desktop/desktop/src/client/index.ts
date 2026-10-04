@@ -15,13 +15,20 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { mountLingRenderer } from 'ling-desktop/client'
 import type { LingGitRequest, LingGitResult, LingReadResult, LingWorkspaceToolRequest, LingWorkspaceTools } from 'ling-desktop/runtime'
 import { LING_SKILLS_REMOTE, type LingSkillsRemote } from '../skill-contract.ts'
+import { LING_SESSION_DELETE_REMOTE, type LingSessionDeleteRemote } from '../session-delete-contract.ts'
 import { LING_MESSAGE_ACTIONS_REMOTE, type LingMessageActionsRemote } from '../message-actions-contract.ts'
+import { LING_COMPUTER_CONTROL_REMOTE, type LingComputerControlRemote } from '../computer-control-contract.ts'
+import { LING_AUTOMATION_REMOTE, type LingAutomationRemote } from '../automation-contract.ts'
+import { LING_HOOKS_REMOTE, type LingHooksRemote } from '../hooks-contract.ts'
+import { LING_WORKSPACE_DOCUMENTS_REMOTE, type LingWorkspaceDocumentsRemote } from '../workspace-document-contract.ts'
+import { LING_KNOWLEDGE_REMOTE, type LingKnowledgeRemote } from '../knowledge-contract.ts'
 import { LING_AUTHORIZATION_REMOTE } from '../authorization-contract.ts'
 import { LING_SERVERS_REMOTE } from '../server-contract.ts'
 import type { LingServersRemote } from '../server-contract.ts'
 import type { LingAuthorizationRemote } from '../authorization-contract.ts'
 import { createDshAuthorizationProjection } from './authorization-projection.js'
 import { createDshAttachmentPreparation } from './attachment-preparation.js'
+import { lingCompactionDefinition, lingCompactionBoundaryDefinition } from './compaction-projection.js'
 import { createDshConversationProjection } from './conversation-projection.js'
 import { createDshDirectoryPicker } from './directory-picker.js'
 import { createDshExtensionProjection } from './extension-projection.js'
@@ -39,6 +46,9 @@ import { createDshTerminalProjection } from './terminal-projection.js'
 import { attachWorkspaceTerminals } from './workspace-terminal-projection.ts'
 import { createDshWorkspaceChangesProjection } from './workspace-changes-projection.js'
 import { createDshWorkspaceFilesProjection } from './workspace-files-projection.js'
+import { lingDeliverablesDefinition } from './deliverables-projection.js'
+import { createReplyFeaturesProjection } from './reply-features-projection.js'
+import { LING_REPLY_REMOTE, type LingReplyRemote } from '../reply-features-contract.ts'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
@@ -118,6 +128,9 @@ export async function createLingSession(
 }
 
 export function apply(ctx: Context): void {
+  ctx.uiConversation.events.register(lingDeliverablesDefinition)
+  ctx.uiConversation.events.register(lingCompactionDefinition)
+  ctx.uiConversation.events.register(lingCompactionBoundaryDefinition)
   ctx.effect(() => {
     if (typeof document === 'undefined') return () => {}
     const previousTitle = document.title
@@ -168,11 +181,45 @@ export function apply(ctx: Context): void {
   const permissions = createDshPermissionProjection(ctx.remote)
   const mode = createDshModeProjection(ctx.remote)
   const schedules = createDshScheduleProjection()
-  const files = createDshWorkspaceFilesProjection(ctx.remote)
+  const documentsMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_WORKSPACE_DOCUMENTS_REMOTE) : undefined
+  if (documentsMount) ctx.effect(async () => await documentsMount, 'LING workspace documents Remote')
+  const documentService = async () => {
+    await documentsMount
+    const service = ctx.get('remote.lingWorkspaceDocuments') as unknown as LingWorkspaceDocumentsRemote | undefined
+    if (!service) throw new Error('本地文件编辑服务暂不可用。')
+    return service
+  }
+  const files = createDshWorkspaceFilesProjection(ctx.remote, documentsMount === undefined ? undefined : {
+    async list(request, signal) { return (await documentService()).list(request, signal) },
+    async read(request, signal) { return (await documentService()).read(request, signal) },
+    async save(request, signal) { return (await documentService()).save(request, signal) },
+  })
+  const replyMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_REPLY_REMOTE) : undefined
+  if (replyMount) ctx.effect(async () => await replyMount, 'LING reply Remote')
+  const replyFeatures = replyMount ? createReplyFeaturesProjection(() => ctx.get('remote.lingReply') as unknown as LingReplyRemote | undefined, replyMount) : undefined
   const terminals = createDshTerminalProjection(ctx.remote, ctx.webTerminals)
   attachWorkspaceTerminals(ctx, terminals.service)
   const skillsMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_SKILLS_REMOTE) : undefined
+  const deleteMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_SESSION_DELETE_REMOTE) : undefined
+  if (deleteMount) ctx.effect(async () => await deleteMount, 'LING session delete Remote')
   const messagesMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_MESSAGE_ACTIONS_REMOTE) : undefined
+  const computerMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_COMPUTER_CONTROL_REMOTE) : undefined
+  const automationMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_AUTOMATION_REMOTE) : undefined
+  const hooksMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_HOOKS_REMOTE) : undefined
+  if (hooksMount) ctx.effect(async () => await hooksMount, 'LING hooks Remote')
+  if (automationMount) ctx.effect(async () => await automationMount, 'LING automation Remote')
+  const knowledgeMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_KNOWLEDGE_REMOTE) : undefined
+  if (knowledgeMount) ctx.effect(async () => await knowledgeMount, 'LING knowledge Remote')
+  if (computerMount) ctx.effect(async () => await computerMount, 'LING computer control Remote')
+  const computerRequest = async <T,>(method: (remote: LingComputerControlRemote) => Promise<{ ok: true; value: T } | { ok: false; error: { message?: string } }>): Promise<LingReadResult<T>> => {
+    try {
+      if (!computerMount) throw new Error('电脑操控服务暂不可用，请重启应用。')
+      await computerMount
+      const remote = ctx.get('remote.lingComputerControl') as unknown as LingComputerControlRemote
+      const result = await method(remote)
+      return result.ok ? result : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '电脑操控服务暂不可用。', retryable: true }
+    } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '电脑操控服务暂不可用。', retryable: true } }
+  }
   if (messagesMount) ctx.effect(async () => await messagesMount, 'LING message actions Remote')
   if (skillsMount) ctx.effect(async () => await skillsMount, 'LING draft skills Remote')
   const extensions = createDshExtensionProjection(ctx.remote, skillsMount === undefined ? undefined : async (workspaceId, agentPreset, signal) => {
@@ -184,7 +231,48 @@ export function apply(ctx: Context): void {
   const locale = createDshLocaleProjection(ctx.remote)
   ctx.effect(installStylesheet, 'LING renderer stylesheet')
   ctx.slots.register({ name: 'root', priority: -1 }, createLingRootApp(() => ({
+    replyFeatures,
+    hooks: { async request(request, signal) {
+      try {
+        if (!hooksMount) throw new Error('Hooks 服务暂不可用，请重启应用。')
+        await hooksMount
+        signal?.throwIfAborted()
+        const remote = ctx.get('remote.lingHooks') as unknown as LingHooksRemote
+        const result = await remote.request(request, signal)
+        return result.ok ? result : { ok: false, reason: 'runtime-unavailable', message: result.error.message || 'Hooks 服务暂不可用。', retryable: true }
+      } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : 'Hooks 服务暂不可用。', retryable: true } }
+    } },
+    automation: { async request(request, signal) {
+      try {
+        if (!automationMount) throw new Error('自动化服务暂不可用，请重启应用。')
+        await automationMount
+        signal?.throwIfAborted()
+        const remote = ctx.get('remote.lingAutomation') as unknown as LingAutomationRemote
+        const result = await remote.request(request, signal)
+        return result.ok ? result : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '自动化服务暂不可用。', retryable: true }
+      } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '自动化服务暂不可用。', retryable: true } }
+    } },
+    knowledge: { async request(request, signal) {
+      try {
+        if (!knowledgeMount) throw new Error('知识服务暂不可用，请重启应用。')
+        await knowledgeMount
+        signal?.throwIfAborted()
+        const remote = ctx.get('remote.lingKnowledge') as unknown as LingKnowledgeRemote
+        const result = await remote.request(request, signal)
+        return result.ok ? result : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '知识服务暂不可用。', retryable: true }
+      } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '知识服务暂不可用。', retryable: true } }
+    } },
+    computerControl: { capabilities: () => computerRequest(remote => remote.capabilities()), snapshot: () => computerRequest(remote => remote.snapshot()) },
     sessions,
+    deleteArchivedSession: async (taskId) => {
+      try {
+        if (!deleteMount) throw new Error('删除服务暂不可用，请重启应用。')
+        await deleteMount
+        const remote = ctx.get('remote.lingSessionDelete') as unknown as LingSessionDeleteRemote
+        const result = await remote.deleteArchived({ taskId })
+        return result.ok ? { ok: true, value: undefined } : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '删除失败，请重试。', retryable: true }
+      } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '删除失败，请重试。', retryable: true } }
+    },
     messageActions: { async prepareAttachments(taskId, seq, attachmentIds) {
       if (!messagesMount) return { ok: false, reason: 'runtime-unavailable', message: '原附件服务暂不可用。', retryable: true }
       await messagesMount

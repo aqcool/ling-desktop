@@ -526,6 +526,13 @@ export function createDemoRuntimeAdapter(): LingRuntimeAdapter {
         publish()
         return { accepted: true, requestId: command.requestId, output: { taskId } }
       }
+      case 'task.delete': {
+        const task = tasks.get(command.taskId)
+        if (!task?.summary.archived || task.summary.status === 'running' || task.summary.status === 'waiting-for-input') return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '只能删除已归档且未运行的会话。', retryable: false }
+        tasks.delete(command.taskId)
+        publish()
+        return { accepted: true, requestId: command.requestId }
+      }
       case 'task.archive': {
         const task = tasks.get(command.taskId)
         if (task) { task.summary = { ...task.summary, archived: true }; publish() }

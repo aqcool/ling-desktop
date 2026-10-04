@@ -6,7 +6,7 @@ import { type IconName } from './Icon.js'
 import type { LingSettingsTab } from './settings-navigation.js'
 import { tw } from './tailwind.js'
 
-type CatalogTab = Exclude<LingSettingsTab, 'usage' | 'shortcuts' | 'appearance' | 'models' | 'archived' | 'monitor' | 'git' | 'worktrees' | 'general' | 'modes' | 'agent-presets' | 'builtin-plugins' | 'connections' | 'control'>
+type CatalogTab = Exclude<LingSettingsTab, 'usage' | 'shortcuts' | 'appearance' | 'models' | 'archived' | 'monitor' | 'git' | 'worktrees' | 'general' | 'modes' | 'agent-presets' | 'builtin-plugins' | 'connections' | 'control' | 'hooks'>
 type Control = { kind: 'toggle'; selected?: boolean } | { kind: 'select' | 'button' | 'input'; label: string } | { kind: 'none' }
 interface Row { title: string; description: string; icon: IconName; control?: Control }
 interface Group { title?: string; rows: readonly Row[]; empty?: { title: string } }
@@ -36,15 +36,6 @@ const pages: Record<CatalogTab, Page> = {
       { title: '录音纪要', rows: [{ title: '最长时长', description: '到达上限后停止录音。', icon: 'clock', control: select('5 分钟') }] },
     ],
   },
-  pet: {
-    title: '桌面宠物', description: '管理显示在桌面上的宠物。', groups: [
-      { title: '显示', rows: [
-        { title: '显示桌面宠物', description: '在桌面上显示可拖动的宠物。', icon: 'ghost', control: toggle },
-        { title: '当前宠物', description: '选择已安装的桌面宠物。', icon: 'ghost', control: select('未安装') },
-        { title: '显示大小', description: '调整桌面宠物的尺寸。', icon: 'expand', control: select('100%') },
-      ] },
-    ],
-  },
   memory: {
     title: '记忆', description: '查看和管理保存在本机的长期记忆。', groups: [
       { title: '记忆行为', rows: [
@@ -55,39 +46,19 @@ const pages: Record<CatalogTab, Page> = {
       { title: '项目记忆', rows: [], empty: { title: '项目记忆列表尚未接入' } },
     ],
   },
-  import: {
-    title: '数据导入', description: '从其他本地应用导入内容，不修改来源数据。', groups: [
-      { title: '从应用导入', rows: [], empty: { title: '数据来源检测尚未接入' } },
-    ],
-  },
   extensions: {
     title: '扩展管理', description: '管理本机插件、技能、连接器和智能体。', groups: [
       { title: '已安装项', rows: [], empty: { title: '扩展列表尚未接入' } },
-    ],
-  },
-  hooks: {
-    title: '钩子', description: '查看本机配置中声明的 Hooks。', groups: [
-      { title: '配置来源', rows: [{ title: '用户级 settings.json', description: '此页面只展示磁盘配置，不代表运行时已加载。', icon: 'file', control: select('未读取') }] },
-      { title: '已配置的 Hooks', rows: [], empty: { title: '尚未读取 Hooks' } },
-    ],
-  },
-  security: {
-    title: '安全', description: '在本地开发流程中检查代码风险。', groups: [
-      { title: '扫描层级', rows: [
-        { title: '静态检查', description: '检查本轮任务生成的代码中的常见危险模式。', icon: 'shield', control: toggle },
-        { title: '轻量扫描', description: '检查增量代码中的注入及敏感信息泄露风险。', icon: 'search', control: toggle },
-        { title: '深度扫描', description: '跨文件追踪数据流和关联风险。', icon: 'code', control: toggle },
-      ] },
     ],
   },
   experimental: {
     title: '实验功能', description: '仍在验证中的本地功能。', groups: [
       { rows: [
         { title: '速记板', description: '将回复中的选中文字保存为本机速记。', icon: 'book', control: toggle },
-        { title: '回复批注', description: '划选回复文字并添加评论。', icon: 'edit', control: toggle },
-        { title: 'Workspace Actions', description: '从任务标题执行本机工作区命令。', icon: 'terminal', control: toggle },
+        { title: '回复批注', description: '划选回复添加评论，与原文一起加入输入框，并保存到速记。', icon: 'edit', control: toggle },
+        { title: 'Workspace Actions', description: '从任务标题执行本机工作区命令。关闭后保留已保存命令与运行中的任务。', icon: 'terminal', control: toggle },
         { title: '录音纪要', description: '录音并生成可发送的纪要。', icon: 'mic', control: toggle },
-        { title: '按工作模式区分对话列表', description: '按当前模式筛选本机任务列表。', icon: 'sort', control: toggle },
+        { title: '按工作模式区分对话列表', description: '按创建时的模式筛选任务。旧任务仍可见，可在任务视图中切回全部模式。', icon: 'sort', control: toggle },
       ] },
     ],
   },
@@ -113,11 +84,15 @@ function PreviewControl({ control, title }: { control?: Control; title: string }
 export function CatalogSettings({ tab, modelSettings, onTestProvider }: { readonly tab: CatalogTab; readonly modelSettings?: LingModelSettings; readonly onTestProvider?: (target: LingProviderTestTarget) => Promise<LingReadResult<readonly LingDiscoveredModel[]>> }) {
   const behavior = useBehavior()
   const page = pages[tab]
+  const experimentalKeys = { '速记板': 'quickNotes', '回复批注': 'replyAnnotations', 'Workspace Actions': 'workspaceActions', '按工作模式区分对话列表': 'separateTaskLists' } as const
   if (tab === 'network') return <NetworkDiagnostics modelSettings={modelSettings} onTestProvider={onTestProvider} />
   return <section aria-label={page.title} className={tw('w-full min-w-0 max-w-3xl pb-8')}>
-    <SettingsHeader title={page.title} description={page.description}><span className={tw('pt-1 text-xs text-[var(--text-tertiary)]')}>{tab === 'experimental' ? '灰色控件尚未接入' : '界面预览 · 功能尚未接入'}</span></SettingsHeader>
+    <SettingsHeader title={page.title} description={page.description}>{tab !== 'experimental' ? <span className={tw('pt-1 text-xs text-[var(--text-tertiary)]')}>界面预览 · 功能尚未接入</span> : null}</SettingsHeader>
     {page.groups.map((group, index) => <SettingsGroup key={`${group.title ?? 'main'}-${index}`} title={group.title}>
-      {group.rows.map(row => <SettingsRow key={row.title} title={row.title} description={row.description}><>{tab === 'experimental' && row.title === '速记板' ? <CompactSwitch label="速记板" selected={behavior.quickNotes} onChange={quickNotes => updateBehavior({ quickNotes })} /> : <PreviewControl control={row.control} title={row.title} />}</></SettingsRow>)}
+      {group.rows.map(row => {
+        const key = tab === 'experimental' ? experimentalKeys[row.title as keyof typeof experimentalKeys] : undefined
+        return <SettingsRow key={row.title} title={row.title} description={row.description}>{key ? <CompactSwitch label={row.title} selected={behavior[key]} onChange={selected => updateBehavior({ [key]: selected })} /> : <PreviewControl control={row.control} title={row.title} />}</SettingsRow>
+      })}
       {group.empty ? <p className={tw('m-0 px-4 py-8 text-center text-xs text-[var(--text-tertiary)]')}>{group.empty.title}</p> : null}
     </SettingsGroup>)}
   </section>

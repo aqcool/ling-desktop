@@ -451,14 +451,14 @@ export class ServerBroker {
     return this.execute(id, cwd, command, signal, undefined, undefined, outputLimit, onOutput, policy)
   }
 
-  async readFile(id: string, path: string, signal?: AbortSignal) {
-    return (await this.runtime(id, signal)).readFile(path, signal)
+  async readFile(id: string, path: string, signal?: AbortSignal, root?: string, maxBytes?: number) {
+    return (await this.runtime(id, signal)).readFile(path, signal, root, maxBytes)
   }
   async writeFile(id: string, path: string, text: string, expected: string | null, policy: RemotePolicy, signal?: AbortSignal) {
     return (await this.runtime(id, signal)).writeFile(path, text, expected, policy, signal)
   }
-  async listFiles(id: string, path: string, signal?: AbortSignal) {
-    return (await this.runtime(id, signal)).listFiles(path, signal)
+  async listFiles(id: string, path: string, signal?: AbortSignal, root?: string) {
+    return (await this.runtime(id, signal)).listFiles(path, signal, root)
   }
   async close(): Promise<void> {
     const records = [...this.runtimes.values()]

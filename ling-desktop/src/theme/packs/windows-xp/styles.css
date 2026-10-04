@@ -61,6 +61,10 @@
   font-family: "Trebuchet MS", Tahoma, "Microsoft YaHei", "PingFang SC", sans-serif;
   text-shadow: 0 1px 1px #103b8e80;
 }
+/* An explicit user font choice also applies to Luna's caption typography. */
+[data-palette='windows-xp']:is([data-font-style='sans'], [data-font-style='serif']) .workspace-header__title {
+  font-family: var(--font-ui);
+}
 [data-palette='windows-xp'] :is(.desktop-shell, .sidebar) {
   background: linear-gradient(160deg, var(--xp-sidebar-top), var(--xp-sidebar-bottom));
 }
@@ -93,6 +97,7 @@
 }
 [data-palette='windows-xp'] .composer__footer {
   border-radius: 0 0 var(--radius) var(--radius);
+  border-top-width: 1px;
   border-top-style: solid;
   border-top-color: var(--xp-toolbar-edge);
   background: var(--surface-secondary);

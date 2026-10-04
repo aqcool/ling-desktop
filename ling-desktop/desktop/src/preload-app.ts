@@ -2,13 +2,57 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc.ts'
 import { markDocumentPlatform } from './preload-platform.ts'
+import type { ApplicationIconSnapshot, ApplicationIconStyle } from './application-icon.ts'
+
+declare global {
+  interface Window {
+    __LING_APP_ICON__?: {
+      get(): Promise<ApplicationIconSnapshot>
+      set(style: ApplicationIconStyle): Promise<ApplicationIconSnapshot>
+      subscribe(callback: (snapshot: ApplicationIconSnapshot) => void): () => void
+    }
+  }
+}
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   markDocumentPlatform()
+  contextBridge.exposeInMainWorld('__LING_QUICK_NOTES__', {
+    open: (origin?: unknown) => ipcRenderer.invoke(IPC.notesOpen, origin),
+    context: () => ipcRenderer.invoke(IPC.notesContext),
+    onContext: (callback: (origin?: unknown) => void) => {
+      const listener = (_event: unknown, origin?: unknown) => callback(origin)
+      ipcRenderer.on(IPC.notesContext, listener)
+      return () => ipcRenderer.removeListener(IPC.notesContext, listener)
+    },
+    send: (action: unknown) => ipcRenderer.invoke(IPC.notesAction, action),
+    onAction: (callback: (action: unknown) => void) => {
+      const listener = (_event: unknown, action: unknown) => callback(action)
+      ipcRenderer.on(IPC.notesAction, listener)
+      return () => ipcRenderer.removeListener(IPC.notesAction, listener)
+    },
+  })
+  contextBridge.exposeInMainWorld('__LING_COMPUTER_SNAPSHOT__', {
+    setShortcut: (value: string) => ipcRenderer.invoke(IPC.snapshotShortcut, value),
+    subscribe: (callback: () => void) => {
+      const listener = () => callback()
+      ipcRenderer.on(IPC.snapshotRequested, listener)
+      return () => ipcRenderer.removeListener(IPC.snapshotRequested, listener)
+    },
+    reveal: () => ipcRenderer.invoke(IPC.snapshotReveal),
+  })
   contextBridge.exposeInMainWorld('__LING_EXTERNAL_LINKS__', {
     open: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
   })
   contextBridge.exposeInMainWorld('__LING_THEME__', { set: (appearance: unknown) => ipcRenderer.invoke(IPC.theme, appearance) })
+  contextBridge.exposeInMainWorld('__LING_APP_ICON__', {
+    get: () => ipcRenderer.invoke(IPC.applicationIcon),
+    set: (style: ApplicationIconStyle) => ipcRenderer.invoke(IPC.applicationIconSet, style),
+    subscribe: (callback: (snapshot: ApplicationIconSnapshot) => void) => {
+      const listener = (_event: unknown, snapshot: ApplicationIconSnapshot) => callback(snapshot)
+      ipcRenderer.on(IPC.applicationIconChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.applicationIconChanged, listener)
+    },
+  })
   contextBridge.exposeInMainWorld('__LING_BEHAVIOR__', {
     setTray: (value: boolean) => ipcRenderer.invoke(IPC.tray, value),
     notify: (value: unknown) => ipcRenderer.invoke(IPC.notify, value),

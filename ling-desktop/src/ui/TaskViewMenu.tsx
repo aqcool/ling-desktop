@@ -6,6 +6,7 @@ import type { LingWorkspaceSummary } from '../runtime/contract.js'
 import { Icon } from './Icon.js'
 import type { TaskView } from './task-view.js'
 import { tw } from './tailwind.js'
+import { useBehavior } from './behavior-preferences.js'
 
 interface TaskViewMenuProps {
   readonly className?: string
@@ -19,6 +20,7 @@ const sortLabels = { manual: '手动', updated: '最近更新', name: '名称', 
 const recencyLabels = { all: '全部', today: '今天', '7days': '最近 7 天', '30days': '最近 30 天' } as const
 
 export function TaskViewMenu({ className, view, workspaces, onChange }: TaskViewMenuProps) {
+  const behavior = useBehavior()
   const [open, setOpen] = useState(false)
   const set = (change: Partial<TaskView>) => { onChange({ ...view, ...change }); setOpen(false) }
   const workspaceLabel = view.workspaceId === 'all' ? '全部' : view.workspaceId === 'none' ? '无工作区' :
@@ -30,6 +32,15 @@ export function TaskViewMenu({ className, view, workspaces, onChange }: TaskView
         <Dropdown.Trigger aria-label="自定义任务视图" className={tw("sidebar-projects__tool inline-flex items-center justify-center border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer [width:1.65rem] [height:1.65rem] flex-none rounded-md hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")}><Icon name="sort" size={16} /></Dropdown.Trigger>
         <Dropdown.Popover className={tw("task-view-menu__popover w-55 min-w-55 max-h-[min(24rem,calc(100vh-1rem))] max-w-[min(13.75rem,calc(100vw-1rem))] rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm text-[var(--foreground)] shadow-[var(--overlay-shadow)]")} crossOffset={-112} offset={5} placement="bottom start">
           <Dropdown.Menu aria-label="自定义任务视图" className={tw("task-view-menu__list")}>
+            {behavior.separateTaskLists ? <Dropdown.SubmenuTrigger>
+              <Dropdown.Item id="work-mode" textValue="工作模式"><Label>工作模式</Label><span className={tw('ml-auto mr-4.5 text-xs')}>{view.modeFilter === 'all' ? '全部' : behavior.workMode === 'coding' ? '编程' : '通用'}</span><Dropdown.SubmenuIndicator /></Dropdown.Item>
+              <Dropdown.Popover className={tw('w-42 rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-sm shadow-[var(--overlay-shadow)]')} placement="right top">
+                <Dropdown.Menu aria-label="工作模式" selectedKeys={[view.modeFilter ?? 'current']} selectionMode="single">
+                  <Dropdown.Item id="current" textValue="当前模式" onAction={() => set({ modeFilter: undefined })}><Label>当前模式</Label><Dropdown.ItemIndicator /></Dropdown.Item>
+                  <Dropdown.Item id="all" textValue="全部模式" onAction={() => set({ modeFilter: 'all' })}><Label>全部模式</Label><Dropdown.ItemIndicator /></Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.SubmenuTrigger> : null}
             <Dropdown.SubmenuTrigger>
               <Dropdown.Item id="group-by" textValue="分组方式">
                 <Label>分组方式</Label><span className={tw("task-view-menu__value [max-width:7rem] ml-auto mr-4.5 overflow-hidden [color:var(--foreground)] text-ellipsis whitespace-nowrap")}>{groupLabels[view.groupBy]}</span><Dropdown.SubmenuIndicator />

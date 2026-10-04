@@ -6,6 +6,7 @@
 @import "./theme/packs/index.css";
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+@custom-variant color-files (&:where([data-file-icons='color'], [data-file-icons='color'] *));
 
 /* Tailwind utilities and HeroUI consume the same portable metrics. */
 @theme inline {
@@ -50,6 +51,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Covers portaled HeroUI dialogs, custom search overlays and future glass surfaces. */
+html[data-glass='false'] *, html[data-glass='false'] *::before, html[data-glass='false'] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

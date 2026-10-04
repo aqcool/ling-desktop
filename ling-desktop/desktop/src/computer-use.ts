@@ -3,7 +3,9 @@ import * as NativeProvider from '@deepseek-ai/dsh-experimental-computer-use-cua-
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import { computerUseDecision, isComputerUseTool } from './computer-use-policy.ts'
+import type {} from '@deepseek-ai/dsh-settings'
+import { computerControlNamespace, defaultComputerControlPreferences, type LingComputerControlPreferences } from 'ling-desktop/runtime'
+import { computerUseDecision, computerUseFeatureDenial, isComputerUseTool } from './computer-use-policy.ts'
 
 export const name = 'ling-computer-use'
 export const inject = ['computerUse', 'tools', 'systemPrompt', 'sandboxPolicy', 'sessionProjections', 'sessions']
@@ -16,6 +18,7 @@ export async function apply(ctx: Context): Promise<void> {
   let pending = 0
   let tail: Promise<void> = Promise.resolve()
   const admittedModes = new WeakMap<object, string | undefined>()
+  const featureDenial = (name: string) => computerUseFeatureDenial(name, ctx.get('settings')?.get(computerControlNamespace) as LingComputerControlPreferences ?? defaultComputerControlPreferences)
   const release = () => { if (ended && pending === 0) { owner = undefined; ended = false } }
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/end' && owner === String(session.id)) { ended = true; release() }
@@ -27,6 +30,9 @@ export async function apply(ctx: Context): Promise<void> {
     ? '另一个会话正在操作电脑，请等待该轮任务结束。' : undefined
   ctx.on('tools/pre-execute', async (exec, next) => {
     const previous = await next()
+    if (previous.kind === 'deny' || previous.kind === 'cancel') return previous
+    const disabled = featureDenial(exec.name)
+    if (disabled) return { kind: 'deny', reason: disabled }
     const mode = exec.agent ? ctx.sandboxPolicy.resolve({ session: exec.agent.session }).mode : undefined
     if (isComputerUseTool(exec.name)) admittedModes.set(exec, mode)
     return computerUseDecision(exec.name, exec.arguments, mode, previous)
@@ -34,6 +40,8 @@ export async function apply(ctx: Context): Promise<void> {
   // Monotonic: another pre-execute policy cannot relax read-only or grant setup.
   ctx.tools.guard(exec => {
     if (!isComputerUseTool(exec.name)) return undefined
+    const disabled = featureDenial(exec.name)
+    if (disabled) return disabled
     const mode = exec.agent ? ctx.sandboxPolicy.resolve({ session: exec.agent.session }).mode : undefined
     const decision = computerUseDecision(exec.name, exec.arguments, mode, { kind: 'allow' })
     if (decision.kind === 'deny') return decision.reason
@@ -59,6 +67,8 @@ export async function apply(ctx: Context): Promise<void> {
     try {
       await previous
       exec.signal.throwIfAborted()
+      const disabled = featureDenial(exec.name)
+      if (disabled) throw new Error(disabled)
       // The session may have changed its permission while this call was queued.
       const mode = exec.agent ? ctx.sandboxPolicy.resolve({ session: exec.agent.session }).mode : undefined
       const decision = computerUseDecision(exec.name, exec.arguments, mode, { kind: 'allow' })

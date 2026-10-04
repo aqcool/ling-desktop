@@ -1,7 +1,17 @@
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
+import type { LingComputerControlPreferences } from 'ling-desktop/runtime'
 
 export const COMPUTER_USE_PREFIX = 'cua_driver_native__'
 export const isComputerUseTool = (name: string) => name.startsWith(COMPUTER_USE_PREFIX)
+
+export function computerUseFeatureDenial(name: string, preferences: Pick<LingComputerControlPreferences, 'browserEnabled' | 'recordingEnabled'>): string | undefined {
+  if (!isComputerUseTool(name)) return undefined
+  const raw = name.slice(COMPUTER_USE_PREFIX.length)
+  if (!preferences.browserEnabled && (raw.startsWith('browser_') || raw === 'get_browser_state' || raw === 'page')) return '浏览器连接已关闭，请在电脑操控设置中启用。'
+  // Revocation must not prevent an agent from stopping an existing recording.
+  if (!preferences.recordingEnabled && ['start_recording', 'replay_trajectory'].includes(raw)) return '录制与回放已关闭，请在电脑操控设置中启用。'
+  return undefined
+}
 
 // Documented inspection tools in the pinned 0.28.0 API; unknown tools require approval.
 const inspections = new Set([

@@ -87,8 +87,15 @@ export class DshRemoteRuntime {
     }
   }
 
-  async readFile(path: string, signal?: AbortSignal) {
+  async readFile(path: string, signal?: AbortSignal, root?: string, maxBytes?: number) {
     const target = await this.ctx.fs.resolve(path, { signal })
+    if (root && !this.ctx.fs.contains(await this.ctx.fs.resolve(root, { signal }), target)) throw new Error('文件不属于此 SSH 工作区。')
+    if (maxBytes !== undefined) {
+      const bytes = await this.ctx.fs.readBytes(target, signal, maxBytes)
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      if (text.includes('\0')) throw new Error('此文件不是文本。')
+      return { path, text, sha256: createHash('sha256').update(text).digest('hex'), truncated: false }
+    }
     let text = ''
     for await (const part of await this.ctx.fs.streamText(target, signal)) text += part
     return { path, text, sha256: createHash('sha256').update(text).digest('hex'), truncated: false }
@@ -104,8 +111,12 @@ export class DshRemoteRuntime {
     return { path, sha256: createHash('sha256').update(text).digest('hex') }
   }
 
-  async listFiles(path: string, signal?: AbortSignal) {
-    return this.ctx.fs.listDir(await this.ctx.fs.resolve(path, { signal }), signal)
+  async listFiles(path: string, signal?: AbortSignal, root?: string) {
+    const target = await this.ctx.fs.resolve(path, { signal })
+    const boundary = root ? await this.ctx.fs.resolve(root, { signal }) : undefined
+    if (boundary && !this.ctx.fs.contains(boundary, target)) throw new Error('目录不属于此 SSH 工作区。')
+    const entries = await this.ctx.fs.listDir(target, signal)
+    return boundary ? entries.filter(entry => this.ctx.fs.contains(boundary, entry.target)) : entries
   }
 
   async terminal(cwd: string, cols: number, rows: number, signal?: AbortSignal): Promise<SubprocessTerminalHandle> {

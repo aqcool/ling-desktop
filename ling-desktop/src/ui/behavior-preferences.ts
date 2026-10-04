@@ -13,7 +13,12 @@ export interface ModePreferences {
   fileChanges: boolean
 }
 export interface BehaviorPreferences {
+  artifactOpen: 'right' | 'system'
+  promptSuggestions: boolean
   quickNotes: boolean
+  replyAnnotations: boolean
+  workspaceActions: boolean
+  separateTaskLists: boolean
   terminalLinksInBrowser: boolean
   sendMode: 'queue' | 'steer'
   questionTimeout: number
@@ -34,7 +39,8 @@ export interface BehaviorPreferences {
 }
 const coding: ModePreferences = { palette: 'inherit', locationControls: true, environmentLabels: true, monitorEnvironment: true, localServices: true, fileChanges: true }
 export const defaultBehavior: BehaviorPreferences = {
-  quickNotes: true, terminalLinksInBrowser: true,
+  artifactOpen: 'right', promptSuggestions: false,
+  quickNotes: true, replyAnnotations: false, workspaceActions: true, separateTaskLists: false, terminalLinksInBrowser: true,
   sendMode: 'queue', questionTimeout: 0, readingStart: false, toolCounts: true, expandTools: false, collapseProcess: false,
   elapsedFormat: 'seconds', thinkingLoader: 'matrix', thinkingPhrases: ['正在思考', '正在整理思路'], goalRounds: 20,
   completionNotification: 'background', approvalNotification: false, questionNotification: false, tray: false,
@@ -44,9 +50,9 @@ export function parseBehavior(raw: string | null): BehaviorPreferences {
   let value: Record<string, unknown> = {}
   try { const parsed: unknown = JSON.parse(raw ?? '{}'); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) value = parsed as Record<string, unknown> } catch {}
   const result = { ...defaultBehavior, thinkingPhrases: [...defaultBehavior.thinkingPhrases], modes: { coding: { ...coding }, general: { ...defaultBehavior.modes.general } } }
-  const enums = { sendMode: ['queue', 'steer'], elapsedFormat: ['seconds', 'clock', 'precise'], thinkingLoader: ['matrix', 'spinner', 'dots', 'none'], completionNotification: ['off', 'background', 'always'], workMode: ['coding', 'general'] }
+  const enums = { artifactOpen: ['right', 'system'], sendMode: ['queue', 'steer'], elapsedFormat: ['seconds', 'clock', 'precise'], thinkingLoader: ['matrix', 'spinner', 'dots', 'none'], completionNotification: ['off', 'background', 'always'], workMode: ['coding', 'general'] }
   for (const [key, options] of Object.entries(enums)) if (options.includes(value[key] as string)) Object.assign(result, { [key]: value[key] })
-  for (const key of ['quickNotes', 'terminalLinksInBrowser', 'readingStart', 'toolCounts', 'expandTools', 'collapseProcess', 'approvalNotification', 'questionNotification', 'tray'] as const) if (typeof value[key] === 'boolean') result[key] = value[key]
+  for (const key of ['promptSuggestions', 'quickNotes', 'replyAnnotations', 'workspaceActions', 'separateTaskLists', 'terminalLinksInBrowser', 'readingStart', 'toolCounts', 'expandTools', 'collapseProcess', 'approvalNotification', 'questionNotification', 'tray'] as const) if (typeof value[key] === 'boolean') result[key] = value[key]
   if ([0, 60, 120, 300].includes(value.questionTimeout as number)) result.questionTimeout = value.questionTimeout as number
   if (Number.isSafeInteger(value.goalRounds) && Number(value.goalRounds) >= 1 && Number(value.goalRounds) <= 256) result.goalRounds = Number(value.goalRounds)
   if (Array.isArray(value.thinkingPhrases)) {

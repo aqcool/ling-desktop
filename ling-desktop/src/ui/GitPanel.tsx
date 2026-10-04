@@ -10,6 +10,7 @@ import { TextArea } from '@heroui/react/textarea'
 import { TextField } from '@heroui/react/textfield'
 import type { LingCommandResult, LingGitFile, LingGitRequest, LingGitResult, LingGitSnapshot, LingReadResult } from '../runtime/contract.js'
 import { Icon } from './Icon.js'
+import { FileIcon } from './FileIcon.js'
 import { tw } from './tailwind.js'
 
 type AddWorkspace = (path: string) => Promise<LingCommandResult>
@@ -209,7 +210,7 @@ export function GitPanel({ workspaceId, request, view = 'review', onChanged, onB
       </div>
     </> : view === 'review' ? <div className={tw('grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_11rem] overflow-hidden @max-[26rem]/git:grid-cols-1 @max-[26rem]/git:grid-rows-[auto_minmax(0,1fr)]')}>
       <div className={tw('flex min-h-0 min-w-0 flex-col @max-[26rem]/git:row-start-2')}>
-        {selection ? <div className={tw("flex h-control shrink-0 items-center gap-2 px-4 text-xs text-[var(--text-secondary)]")}><Icon name="file" size={13} /><span className={tw('truncate')} title={selection.path}>{selection.path}</span></div> : null}
+        {selection ? <div className={tw("flex h-control shrink-0 items-center gap-2 px-4 text-xs text-[var(--text-secondary)]")}><FileIcon path={selection.path} size={13} /><span className={tw('truncate')} title={selection.path}>{selection.path}</span></div> : null}
         <div aria-label="Git 差异" className={tw('min-h-0 flex-1 overflow-auto py-2 font-mono text-xs leading-5')}>
           {selection ? diffLoading ? '正在读取差异…' : <GitDiff diff={diff} /> : <div className={tw('flex h-full min-h-36 flex-col items-center justify-center gap-3 text-[var(--text-tertiary)]')}><Icon name="review" size={28} /><span className={tw('font-sans text-xs')}>{state.files.length ? '选择文件查看差异' : '没有未提交的更改'}</span></div>}
         </div>

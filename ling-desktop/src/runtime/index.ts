@@ -62,3 +62,6 @@ export type {
   LingTimelineItemStatus,
   LingWorkspaceSummary,
 } from './contract.js'
+
+export * from './compaction.js'
+export type { LingPresentedFile, LingReplyFeatures } from './reply-features.js'

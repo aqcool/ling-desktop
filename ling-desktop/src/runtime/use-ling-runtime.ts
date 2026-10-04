@@ -277,6 +277,12 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     return result
   }, [runtime])
 
+  const deleteTask = useCallback(async (taskId: string): Promise<LingCommandResult> => {
+    const result = await runtime.dispatch({ type: 'task.delete', requestId: requestId(), taskId })
+    if (result.accepted) setSnapshot(await runtime.getSnapshot())
+    return result
+  }, [runtime])
+
   const loadOlder = useCallback((taskId: string): Promise<LingCommandResult> => runtime.dispatch({
     type: 'task.load-older', requestId: requestId(), taskId,
   }), [runtime])
@@ -388,6 +394,19 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
       })
     }
     return read(taskId, path, signal)
+  }, [runtime])
+
+  const saveWorkspaceDocument = useCallback((taskId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>> => {
+    return runtime.saveWorkspaceDocument?.(taskId, path, text, version, signal) ?? Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '当前运行时未提供本地文件保存。', retryable: false })
+  }, [runtime])
+  const listDraftWorkspaceDirectory = useCallback((workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>> => {
+    return runtime.listDraftWorkspaceDirectory?.(workspaceId, path, signal) ?? Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '当前运行时未提供工作区浏览。', retryable: false })
+  }, [runtime])
+  const readDraftWorkspaceDocument = useCallback((workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>> => {
+    return runtime.readDraftWorkspaceDocument?.(workspaceId, path, signal) ?? Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '当前运行时未提供工作区文件读取。', retryable: false })
+  }, [runtime])
+  const saveDraftWorkspaceDocument = useCallback((workspaceId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>> => {
+    return runtime.saveDraftWorkspaceDocument?.(workspaceId, path, text, version, signal) ?? Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '当前运行时未提供工作区文件保存。', retryable: false })
   }, [runtime])
 
   const loadTaskAttachment = useCallback((
@@ -763,6 +782,10 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     pickDirectory,
     promptSubagent,
     readWorkspaceDocument,
+    saveWorkspaceDocument,
+    listDraftWorkspaceDirectory,
+    readDraftWorkspaceDocument,
+    saveDraftWorkspaceDocument,
     refreshSubagents,
     reconnect,
     removeProvider,
@@ -779,6 +802,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     selectTaskModel,
     setLocalePreference,
     setTaskArchived,
+    deleteTask,
     signOutProvider,
     startNewTask,
     storeProviderApiKey,

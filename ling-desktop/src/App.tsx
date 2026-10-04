@@ -1,5 +1,6 @@
 import { acceptDraft, type ComposerDraft as Draft } from './ui/composer-draft.js'
 import { useBehavior } from './ui/behavior-preferences.js'
+import { readTaskWorkModes, rememberCreatedTaskMode } from './ui/task-work-modes.js'
 import { useBehaviorNotifications } from './ui/behavior-notifications.js'
 import { nativeBehavior } from './ui/BehaviorSettings.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -40,7 +41,7 @@ import type { ChangeSelection } from './ui/ChangeReview.js'
 import { AgentPresetPicker } from './ui/AgentPresetPicker.js'
 import { isComposerCommand } from './ui/Composer.js'
 import { retryPending, type RetryRunner } from './ui/ComposerNotice.js'
-import { releaseComposerAttachment, toComposerAttachment, toComposerQuote, type ComposerAttachment } from './ui/attachments.js'
+import { releaseComposerAttachment, toComposerAttachment, toComposerQuote, toComposerWorkspaceContext, workspaceContextKey, workspaceContextScope, type ComposerAttachment, type WorkspaceContextReference } from './ui/attachments.js'
 import { applyAppearance, updateAppearance, useAppearance, type LingTheme } from './theme.js'
 import { LingShell, type LingExtensionProps, type LingSettingsTab } from './ui/LingShell.js'
 import {
@@ -57,6 +58,8 @@ const newTaskKey = 'new-task'
 type NavigationLocation =
   | { readonly screen: 'workspace'; readonly taskId?: string }
   | { readonly screen: 'settings'; readonly tab: LingSettingsTab }
+  | { readonly screen: 'knowledge' }
+  | { readonly screen: 'automation' }
 
 interface NavigationHistory {
   readonly entries: readonly NavigationLocation[]
@@ -64,7 +67,8 @@ interface NavigationHistory {
 }
 
 function sameLocation(left: NavigationLocation, right: NavigationLocation): boolean {
-  return left.screen === right.screen && (left.screen === 'settings'
+  return left.screen === right.screen && ((left.screen === 'knowledge' || left.screen === 'automation')
+    ? true : left.screen === 'settings'
     ? right.screen === 'settings' && left.tab === right.tab
     : right.screen === 'workspace' && left.taskId === right.taskId)
 }
@@ -92,12 +96,10 @@ interface AppProps {
 
 export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, slots }: AppProps) {
   const behavior = useBehavior()
-  const [screen, setScreen] = useState<'workspace' | 'settings'>('workspace')
+  const [screen, setScreen] = useState<'workspace' | 'settings' | 'knowledge' | 'automation'>('workspace')
   const [settingsTab, setSettingsTab] = useState<LingSettingsTab>('general')
   const [navigation, setNavigation] = useState<NavigationHistory>({ entries: [{ screen: 'workspace' }], index: 0 })
   const pendingNavigation = useRef<NavigationLocation | undefined>(undefined)
-  const [environmentOpen, setEnvironmentOpen] = useState(false)
-  const [environmentPinned, setEnvironmentPinned] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(storedBrowserOpen)
   const [newTaskWorkspaceId, setNewTaskWorkspaceId] = useState<string>()
   const [newTaskServerId, setNewTaskServerId] = useState<string>()
@@ -187,6 +189,10 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     pickDirectory,
     promptSubagent,
     readWorkspaceDocument,
+    saveWorkspaceDocument,
+    listDraftWorkspaceDirectory,
+    readDraftWorkspaceDocument,
+    saveDraftWorkspaceDocument,
     refreshSubagents,
     reconnect: reconnectRuntime,
     removeProvider,
@@ -202,6 +208,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     selectTaskModel,
     setLocalePreference,
     setTaskArchived,
+    deleteTask,
     signOutProvider,
     startNewTask: startNewTaskRuntime,
     storeProviderApiKey,
@@ -223,9 +230,43 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const resolvedSlots = useLingUiSlots(extensions, slots)
   const draftsRef = useRef(drafts)
   draftsRef.current = drafts
+  const workspaceContextScopes = useRef(new Map<string, string>())
 
   const draftKey = selectedTask?.taskId ?? newTaskKey
   const draft = drafts[draftKey] ?? emptyDraft
+  const newTaskContextScope = workspaceContextScope({
+    workspaceId: newTaskServerId || newTaskWithoutWorkspace ? undefined : newTaskWorkspaceId ?? workspaces[0]?.workspaceId,
+    serverId: newTaskServerId,
+  })
+
+  const updateDraftContextScope = useCallback((key: string, scope: string, added?: ComposerAttachment) => {
+    const previous = workspaceContextScopes.current.get(key)
+    const changed = previous !== undefined && previous !== scope
+    workspaceContextScopes.current.set(key, scope)
+    if (changed) {
+      const attempt = submitAttempts.current.get(key)
+      submitAttempts.current.delete(key)
+      if (attempt) setRetryAction(current => current === attempt.run ? undefined : current)
+    }
+    setDrafts(current => {
+      const previousDraft = current[key] ?? emptyDraft
+      let attachments = previousDraft.attachments
+      if (changed && attachments.some(item => item.context)) attachments = attachments.filter(item => !item.context)
+      if (added?.context && !attachments.some(item => item.context && workspaceContextKey(item.context) === workspaceContextKey(added.context!))) {
+        attachments = [...attachments, added]
+      }
+      if (attachments === previousDraft.attachments) return current
+      return { ...current, [key]: { ...previousDraft, attachments } }
+    })
+  }, [])
+
+  useEffect(() => {
+    updateDraftContextScope(newTaskKey, newTaskContextScope)
+  }, [newTaskContextScope, updateDraftContextScope])
+
+  const syncWorkspaceContextScope = useCallback((scope: string) => {
+    updateDraftContextScope(draftKey, scope)
+  }, [draftKey, updateDraftContextScope])
 
   const writeDraft = useCallback((key: string, next: Partial<Draft>) => {
     setDrafts(current => ({
@@ -285,7 +326,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
 
   useEffect(() => {
     applyAppearance(appearance, appearance.resolved)
-  }, [appearance.mode, appearance.palette, appearance.resolved])
+  }, [appearance.mode, appearance.palette, appearance.resolved, appearance.fontStyle, appearance.contentWidth, appearance.fileIcons, appearance.glass])
 
   useEffect(() => {
     const native = (window as Window & { __LING_THEME__?: { set: (appearance: { mode: LingTheme; palette: string }) => Promise<void> } }).__LING_THEME__
@@ -339,6 +380,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   useEffect(() => {
     const location: NavigationLocation = screen === 'settings'
       ? { screen, tab: settingsTab }
+      : screen === 'knowledge' || screen === 'automation' ? { screen }
       : { screen, taskId: selectedTaskId }
     if (pendingNavigation.current) {
       if (sameLocation(pendingNavigation.current, location)) pendingNavigation.current = undefined
@@ -567,7 +609,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       setNewTaskAgentPreset(id)
       setNewTaskWorkspaceId(selectedTask.workspaceId)
       setNewTaskWithoutWorkspace(selectedTask.workspaceId === undefined)
-      setEnvironmentPinned(false)
       startNewTaskRuntime()
       showNotice('')
       return
@@ -583,7 +624,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const startNewTask = useCallback(() => {
     setNewTaskAgentPreset(undefined)
     setScreen('workspace')
-    setEnvironmentPinned(false)
     setNewTaskWorkspaceId(undefined)
     setNewTaskServerId(undefined)
     setNewTaskOperationsServerId(undefined)
@@ -594,7 +634,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
 
   const startNewTaskInWorkspace = useCallback((workspaceId: string) => {
     setScreen('workspace')
-    setEnvironmentPinned(false)
     setNewTaskWorkspaceId(workspaceId)
     setNewTaskServerId(undefined)
     setNewTaskOperationsServerId(undefined)
@@ -605,7 +644,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
 
   const startNewTaskWithoutWorkspace = useCallback(() => {
     setScreen('workspace')
-    setEnvironmentPinned(false)
     setNewTaskWorkspaceId(undefined)
     setNewTaskServerId(undefined)
     setNewTaskOperationsServerId(undefined)
@@ -616,7 +654,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
 
   const startNewTaskOnServer = useCallback((serverId: string) => {
     setScreen('workspace')
-    setEnvironmentPinned(false)
     setNewTaskWorkspaceId(undefined)
     setNewTaskWithoutWorkspace(false)
     setNewTaskServerId(serverId)
@@ -641,8 +678,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [runtime.serverManager, selectedTask, showNotice])
 
   const openSettings = useCallback((tab: LingSettingsTab = 'general') => {
-    setEnvironmentOpen(false)
-    setEnvironmentPinned(false)
     showNotice('')
     setSettingsTab(tab)
     setScreen('settings')
@@ -657,6 +692,14 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       showNotice('部分附件无法读取。')
     })
   }, [draftKey, showNotice, writeDraft])
+
+  const addWorkspaceContext = useCallback((reference: WorkspaceContextReference, scope?: string) => {
+    const resolvedScope = scope ?? (selectedTask
+      ? workspaceContextScopes.current.get(draftKey) ?? workspaceContextScope({ workspaceId: selectedTask.workspaceId })
+      : newTaskContextScope)
+    updateDraftContextScope(draftKey, resolvedScope, toComposerWorkspaceContext(reference))
+    setComposerFocusKey(key => key + 1)
+  }, [draftKey, newTaskContextScope, selectedTask, updateDraftContextScope])
 
   useBehaviorNotifications(tasks, pendingInteractions, behavior, showNotice)
   useEffect(() => nativeBehavior()?.onOpenTask(taskId => { setScreen('workspace'); void selectTask(taskId) }), [selectTask])
@@ -709,6 +752,10 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
           })
         report(result, '', action)
         if (result.accepted) {
+          if (!selectedTask) {
+            try { rememberCreatedTaskMode(result, behavior.workMode) }
+            catch { showNotice('消息已发送，但任务所属模式未能保存；仍可在全部任务中找到。') }
+          }
           if (submitAttempts.current.get(draftKey)?.run === action) submitAttempts.current.delete(draftKey)
           clearDraft(draftKey, draft)
           onAccepted?.()
@@ -727,7 +774,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     } catch {
       showNotice('无法发送，请检查运行状态后重试。')
     }
-  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.sendMode, behavior.goalRounds, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
+  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.sendMode, behavior.goalRounds, behavior.workMode, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
 
   const stop = useCallback(async () => {
     if (!selectedTask) return
@@ -828,17 +875,20 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const fork = useCallback(async (taskId: string, atSeq?: number) => {
     if (busy) return
     setBusy(true)
+    const workMode = readTaskWorkModes()[taskId] ?? behavior.workMode
     try {
       const action: RetryRunner = async () => {
         const result = await forkTask(taskId, atSeq)
         report(result, '已创建分叉任务。', action)
+        try { rememberCreatedTaskMode(result, workMode) }
+        catch { showNotice('分叉已创建，但任务所属模式未能保存。') }
         return result
       }
       await action()
     } finally {
       setBusy(false)
     }
-  }, [busy, forkTask, report])
+  }, [busy, forkTask, report, behavior.workMode, showNotice])
 
   const resend = useCallback(async (item: LingTimelineItem) => {
     if (resending.current) throw new Error('正在重发消息，请稍候。')
@@ -846,6 +896,17 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     try { await resendMessage(runtime, item) }
     finally { resending.current = false }
   }, [runtime])
+
+  const editMessage = useCallback((item: LingTimelineItem) => {
+    writeDraft(item.taskId, { text: item.text, recordedAttachments: item.seq !== undefined && item.attachments?.length ? { seq: item.seq, attachments: item.attachments } : undefined })
+    setComposerFocusKey(key => key + 1)
+    showNotice('')
+  }, [writeDraft, showNotice])
+
+  const addQuote = useCallback((text: string, preview: string) => {
+    const current = draftsRef.current[draftKey] ?? emptyDraft
+    writeDraft(draftKey, { attachments: [...current.attachments, toComposerQuote(text, preview)] })
+  }, [draftKey, writeDraft])
 
   const rename = useCallback(async (taskId: string, title: string) => {
     const result = await renameTask(taskId, title)
@@ -910,6 +971,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [cancelInteraction, report])
 
   const openWorkspaceScreen = useCallback(() => { setScreen('workspace') }, [])
+  const openAutomationScreen = useCallback(() => { setSearchOpen(false); setScreen('automation') }, [])
+  const openKnowledgeScreen = useCallback(() => { setSearchOpen(false); setScreen('knowledge') }, [])
 
   const openSearch = useCallback(() => { setSearchOpen(true) }, [])
   const closeSearch = useCallback(() => {
@@ -918,7 +981,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [])
   const selectSearchResult = useCallback((taskId: string) => {
     setScreen('workspace')
-    setEnvironmentPinned(false)
     setNewTaskWorkspaceId(undefined)
     selectTask(taskId)
     setSearchOpen(false)
@@ -926,23 +988,9 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [selectTask, showNotice])
   const selectSidebarTask = useCallback((taskId: string) => {
     setScreen('workspace')
-    setEnvironmentPinned(false)
     setNewTaskWorkspaceId(undefined)
     selectTask(taskId)
   }, [selectTask])
-  const toggleEnvironment = useCallback(() => {
-    setEnvironmentOpen(current => {
-      if (current) setEnvironmentPinned(false)
-      return !current
-    })
-  }, [])
-  const toggleEnvironmentPin = useCallback(() => {
-    setEnvironmentPinned(current => {
-      const next = !current
-      if (!next && browserOpen) setEnvironmentOpen(false)
-      return next
-    })
-  }, [browserOpen])
   const toggleBrowser = useCallback(() => {
     const next = !browserOpen
     setBrowserOpen(next)
@@ -1032,14 +1080,16 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     const result = await createWorkspace(path)
     if (!result.accepted) return result
     if (name) {
-      const snapshot = await runtime.getSnapshot()
-      const created = snapshot.workspaces.find(workspace => workspace.locationLabel === path)
-      if (created && created.label !== name) {
-        const renamed = await renameWorkspace(created.workspaceId, name)
-        if (!renamed.accepted) {
-          showNotice(`工作区已添加，但名称未更新：${renamed.message}`)
-          return result
-        }
+      // Use the Host's identity: its canonical path can differ from the picker path.
+      const workspaceId = result.output?.workspaceId ?? (await runtime.getSnapshot()).workspaces.find(workspace => workspace.locationLabel === path)?.workspaceId
+      if (!workspaceId) {
+        showNotice('工作区已添加，但尚未获取到工作区标识，名称未更新。')
+        return result
+      }
+      const renamed = await renameWorkspace(workspaceId, name)
+      if (!renamed.accepted) {
+        showNotice(`工作区已添加，但名称未更新：${renamed.message}`)
+        return result
       }
     }
     showNotice('工作区已添加。')
@@ -1107,6 +1157,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     if (destination.screen === 'settings') {
       setSettingsTab(destination.tab)
       setScreen('settings')
+    } else if (destination.screen === 'knowledge' || destination.screen === 'automation') {
+      setScreen(destination.screen)
     } else if (destination.taskId) {
       setScreen('workspace')
       selectTask(destination.taskId)
@@ -1148,7 +1200,12 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
 
   return (
     <LingShell
+      replyFeatures={runtime.replyFeatures}
+      automation={runtime.automation}
+      hooks={runtime.hooks}
+      knowledge={runtime.knowledge}
       sideTaskRuntime={runtime}
+      computerControl={runtime.computerControl}
       serverManager={runtime.serverManager}
       composerAgentPreset={composerAgentPreset}
       composerPresetPending={presetPending}
@@ -1165,8 +1222,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       changesMessage={changesMessage}
       connection={connection}
       demo={runtime.kind === 'offline-demo'}
-      environmentOpen={environmentOpen}
-      environmentPinned={environmentPinned}
       browserOpen={browserOpen}
       extensions={extensionReads}
       getTaskCommands={getTaskCommands}
@@ -1179,6 +1234,10 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       workspaceGit={workspaceGit}
       workspaceTools={workspaceTools}
       loadWorkspaceDocument={readWorkspaceDocument}
+      saveWorkspaceDocument={runtime.saveWorkspaceDocument ? saveWorkspaceDocument : undefined}
+      listDraftWorkspaceDirectory={runtime.listDraftWorkspaceDirectory ? listDraftWorkspaceDirectory : undefined}
+      readDraftWorkspaceDocument={runtime.readDraftWorkspaceDocument ? readDraftWorkspaceDocument : undefined}
+      saveDraftWorkspaceDocument={runtime.saveDraftWorkspaceDocument ? saveDraftWorkspaceDocument : undefined}
       modelSettings={visibleModelSettings}
       modelSettingsLoading={modelSettingsLoading}
       modelSettingsMessage={modelSettingsMessage}
@@ -1226,10 +1285,9 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       version={LING_RENDERER_VERSION}
       workspaces={workspaces}
       onAddFiles={addFiles}
-      onAddQuote={(text, preview) => {
-        const current = draftsRef.current[draftKey] ?? emptyDraft
-        writeDraft(draftKey, { attachments: [...current.attachments, toComposerQuote(text, preview)] })
-      }}
+      onAddWorkspaceContext={addWorkspaceContext}
+      onWorkspaceContextScopeChange={syncWorkspaceContextScope}
+      onAddQuote={addQuote}
       onAnswerQuestion={answerQuestionTo}
       onApprove={approveInteraction}
       onCancelInteraction={cancelPendingInteraction}
@@ -1241,18 +1299,12 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       onPlanModeToggle={(active) => { void togglePlanMode(active) }}
       onCompactContext={() => { void compactContext() }}
       onDeleteWorkspace={removeWorkspace}
-      onEnvironmentToggle={toggleEnvironment}
-      onEnvironmentPinToggle={toggleEnvironmentPin}
       onExportTask={task => { void exportTask(task) }}
       onBrowserToggle={toggleBrowser}
       onGoalAction={(action, goal) => { void applyGoalAction(action, goal) }}
       onFork={fork}
-      onEditMessage={item => {
-        writeDraft(item.taskId, { text: item.text, recordedAttachments: item.seq !== undefined && item.attachments?.length ? { seq: item.seq, attachments: item.attachments } : undefined })
-        setComposerFocusKey(key => key + 1)
-        showNotice('')
-      }}
-      onRetryMessage={item => resend(item)}
+      onEditMessage={editMessage}
+      onRetryMessage={resend}
       onLoadOlder={() => { void loadOlderHistory() }}
       onModelDefaultSelect={saveDefaultModel}
       onModelEnabledChange={changeModelEnabled}
@@ -1305,8 +1357,11 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       onSubmit={(textOverride, onAccepted) => { void submit(textOverride, onAccepted) }}
       onStop={() => { void stop() }}
       onThemeChange={setAppTheme}
+      onDeleteTask={deleteTask}
       onToggleTaskArchive={(taskId, archived) => { void toggleArchive(taskId, archived) }}
       onWorkspaceOpen={openWorkspaceScreen}
+      onKnowledgeOpen={openKnowledgeScreen}
+      onAutomationOpen={openAutomationScreen}
     />
   )
 }

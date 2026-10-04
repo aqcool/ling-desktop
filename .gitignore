@@ -17,3 +17,9 @@ dsh-community-market/lib/
 dsh-desktop-next/lib/
 ling-desktop/dist/
 dsh-desktop-next/.desktop-next/
+dsh-desktop-next/.web-serve/
+ling-desktop/desktop/lib/
+ling-desktop/desktop/.web-serve/
+ling-desktop/desktop/.ling-home/
+ling-desktop/desktop/.packaging/
+ling-desktop/desktop/dist/

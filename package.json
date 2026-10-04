@@ -1210,6 +1210,9 @@
     "start:ling": "yarn workspace ling-desktop-host start",
     "serve:ling": "yarn workspace ling-desktop build && yarn workspace ling-desktop-host build && yarn workspace ling-desktop-host serve:web",
     "check:ling": "yarn workspace ling-desktop check && yarn workspace ling-desktop-host check",
+    "package:ling": "yarn workspace ling-desktop-host package:dir",
+    "dist:ling:mac": "yarn workspace ling-desktop-host package:mac",
+    "check:ling:package": "yarn workspace ling-desktop-host check:package",
     "dev:next": "yarn workspace dsh-community-market build && yarn workspace dsh-desktop-next dev",
     "start:next": "yarn workspace dsh-desktop-next start",
     "check:next": "yarn workspace dsh-community-market build && yarn workspace dsh-desktop-next check"

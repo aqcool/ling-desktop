@@ -5,7 +5,8 @@ import { useState } from 'react'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
 
-import { updateAppearance, useAppearance, palettes, type LingTheme } from '../theme.js'
+import { updateAppearance, useAppearance, palettes, fontStyles, contentWidths, fileIconStyles, type LingTheme, type LingFontStyle, type LingContentWidth, type LingFileIconStyle } from '../theme.js'
+import { applicationIconOptions, applicationIconPreview, useApplicationIcon } from './application-icon.js'
 export type { LingTheme } from '../theme.js'
 
 
@@ -22,12 +23,6 @@ interface GeneralSettingsProps {
 
 function SettingSelect({ label, value, options, onChange, disabled = false }: { readonly label: string; readonly value: string; readonly options: readonly { value: string; label: string }[]; readonly onChange: (value: string) => void; readonly disabled?: boolean }) {
   return <CompactSelect label={label} value={value} options={options} onChange={onChange} disabled={disabled} />
-}
-function PreviewSelect({ label, value }: { label: string; value: string }) {
-  return <CompactSelect label={label} value={value} options={[{ value, label: value }]} disabled onChange={() => {}} />
-}
-function PreviewToggle({ label }: { label: string }) {
-  return <CompactSwitch label={label} selected={false} disabled />
 }
 
 const shortcutGroups = [
@@ -49,6 +44,7 @@ export function GeneralSettings({ section, theme, onThemeChange, version, locale
   const [shortcutQuery, setShortcutQuery] = useState('')
   const appearance = useAppearance()
   const behavior = useBehavior()
+  const applicationIcon = useApplicationIcon(section === 'appearance')
   if (section === 'shortcuts') {
     const normalizedQuery = shortcutQuery.trim().toLocaleLowerCase()
     const visibleGroups = shortcutGroups.map(group => ({
@@ -97,16 +93,24 @@ export function GeneralSettings({ section, theme, onThemeChange, version, locale
       <SettingRow description="设置界面文字语言。" title="语言">
         <SettingSelect disabled={localeLoading} label="语言" onChange={value => { onLocaleChange(value === 'browser' ? undefined : value as 'zh' | 'en') }} options={[{ value: 'browser', label: '跟随浏览器' }, { value: 'zh', label: '简体中文' }, { value: 'en', label: 'English' }]} value={localePreference ?? 'browser'} />
       </SettingRow>
-      <SettingRow description="选择界面字体的显示风格。" title="字体风格"><PreviewSelect label="字体风格" value="无衬线" /></SettingRow>
-      <SettingRow description="调整任务内容和输入区的最大宽度。" title="内容宽度"><PreviewSelect label="内容宽度" value="标准" /></SettingRow>
-      <SettingRow description="选择文件引用使用的图标风格。" title="文件图标"><PreviewSelect label="文件图标" value="默认" /></SettingRow>
-      <SettingRow description="控制浮层和遮罩的模糊效果。" title="模糊与玻璃效果"><PreviewToggle label="模糊与玻璃效果" /></SettingRow>
+      <SettingRow description="选择界面字体的显示风格，代码字体保持独立。" title="字体风格"><SettingSelect label="字体风格" value={appearance.fontStyle} options={fontStyles.map(({ id, label }) => ({ value: id, label }))} onChange={value => updateAppearance({ fontStyle: value as LingFontStyle })} /></SettingRow>
+      <SettingRow description="调整任务内容和输入区的最大宽度。" title="内容宽度"><SettingSelect label="内容宽度" value={appearance.contentWidth} options={contentWidths.map(({ id, label }) => ({ value: id, label }))} onChange={value => updateAppearance({ contentWidth: value as LingContentWidth })} /></SettingRow>
+      <SettingRow description="设置文件树、附件和文件引用的图标风格。" title="文件图标"><SettingSelect label="文件图标" value={appearance.fileIcons} options={fileIconStyles.map(({ id, label }) => ({ value: id, label }))} onChange={value => updateAppearance({ fileIcons: value as LingFileIconStyle })} /></SettingRow>
+      <SettingRow description="控制浮层和遮罩的模糊效果。" title="模糊与玻璃效果"><CompactSwitch label="模糊与玻璃效果" selected={appearance.glass} onChange={glass => updateAppearance({ glass })} /></SettingRow>
     </div>
     <div className={tw("general-settings__group mt-6")}><h2 className={tw("mt-0 mb-3 text-xs font-[580] text-[var(--text-secondary)]")}>应用图标</h2><div className={tw("general-settings__list overflow-hidden [border:1px_solid_var(--panel-border)] rounded-2xl bg-[var(--surface)]")}>
-      <SettingRow description="选择程序坞中显示的图标。" title="图标样式"><PreviewSelect label="图标样式" value="灵创" /></SettingRow>
-    </div></div>
+      <SettingRow description={applicationIcon.available ? '选择程序坞或任务栏中显示的图标。' : '应用图标切换需要桌面客户端。'} title="图标样式"><SettingSelect label="图标样式" value={applicationIcon.style} options={applicationIconOptions} disabled={!applicationIcon.available || applicationIcon.pending} onChange={value => { void applicationIcon.select(value) }} /></SettingRow>
+    </div>
+      <div aria-label="应用图标预览" className={tw('mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4')}>
+        {applicationIconOptions.map(option => <Button key={option.value} aria-label={`使用${option.label}图标`} aria-pressed={applicationIcon.style === option.value} isDisabled={!applicationIcon.available || applicationIcon.pending} onPress={() => { void applicationIcon.select(option.value) }} variant="ghost" className={tw('h-auto min-w-0 flex-col gap-2 rounded-xl border p-3 text-xs', applicationIcon.style === option.value ? 'border-[var(--focus)] ring-1 ring-[var(--focus)]' : 'border-[var(--panel-border)]')}>
+          <img src={applicationIconPreview(option.value)} alt="" width={72} height={72} className={tw('size-18 object-contain')} />
+          <span className={tw('flex items-center gap-1')}>{option.label}{applicationIcon.style === option.value ? <Icon name="check" size={12} /> : null}</span>
+        </Button>)}
+      </div>
+    </div>
+    {applicationIcon.error ? <p role="status" className={tw('mt-2 text-xs text-[var(--danger)]')}>{applicationIcon.error}</p> : null}
     {localeLoading ? <p className={tw("general-settings__status mt-3 mx-4 mb-0 [color:var(--text-tertiary)] text-xs")}>正在更新语言…</p> : null}
     {localeMessage ? <p className={tw("general-settings__error mt-2 mx-0 mb-0 [color:var(--danger)] text-xs")} role="status">{localeMessage}</p> : null}
-    <p className={tw("general-settings__version mt-3 mx-4 mb-0 [color:var(--text-tertiary)] text-xs")}>灵创 · {version} · 灰色控件仅展示界面，功能尚未接入</p>
+    <p className={tw("general-settings__version mt-3 mx-4 mb-0 [color:var(--text-tertiary)] text-xs")}>灵创 · {version}</p>
   </section>
 }

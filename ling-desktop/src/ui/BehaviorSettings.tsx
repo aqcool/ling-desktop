@@ -1,3 +1,5 @@
+import { CompactionSettings } from './CompactionSettings.js'
+import type { LingPluginManager } from '../runtime/plugins.js'
 import { palettes } from '../theme.js'
 import { CompactSelect, CompactSwitch, SettingsRow as Row, SettingsGroup as Group, SettingsHeader } from './SettingsControls.js'
 import { useState } from 'react'
@@ -21,7 +23,7 @@ function Toggle({ title, value, onChange, disabled }: { title: string; value: bo
 function Select({ title, value, options, onChange, disabled }: { title: string; value: string; options: readonly (readonly [string, string])[]; onChange: (value: string) => void; disabled?: boolean }) {
   return <CompactSelect label={title} value={value} options={options.map(([value, label]) => ({ value, label }))} onChange={onChange} disabled={disabled} />
 }
-export function BehaviorSettings({ section, supportsGoalLimit = false }: { section: 'general' | 'modes'; supportsGoalLimit?: boolean }) {
+export function BehaviorSettings({ section, supportsGoalLimit = false, pluginManager }: { section: 'general' | 'modes'; supportsGoalLimit?: boolean; pluginManager?: LingPluginManager }) {
   const preferences = useBehavior()
   const [error, setError] = useState('')
   const [editingPhrases, setEditingPhrases] = useState(false)
@@ -49,8 +51,8 @@ export function BehaviorSettings({ section, supportsGoalLimit = false }: { secti
       <Group title="任务与工具">
         <Row title="运行中发送方式" description="Agent 执行期间，新输入默认排队或立即插话。"><Select title="运行中发送方式" value={preferences.sendMode} options={[["queue", "排队"], ["steer", "立即插话"]]} onChange={value => save({ sendMode: value as 'queue' | 'steer' })} /></Row>
         <Row title="问答面板静默跳过" description="仅跳过无人操作的普通问答；填写回答后停止计时。审批和计划审阅始终等待确认。"><Select title="问答面板静默跳过" value={String(preferences.questionTimeout)} options={[["0", "关闭"], ["60", "1 分钟"], ["120", "2 分钟"], ["300", "5 分钟"]]} onChange={value => save({ questionTimeout: Number(value) })} /></Row>
-        <Row title="产物文件默认打开位置" description="运行时尚未提供独立产物文件入口。"><Select title="产物文件默认打开位置" value="right" options={[["right", "右侧工作区"]]} onChange={() => {}} disabled /></Row>
-        <Row title="提示建议" description="运行时尚未提供后续提问建议。"><Toggle title="提示建议" value={false} onChange={() => {}} disabled /></Row>
+        <Row title="产物文件默认打开位置" description="点击回复中交付的文件时，使用右侧预览或系统默认应用。远程文件在右侧预览。"><Select title="产物文件默认打开位置" value={preferences.artifactOpen} options={[["right", "右侧工作区"], ["system", "系统默认应用"]]} onChange={value => save({ artifactOpen: value as BehaviorPreferences['artifactOpen'] })} /></Row>
+        <Row title="提示建议" description="回复完成后生成最多三条后续提问，点击填入输入框。使用本轮模型，产生额外模型请求。"><Toggle title="提示建议" value={preferences.promptSuggestions} onChange={value => save({ promptSuggestions: value })} /></Row>
         {booleanRow('readingStart', '新消息保持在阅读起点', '发送后将新一轮定位到视口顶部，保留阅读位置。')}
         {booleanRow('toolCounts', '显示工具调用次数', '在折叠的处理过程前显示工具调用数量。')}
         {booleanRow('expandTools', '默认展开工具调用', '自动展开工具组及输入与响应，仍可手动收起。')}
@@ -61,6 +63,7 @@ export function BehaviorSettings({ section, supportsGoalLimit = false }: { secti
         {editingPhrases ? <div className={tw('grid gap-2 px-4 pb-4')}><TextField aria-label="思考状态文案" value={phrases} onChange={setPhrases}><TextArea className={tw('min-h-24 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] text-xs')} /></TextField><div className={tw('flex justify-end gap-2')}><Button size="sm" variant="ghost" onPress={() => setPhrases(defaultBehavior.thinkingPhrases.join('\n'))}>恢复默认</Button><Button size="sm" isDisabled={!phrases.trim()} onPress={() => { if (save({ thinkingPhrases: phrases.split('\n') })) setEditingPhrases(false) }}>保存</Button></div></div> : null}
         <Row title="目标驱动执行" description={supportsGoalLimit ? '新建目标的最大执行轮次，不影响已有目标。' : '当前运行时尚未提供目标轮次配置。'}><Select title="目标驱动执行" value={String(preferences.goalRounds)} options={[["5", "5 轮"], ["10", "10 轮"], ["20", "20 轮"], ["50", "50 轮"], ["100", "100 轮"], ["256", "256 轮"]]} onChange={value => save({ goalRounds: Number(value) })} disabled={!supportsGoalLimit} /></Row>
       </Group>
+      <CompactionSettings service={pluginManager} />
       <Group title="通知">
         <Row title="轮次完成通知" description="任务完成或失败时发送系统通知。"><Select title="轮次完成通知" value={preferences.completionNotification} options={[["off", "关闭"], ["background", "仅在未聚焦时"], ["always", "始终"]]} onChange={value => save({ completionNotification: value as BehaviorPreferences['completionNotification'] })} disabled={!nativeBehavior()} /></Row>
         <Row title="权限请求通知" description="任务等待工具审批时通知。"><Toggle title="权限请求通知" value={preferences.approvalNotification} onChange={value => save({ approvalNotification: value })} disabled={!nativeBehavior()} /></Row>

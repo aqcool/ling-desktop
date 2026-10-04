@@ -25,7 +25,7 @@ export type ServerTerminalRequest =
   | { readonly action: 'resize'; readonly terminalId: string; readonly cols: number; readonly rows: number }
   | { readonly action: 'close'; readonly terminalId: string }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' } | {
+type DesktopHostEvent = { readonly type: 'automation-state'; readonly awake: boolean } | ReadyEvent | FatalEvent | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -46,6 +46,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
   const candidate = message as Record<string, unknown>
   switch (candidate.type) {
+    case 'automation-state':
+      return typeof candidate.awake === 'boolean'
     case 'shutdown-complete':
       return true
     case 'ready':
@@ -167,6 +169,7 @@ export class DesktopHostProcess {
     private readonly onServerManifest?: (serverId: string, directory: string, signal: AbortSignal, shallow?: boolean) => Promise<{ exists: boolean; entries: readonly unknown[]; sha256: string }>,
     private readonly onServerTerminal?: (request: ServerTerminalRequest, signal: AbortSignal) => Promise<unknown>,
     private readonly onServerFile?: (request: RemoteFileRequest, signal: AbortSignal) => Promise<unknown>,
+    private readonly onAutomationAwake?: (awake: boolean) => void,
   ) {}
 
   /**
@@ -200,7 +203,8 @@ export class DesktopHostProcess {
         child.kill('SIGTERM')
         return
       }
-      if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
+      if (message.type === 'automation-state') this.onAutomationAwake?.(message.awake)
+      else if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
       else if (message.type === 'shutdown-complete') {
         if (this.stopping) this.shutdownCompleted = true
         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
@@ -262,6 +266,7 @@ export class DesktopHostProcess {
     child.once('error', (error) => { this.fail(error) })
     this.exitPromise = new Promise<void>((resolve) => {
       child.once('close', (code) => {
+        this.onAutomationAwake?.(false)
         for (const controller of this.serverRequests.values()) controller.abort()
         this.serverRequests.clear()
         const suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { LingPendingInteraction, LingRuntimeSnapshot, LingTimelineItem } from '../src/runtime/contract.js'
+import type { LingPendingInteraction, LingPromptAttachment, LingRuntimeSnapshot, LingTimelineItem } from '../src/runtime/contract.js'
 import { createDshRuntimeAdapter, type DshRuntimeFacades } from '../src/runtime/dsh-adapter.js'
+import { toComposerWorkspaceContext } from '../src/ui/attachments.js'
 
 class Source<Value> {
   private readonly listeners = new Set<() => void>()
@@ -149,7 +150,7 @@ function fixture(goalLimit = false) {
   const unarchiveSession = vi.fn(async () => {})
   const interactionSource = new Source<readonly LingPendingInteraction[]>([])
   const respond = vi.fn(async () => true)
-  const prepareAttachments = vi.fn(async () => ({ content: [], pending: [] }))
+  const prepareAttachments = vi.fn(async (_taskId: string, _attachments: readonly LingPromptAttachment[]) => ({ content: [], pending: [] }))
   const listChanges = vi.fn(async () => [{
     taskId: 'session-1',
     turn: 1,
@@ -719,6 +720,33 @@ describe('DSH runtime adapter', () => {
       message: '工作区文件暂时不可用。',
       retryable: true,
     })
+    expect(adapter.saveWorkspaceDocument).toBeUndefined()
+    expect(adapter.readDraftWorkspaceDocument).toBeUndefined()
+  })
+
+  it('forwards guarded task saves and workspace draft file operations without retaining or creating a session', async () => {
+    const { facades, retain, create } = fixture()
+    const version = 'observed-version'
+    const signal = new AbortController().signal
+    const directory = { ok: true as const, value: { path: '', entries: [], truncated: false } }
+    const document = { ok: true as const, value: { path: 'draft.ts', kind: 'code' as const, mediaType: 'text/plain', text: 'body', version } }
+    const saved = { ok: true as const, value: { version: 'saved-version' } }
+    const conflict = { ok: false as const, reason: 'document-conflict' as const, message: 'changed', retryable: false }
+    const saveDocument = vi.fn(async () => conflict)
+    const listDraftDirectory = vi.fn(async () => directory)
+    const readDraftDocument = vi.fn(async () => document)
+    const saveDraftDocument = vi.fn(async () => saved)
+    const adapter = createDshRuntimeAdapter({ ...facades, files: { ...facades.files!, saveDocument, listDraftDirectory, readDraftDocument, saveDraftDocument } })
+    await expect(adapter.saveWorkspaceDocument!('task', 'code.ts', 'edit', version, signal)).resolves.toEqual(conflict)
+    expect(saveDocument).toHaveBeenCalledWith('task', 'code.ts', 'edit', version, signal)
+    await expect(adapter.listDraftWorkspaceDirectory!('workspace', '', signal)).resolves.toEqual(directory)
+    await expect(adapter.readDraftWorkspaceDocument!('workspace', 'draft.ts', signal)).resolves.toEqual(document)
+    await expect(adapter.saveDraftWorkspaceDocument!('workspace', 'draft.ts', 'edit', version, signal)).resolves.toEqual(saved)
+    expect(listDraftDirectory).toHaveBeenCalledWith('workspace', '', signal)
+    expect(readDraftDocument).toHaveBeenCalledWith('workspace', 'draft.ts', signal)
+    expect(saveDraftDocument).toHaveBeenCalledWith('workspace', 'draft.ts', 'edit', version, signal)
+    expect(retain).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('re-reads a historical attachment through the session binding', async () => {
@@ -1277,6 +1305,31 @@ describe('DSH runtime adapter', () => {
     ], 'steer', undefined, 'submission-1')
   })
 
+  it('sends workspace pointers and exact code selection bytes through ordinary attachment preparation', async () => {
+    const { adapter, prepareAttachments, prompt, readDocument, listFiles } = fixture()
+    const source = 'const draft = `unsaved`\n```\n'
+    const attachments = [
+      toComposerWorkspaceContext({ kind: 'file', path: '/work/ling/src/main.ts' }),
+      toComposerWorkspaceContext({ kind: 'directory', path: '/work/ling/src' }),
+      toComposerWorkspaceContext({ kind: 'selection', path: '/work/ling/src/main.ts', text: source, startLine: 21, endLine: 22 }),
+    ].map(value => value.attachment)
+    const receipts = attachments.map((_value, index) => ({ type: 'file', receiptId: `workspace-context-${String(index)}` }))
+    prepareAttachments.mockResolvedValueOnce({ content: receipts, pending: [] } as never)
+    await expect(adapter.dispatch({ type: 'task.send-message', requestId: 'send-context', taskId: 'session-1',
+      text: '检查这些工作区上下文', mode: 'queue', attachments })).resolves.toEqual({ accepted: true, requestId: 'send-context' })
+    expect(prepareAttachments).toHaveBeenCalledWith('session-1', attachments)
+    const prepared = prepareAttachments.mock.calls[0]?.[1]
+    expect(prepared).toHaveLength(3)
+    expect(new TextDecoder().decode(prepared![0]!.data as Uint8Array)).toContain('/work/ling/src/main.ts')
+    expect(new TextDecoder().decode(prepared![1]!.data as Uint8Array)).toContain('/work/ling/src')
+    const selected = new TextDecoder().decode(prepared![2]!.data as Uint8Array)
+    expect(selected).toContain(source)
+    expect(selected).toContain('21–22（从 1 开始，包含起止行）')
+    expect(readDocument).not.toHaveBeenCalled()
+    expect(listFiles).not.toHaveBeenCalled()
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '检查这些工作区上下文' }, ...receipts], 'queue', undefined, 'submission-1')
+  })
+
   it('maps transient prompt failures to a retryable send failure and abandons the submission', async () => {
     const { adapter, beginSubmission, prompt } = fixture()
     const abandon = vi.fn()
@@ -1362,6 +1415,17 @@ describe('DSH runtime adapter', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ path: '/work/new' })
     expect(renameWorkspace).toHaveBeenCalledWith('workspace-1', '新工作区')
     expect(deleteWorkspace).toHaveBeenCalledWith('workspace-1')
+  })
+
+  it('returns the authoritative workspace identity even before its canonical path appears in the list', async () => {
+    const { adapter, createWorkspace, renameWorkspace } = fixture()
+    createWorkspace.mockResolvedValue({ workspaceId: 'canonical-workspace', path: '/private/tmp/qa' })
+    const result = await adapter.dispatch({ type: 'workspace.create', requestId: 'canonical', path: '/tmp/qa' })
+    expect(result).toEqual({ accepted: true, requestId: 'canonical', output: { workspaceId: 'canonical-workspace' } })
+    if (result.accepted && result.output?.workspaceId) {
+      await adapter.dispatch({ type: 'workspace.rename', requestId: 'name', workspaceId: result.output.workspaceId, title: 'QA custom name' })
+    }
+    expect(renameWorkspace).toHaveBeenCalledWith('canonical-workspace', 'QA custom name')
   })
 
   it('forwards interaction responses and rejects stale requests', async () => {
@@ -1735,5 +1799,29 @@ describe('new task history', () => {
     const sent = sessionList.getSnapshot()
     sessionList.set({ ...sent, byId: { ...sent.byId, 'session-created': { ...sent.byId['session-created'], title: '检查代码', displayTitle: '检查代码' } } })
     expect((await adapter.getSnapshot()).tasks.find(task => task.taskId === 'session-created')?.title).toBe('检查代码')
+  })
+})
+
+describe('permanent archived task deletion', () => {
+  it('removes the row and cached search results even when refresh fails after commit', async () => {
+    const { facades, retain } = fixture()
+    const remove = vi.fn(async () => ({ ok: true as const, value: undefined }))
+    const adapter = createDshRuntimeAdapter({ ...facades, deleteArchivedSession: remove, sessions: { ...facades.sessions, refresh: async () => { throw new Error('offline after commit') } } })
+    const events: string[] = []
+    const off = adapter.subscribe(event => { events.push(event.type) })
+    await expect(adapter.dispatch({ type: 'task.delete', taskId: 'session-1', requestId: 'delete-1' })).resolves.toMatchObject({ accepted: true })
+    expect(remove).toHaveBeenCalledWith('session-1')
+    expect(retain).not.toHaveBeenCalled()
+    expect(events).toContain('task.removed')
+    expect((await adapter.getSnapshot()).tasks).toEqual([])
+    const search = await adapter.searchTasks!('renderer')
+    expect(search.ok && search.value.items).toEqual([])
+    off()
+  })
+  it('preserves the row and the specific failure when the host refuses deletion', async () => {
+    const { facades } = fixture()
+    const adapter = createDshRuntimeAdapter({ ...facades, deleteArchivedSession: async () => ({ ok: false, reason: 'invalid-command', message: '会话仍在运行', retryable: false }) })
+    await expect(adapter.dispatch({ type: 'task.delete', taskId: 'session-1', requestId: 'delete-2' })).resolves.toMatchObject({ accepted: false, message: '会话仍在运行' })
+    expect((await adapter.getSnapshot()).tasks).toHaveLength(1)
   })
 })

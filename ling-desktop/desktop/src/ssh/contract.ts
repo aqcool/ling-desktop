@@ -3,8 +3,8 @@ export const remotePolicySchema = z.object({ mode: z.enum(['read-only', 'workspa
   workspaceRoot: z.string().startsWith('/').max(4096).refine(value => !value.includes('\0')) }).strict()
 const path = z.string().startsWith('/').max(4096).refine(value => !value.includes('\0'))
 export const remoteFileRequestSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('read'), serverId: z.string().uuid(), path }).strict(),
-  z.object({ action: z.literal('list'), serverId: z.string().uuid(), path }).strict(),
+  z.object({ action: z.literal('read'), serverId: z.string().uuid(), path, root: path.optional(), maxBytes: z.number().int().min(1).max(512*1024).optional() }).strict(),
+  z.object({ action: z.literal('list'), serverId: z.string().uuid(), path, root: path.optional() }).strict(),
   z.object({ action: z.literal('write'), serverId: z.string().uuid(), path, text: z.string(),
     expected: z.string().regex(/^[a-f0-9]{64}$/).nullable(), policy: remotePolicySchema }).strict(),
 ])

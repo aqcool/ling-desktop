@@ -2,15 +2,18 @@ import { useCallback } from 'react'
 import type { LingReadResult, LingWorkspaceDirectory, LingWorkspaceDocument } from '../runtime/contract.js'
 import type { LingServerService } from '../runtime/servers.js'
 import { FileBrowser } from './FileBrowser.js'
+import type { WorkspaceContextReference } from './attachments.js'
 
 function error<Value>(message: string): LingReadResult<Value> {
   return { ok: false, reason: 'runtime-unavailable', message, retryable: true }
 }
 
-export function ServerFileBrowser({ service, taskId, workspaceLabel }: {
+export function ServerFileBrowser({ service, taskId, stateScope, workspaceLabel, onAddContext }: {
   readonly service: LingServerService
   readonly taskId: string
+  readonly stateScope: string
   readonly workspaceLabel: string
+  readonly onAddContext?: (reference: WorkspaceContextReference) => void
 }) {
   const list = useCallback(async (id: string, path: string, signal: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>> => {
     const result = await service.filesList(id, path || '.', signal)
@@ -32,5 +35,5 @@ export function ServerFileBrowser({ service, taskId, workspaceLabel }: {
     const result = await service.filesSave(id, path, text, version, signal)
     return result.ok ? { ok: true, value: { version: result.value.sha256 } } : error(result.message)
   }, [service])
-  return <FileBrowser taskId={taskId} workspaceLabel={workspaceLabel} loadDirectory={list} loadDocument={read} saveDocument={save} />
+  return <FileBrowser key={stateScope} taskId={taskId} stateScope={stateScope} workspaceLabel={workspaceLabel} loadDirectory={list} loadDocument={read} saveDocument={save} onAddContext={onAddContext} />
 }

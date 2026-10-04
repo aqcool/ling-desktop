@@ -32,25 +32,26 @@ const groups: readonly { title: string; rows: readonly { key: SwitchKey; title: 
 interface MonitorSettingsProps {
   readonly preferences: MonitorPreferences
   readonly onChange: (next: MonitorPreferences) => void
+  readonly onOpenRecapSettings: () => void
 }
 
-export function MonitorSettings({ preferences, onChange }: MonitorSettingsProps) {
+export function MonitorSettings({ preferences, onChange, onOpenRecapSettings }: MonitorSettingsProps) {
   const update = <Key extends keyof MonitorPreferences>(key: Key, value: MonitorPreferences[Key]) => {
     onChange({ ...preferences, [key]: value })
   }
   return <section aria-label="任务监控设置" className={tw('w-full min-w-0 max-w-3xl pb-8')}>
     <SettingsHeader title="任务监控" description="选择任务监控的展示方式，以及需要启用的内容。修改会立即应用到所有任务。" />
     <SettingsGroup title="展示方式">
-      <SettingsRow title="任务监控形式" description="选择任务监控以浮层打开，或固定在任务右侧。">
+      <SettingsRow title="任务监控形式" description="选择浮窗或右侧固定展示。工作面展开或聊天空间不足时使用浮窗，空间恢复后回到所选形式。">
         <CompactSelect label="任务监控形式" value={preferences.presentation} onChange={value => update('presentation', value as MonitorPreferences['presentation'])} options={[{ value: 'fixed', label: '固定' }, { value: 'floating', label: '浮动' }]} />
       </SettingsRow>
-      <SettingsRow title="固定模式默认展示" description="选择进入任务时是否自动展示固定任务监控；隐藏时需要手动点击打开。">
+      <SettingsRow title="固定模式默认展示" description="首次进入任务时是否默认展示。手动收起后保持隐藏；展开工作面不会打开已隐藏的监控。">
         <CompactSelect label="固定模式默认展示" value={preferences.showByDefault ? 'show' : 'hide'} onChange={value => update('showByDefault', value === 'show')} options={[{ value: 'show', label: '默认展示' }, { value: 'hide', label: '默认隐藏' }]} />
       </SettingsRow>
     </SettingsGroup>
     {groups.map(group => <SettingsGroup title={group.title} key={group.title}>
       {group.rows.map(row => <SettingsRow key={row.key} title={row.title} description={row.description}>
-        {row.key === 'recap' ? <CompactButton aria-label="设置任务回顾" isIconOnly variant="ghost" isDisabled title="任务回顾配置尚未接入"><Icon name="settings" size={16} /></CompactButton> : null}
+        {row.key === 'recap' ? <CompactButton aria-label="设置任务回顾" isIconOnly variant="ghost" onPress={onOpenRecapSettings} title="设置整理模型与自动总结会话"><Icon name="settings" size={16} /></CompactButton> : null}
         <CompactSwitch label={row.title} selected={preferences[row.key]} onChange={value => update(row.key, value)} />
       </SettingsRow>)}
     </SettingsGroup>)}

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDshWorkspaceFilesProjection } from '../src/client/workspace-files-projection.js'
+import type { LingWorkspaceDocumentsRemote } from '../src/workspace-document-contract.ts'
 
 const answer = <Value>(value: Value) => ({ ok: true as const, value })
 
@@ -11,6 +12,40 @@ function projection(list: unknown, read: unknown, readAll: unknown = vi.fn(), re
 }
 
 describe('DSH workspace files projection', () => {
+  it('uses the complete versioned Host document for editing and forwards guarded saves', async () => {
+    const text = Array.from({ length: 900 }, (_, index) => `line ${index}`).join('\r\n')
+    const read = vi.fn()
+    const editor = { list: vi.fn(), read: vi.fn(async () => answer({ text, bytes: Buffer.byteLength(text), version: 'a'.repeat(64) })), save: vi.fn(async () => answer({ version: 'b'.repeat(64) })) } as unknown as LingWorkspaceDocumentsRemote
+    const files = createDshWorkspaceFilesProjection({ workspaceFiles: { read } } as never, editor)
+    await expect(files.readDocument('session', 'src/app.ts')).resolves.toMatchObject({ ok: true, value: { text, lines: 900, truncated: false, version: 'a'.repeat(64) } })
+    expect(read).not.toHaveBeenCalled()
+    const signal = new AbortController().signal
+    await expect(files.saveDocument!('session', 'src/app.ts', text + '\r\nnext', 'a'.repeat(64), signal)).resolves.toEqual(answer({ version: 'b'.repeat(64) }))
+    expect(editor.save).toHaveBeenCalledWith({ taskId: 'session', path: 'src/app.ts', text: text + '\r\nnext', version: 'a'.repeat(64) }, signal)
+  })
+
+  it.each(['ling-document/too-large', 'ling-document/readonly'])('keeps %s previews read-only with no save version', async code => {
+    const editor = { list: vi.fn(), save: vi.fn(), read: vi.fn(async () => ({ ok: false, error: { code, message: 'preview only' } })) } as unknown as LingWorkspaceDocumentsRemote
+    const preview = vi.fn(async () => answer({ text: 'first page', lines: 600, eof: false, bytes: 2_000_000, version: 'upstream-version' }))
+    const files = createDshWorkspaceFilesProjection({ workspaceFiles: { read: preview } } as never, editor)
+    const result = await files.readDocument('session', 'large.txt')
+    expect(result).toMatchObject({ ok: true, value: { text: 'first page', truncated: true } })
+    if (result.ok) expect(result.value.version).toBeUndefined()
+  })
+
+  it('projects explicit conflicts and draft scopes without a task Remote or binary editing', async () => {
+    const editor = { list: vi.fn(async () => answer({ path: '', entries: [], truncated: false })), read: vi.fn(async () => answer({ text: 'draft', bytes: 5, version: 'a'.repeat(64) })), save: vi.fn(async () => ({ ok: false, error: { code: 'ling-document/conflict', message: 'changed' } })) } as unknown as LingWorkspaceDocumentsRemote
+    const files = createDshWorkspaceFilesProjection({} as never, editor)
+    await expect(files.listDraftDirectory!('workspace', '')).resolves.toEqual(answer({ path: '', entries: [], truncated: false }))
+    expect(editor.list).toHaveBeenCalledWith({ workspaceId: 'workspace', path: '' }, undefined)
+    await expect(files.readDraftDocument!('workspace', 'draft.ts')).resolves.toMatchObject({ ok: true, value: { kind: 'code', text: 'draft', version: 'a'.repeat(64) } })
+    await expect(files.saveDraftDocument!('workspace', 'draft.ts', 'edit', 'a'.repeat(64))).resolves.toEqual({ ok: false, reason: 'document-conflict', message: 'changed', retryable: false })
+    expect(editor.save).toHaveBeenCalledWith({ workspaceId: 'workspace', path: 'draft.ts', text: 'edit', version: 'a'.repeat(64) }, undefined)
+    await expect(files.readDraftDocument!('workspace', 'picture.png')).resolves.toEqual(answer({ path: 'picture.png', kind: 'unsupported', mediaType: 'application/octet-stream' }))
+    expect(editor.read).toHaveBeenCalledOnce()
+    expect(createDshWorkspaceFilesProjection({} as never).saveDocument).toBeUndefined()
+  })
+
   it('asks the host for the root as "." and reports workspace-relative entry paths', async () => {
     const list = vi.fn(async () => answer({
       path: '',

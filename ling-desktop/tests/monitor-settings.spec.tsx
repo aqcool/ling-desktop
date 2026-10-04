@@ -3,11 +3,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EnvironmentPanel } from '../src/ui/LingShell.js'
 import { MonitorSettings } from '../src/ui/MonitorSettings.js'
+import { MonitorSection, MonitorSectionsContext } from '../src/ui/MonitorSection.js'
 import { defaultMonitorPreferences, effectiveMonitorPresentation, readMonitorPreferences } from '../src/ui/monitor-preferences.js'
 
 describe('task monitor settings', () => {
   it('matches the task monitor groups and keeps workspace files out of the settings', () => {
-    const markup = renderToStaticMarkup(<MonitorSettings onChange={() => {}} preferences={defaultMonitorPreferences} />)
+    const markup = renderToStaticMarkup(<MonitorSettings onChange={() => {}} preferences={defaultMonitorPreferences} onOpenRecapSettings={() => {}} />)
     for (const label of ['展示方式', '进度与上下文', '执行活动', '结果与来源', '辅助入口', '侧边聊天', 'Skill 与 MCP']) {
       expect(markup).toContain(label)
     }
@@ -44,6 +45,14 @@ describe('task monitor content', () => {
     ...overrides,
   } as PanelProps} />)
 
+  it('restores a controlled collapsed group with its content excluded from keyboard and accessibility navigation', () => {
+    const markup = renderToStaticMarkup(<MonitorSectionsContext.Provider value={{ values: { '环境信息': false }, set: () => {} }}><MonitorSection title="环境信息"><button>提交</button></MonitorSection></MonitorSectionsContext.Provider>)
+    expect(markup).toContain('aria-expanded="false"')
+    const contentId = markup.match(/aria-controls="([^"]+)"/)?.[1]
+    expect(contentId).toBeTruthy()
+    expect(markup).toContain(`id="${contentId}" hidden=""`)
+  })
+
   it('omits empty groups and unavailable placeholders in both presentations', () => {
     for (const presentation of ['fixed', 'floating'] as const) {
       const html = renderPanel({ presentation })
@@ -64,10 +73,17 @@ describe('task monitor content', () => {
     for (const label of ['技能与 MCP', '产出', '网页查阅', '来源']) expect(hidden).not.toContain(label)
   })
 
+  it('does not present the latest assistant reply as a generated session summary', () => {
+    const html = renderPanel({ selectedTask: {taskId:'t',workspaceId:'w',title:'Task',status:'completed',archived:false,updatedAt:'2026-10-02'}, onOpenRecap:()=>{}, timeline:[{itemId:'reply',taskId:'t',kind:'assistant-message',text:'A long assistant answer is not a recap.',createdAt:'2026-10-02'}] })
+    expect(html).not.toContain('A long assistant answer is not a recap.')
+    expect(html).not.toContain('最近回复')
+    expect(html).not.toContain('查看当前会话摘要')
+  })
+
   it('shows notes only for the selected task when it contains saved notes', () => {
     const selectedTask = { taskId: 't', title: 'Task', status: 'completed', archived: false, updatedAt: '2026-09-30' } as const
     let notes = '[]'
-    vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'ling.task-notes.v1:t' ? notes : null })
+    vi.stubGlobal('localStorage', { length: 1, key: () => 'ling.task-notes.v1:t', getItem: (key: string) => key === 'ling.task-notes.v1:t' ? notes : null })
     expect(renderPanel({ selectedTask })).not.toContain('打开任务速记')
     notes = JSON.stringify([{ id: 'n', text: 'Saved note', updatedAt: '2026-09-30' }])
     expect(renderPanel({ selectedTask })).toContain('打开任务速记')

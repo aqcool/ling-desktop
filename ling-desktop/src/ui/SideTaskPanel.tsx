@@ -7,6 +7,7 @@ import { InteractionPanel } from './InteractionPanel.js'
 import { Icon } from './Icon.js'
 import { releaseComposerAttachment, toComposerAttachment, toComposerQuote, type ComposerAttachment } from './attachments.js'
 import { useBehavior } from './behavior-preferences.js'
+import { rememberCreatedTaskMode } from './task-work-modes.js'
 import { tw } from './tailwind.js'
 
 export interface SideTaskState {
@@ -89,6 +90,10 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
       return task.submit(draft.prompt, { workspaceId: draft.workspaceId, agentPreset: draft.agentPreset, model: draft.model, permissionPreset: draft.permissionPreset, mode: behavior.sendMode, maxGoalRounds: runtime.supportsGoalLimit ? behavior.goalRounds : undefined, attachments: draft.attachments.map(item => item.attachment) })
     })
     if (result?.accepted) {
+      if (!id) {
+        try { rememberCreatedTaskMode(result, behavior.workMode) }
+        catch { setError('消息已发送，但任务所属模式未能保存。') }
+      }
       for (const attachment of draft.attachments) releaseComposerAttachment(attachment)
       latest.current.onUpdate({ prompt: '', attachments: [], ...(result.output?.taskId ? { taskId: result.output.taskId } : {}) })
     }

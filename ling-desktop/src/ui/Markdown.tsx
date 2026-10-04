@@ -1,6 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { FileIcon } from './FileIcon.js'
+import { fileIconType } from './file-icons.js'
 import { tw } from './tailwind.js'
 
 function safeHref(url: string): string | undefined {
@@ -8,6 +10,10 @@ function safeHref(url: string): string | undefined {
     const parsed = new URL(url)
     return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : undefined
   } catch { return undefined }
+}
+
+function FileLinkIcon({ url }: { readonly url: string }) {
+  return fileIconType(url) === 'file' ? null : <FileIcon path={url} size={14} className={tw('file-icon--link hidden color-files:inline-grid color-files:mr-[0.25em] color-files:align-text-bottom')} />
 }
 
 function CodeBlock({ code, lang }: { readonly code: string; readonly lang?: string }) {
@@ -58,7 +64,7 @@ const components: Components = {
   h4: ({ children }) => <h4 className={tw(headingClass, "mt-4 text-md")}>{children}</h4>,
   h5: ({ children }) => <h5 className={tw(headingClass, "mt-4 text-sm")}>{children}</h5>,
   h6: ({ children }) => <h6 className={tw(headingClass, "mt-4 text-compact text-[var(--md-muted)]")}>{children}</h6>,
-  p: ({ children }) => <p className={tw("md__p my-3 leading-[var(--md-paragraph-leading)] first:mt-0 last:mb-0")}>{children}</p>,
+  p: ({ children }) => <p className={tw("md__p my-2.5 leading-[var(--md-paragraph-leading)] first:mt-0 last:mb-0")}>{children}</p>,
   strong: ({ children }) => <strong className={tw("font-semibold")}>{children}</strong>,
   em: ({ children }) => <em className={tw("italic")}>{children}</em>,
   del: ({ children }) => <del>{children}</del>,
@@ -79,7 +85,7 @@ const components: Components = {
   },
   a: ({ href, children }) => {
     const url = safeHref(href ?? '')
-    return url ? <a className={tw("md__link text-[var(--md-link)] underline underline-offset-2")} href={url} rel="noreferrer noopener" target="_blank">{children}</a> : <span>{children}</span>
+    return url ? <a className={tw("md__link text-[var(--md-link)] underline underline-offset-2")} href={url} rel="noreferrer noopener" target="_blank"><FileLinkIcon url={url} />{children}</a> : <span>{children}</span>
   },
   img: ({ src, alt }) => {
     const url = safeHref(typeof src === 'string' ? src : '')
@@ -90,7 +96,28 @@ const components: Components = {
   td: ({ children, style }) => <td className={tw(cellAlign(style?.textAlign), "border-b border-[var(--md-border)] px-3 py-2 align-top")}>{children}</td>,
 }
 
-export function Markdown({ source, inverted = false, chat = false, subdued = false }: { readonly source: string; readonly inverted?: boolean; readonly chat?: boolean; readonly subdued?: boolean }): ReactNode {
+export function Markdown({ source, inverted = false, chat = false, subdued = false, onKnowledgeLink, headingIds }: { readonly source: string; readonly inverted?: boolean; readonly chat?: boolean; readonly subdued?: boolean; readonly onKnowledgeLink?: (href: string) => void; readonly headingIds?: readonly { readonly line: number; readonly id: string }[] }): ReactNode {
+  const linkHandler = useRef(onKnowledgeLink)
+  linkHandler.current = onKnowledgeLink
+  const knowledgeLinks = !!onKnowledgeLink
+  const readingComponents = useMemo<Components>(() => {
+    if (!headingIds && !knowledgeLinks) return components
+    const result: Components = { ...components }
+    if (headingIds) for (const tag of ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const) {
+      result[tag] = ({ children, node }) => {
+        const Tag = tag
+        return <Tag id={headingIds.find(item => item.line === node?.position?.start.line)?.id} className={tw(headingClass, 'scroll-mt-5', tag === 'h1' ? 'text-xl' : tag === 'h2' ? 'text-lg' : 'text-base')}>{children}</Tag>
+      }
+    }
+    if (knowledgeLinks) result.a = ({ href, children }) => {
+      if (href?.startsWith('code:') || href?.startsWith('wiki:')) {
+        return <button type="button" className={tw('inline border-0 bg-transparent p-0 text-left text-[var(--link)] underline underline-offset-2')} onClick={() => linkHandler.current?.(href)}>{children}</button>
+      }
+      const url = safeHref(href ?? '')
+      return url ? <a className={tw('text-[var(--md-link)] underline underline-offset-2')} href={url} target="_blank" rel="noreferrer noopener"><FileLinkIcon url={url} />{children}</a> : <span>{children}</span>
+    }
+    return result
+  }, [headingIds, knowledgeLinks])
   return <div className={tw(
     "md min-w-0 text-sm leading-6 text-[var(--md-text)] [overflow-wrap:anywhere]",
     chat ? "[--md-paragraph-leading:calc(var(--font-size-sm)*var(--line-chat))]" : "[--md-paragraph-leading:calc(var(--font-size-sm)*var(--line-copy))]",
@@ -99,6 +126,6 @@ export function Markdown({ source, inverted = false, chat = false, subdued = fal
       : "[--md-border:var(--panel-border)] [--md-code-bg:var(--code-background)] [--md-code-text:inherit] [--md-heading:var(--foreground)] [--md-hover:var(--surface-hover)] [--md-link:var(--link)] [--md-muted:var(--text-secondary)] [--md-pre-bg:var(--surface-secondary)] [--md-pre-text:inherit] [--md-table-head-bg:var(--surface-secondary)] [--md-text:var(--foreground)]",
     subdued && "[--md-text:var(--text-secondary)] [--md-heading:var(--text-secondary)] dark:[--md-text:var(--text-secondary)] dark:[--md-heading:var(--text-secondary)]",
   )}>
-    <ReactMarkdown components={components} remarkPlugins={[remarkGfm]} urlTransform={url => safeHref(url) ?? ''}>{source}</ReactMarkdown>
+    <ReactMarkdown components={readingComponents} remarkPlugins={[remarkGfm]} urlTransform={url => onKnowledgeLink && (url.startsWith('code:') || url.startsWith('wiki:')) ? url : safeHref(url) ?? ''}>{source}</ReactMarkdown>
   </div>
 }

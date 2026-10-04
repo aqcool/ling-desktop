@@ -1,0 +1,108 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { archiveQuickNote, groupQuickNotes, noteDraftKey, readNoteDraft, readQuickNote, readQuickNotes, readQuickNotesSnapshot, registerNoteOrigin, removeQuickNote, saveQuickNote, saveTaskNote, writeNoteDraft } from '../src/ui/quick-notes-store.js'
+let data: Map<string, string>
+beforeEach(() => {
+  data = new Map()
+  vi.stubGlobal('localStorage', { get length() { return data.size }, key: (index: number) => [...data.keys()][index] ?? null, getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) })
+  vi.stubGlobal('window', new EventTarget())
+})
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+it('lists independent and sourced notes together, and distinguishes archive from deletion', () => {
+  registerNoteOrigin({ taskId: 'task', title: '修复终端', workspace: 'LING' })
+  const id = saveTaskNote('task', 'look for missing IPC')
+  saveQuickNote({ text: 'independent idea', images: [] })
+  archiveQuickNote(id, true)
+  const notes = readQuickNotes()
+  expect(notes).toHaveLength(2)
+  expect(groupQuickNotes(notes, 'current', 'time', '').flatMap(group => group.notes)).toHaveLength(1)
+  const archived = groupQuickNotes(notes, 'archived', 'source', 'ipc')
+  expect(archived[0]?.label).toBe('修复终端')
+  expect(archived[0]?.notes[0]?.origin?.workspace).toBe('LING')
+  archiveQuickNote(id, false)
+  expect(groupQuickNotes(readQuickNotes(), 'all', 'time', 'LING')[0]?.notes).toHaveLength(1)
+  removeQuickNote(id)
+  expect(readQuickNotes()).toHaveLength(1)
+})
+it('retains sourced annotations during legacy migration and preserves the original on write failure', () => {
+  const key = 'ling.task-notes.v1:old-task'
+  const raw = JSON.stringify([{ id: 'old', text: 'comment', updatedAt: '2026-09-30', source: { messageId: 'reply', quote: 'original' } }])
+  data.set(key, raw)
+  expect(readQuickNotes()[0]?.source?.quote).toBe('original')
+  const setItem = localStorage.setItem
+  vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota') })
+  expect(() => archiveQuickNote('old', true)).toThrow('quota')
+  expect(data.get(key)).toBe(raw)
+  vi.mocked(localStorage.setItem).mockImplementation(setItem)
+  archiveQuickNote('old', true)
+  expect(data.has(key)).toBe(false)
+  expect(readQuickNotes()[0]).toMatchObject({ id: 'old', archived: true, origin: { taskId: 'old-task' }, source: { messageId: 'reply', quote: 'original' } })
+})
+it('detects a stale edit without overwriting the newer note or saved draft', () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-02T01:00:00Z'))
+  const id = saveQuickNote({ text: 'initial', images: [] })
+  const first = readQuickNotes()[0]!
+  writeNoteDraft({ id, text: 'my draft', images: [], expectedUpdatedAt: first.updatedAt })
+  vi.setSystemTime(new Date('2026-10-02T01:00:01Z'))
+  saveQuickNote({ id, text: 'another window', images: [] })
+  expect(() => saveQuickNote(readNoteDraft()!)).toThrow('其他窗口更新')
+  expect(readQuickNotes()[0]?.text).toBe('another window')
+  expect(readNoteDraft()?.text).toBe('my draft')
+})
+it('persists an image-only draft and keeps it readable after the source task is no longer present', () => {
+  const draft = { text: '', images: [{ id: 'img', name: 'screen.png', type: 'image/png', size: 32 }], origin: { taskId: 'old-task', title: 'Old task' } }
+  writeNoteDraft(draft)
+  expect(readNoteDraft()).toEqual(draft)
+  saveQuickNote(readNoteDraft()!)
+  writeNoteDraft(undefined)
+  expect(data.has(noteDraftKey)).toBe(false)
+  expect(readQuickNotes()[0]?.images).toEqual(draft.images)
+  expect(groupQuickNotes(readQuickNotes(), 'current', 'source', 'screen.png')[0]?.label).toBe('Old task')
+})
+it('rejects unsupported attachments and leaves unreadable draft data intact', () => {
+  expect(() => saveQuickNote({ text: '', images: [{ id: 'x', name: 'script.svg', type: 'image/svg+xml', size: 32 }] })).toThrow()
+  data.set(noteDraftKey, '{valuable-invalid-draft')
+  expect(() => readNoteDraft()).toThrow()
+  expect(data.get(noteDraftKey)).toBe('{valuable-invalid-draft')
+  expect(readQuickNotes()).toEqual([])
+})
+it('keeps unrelated note records intact when another window saves or deletes a note', () => {
+  const one = saveQuickNote({ text: 'one', images: [] })
+  const two = saveQuickNote({ text: 'two', images: [] })
+  saveQuickNote({ id: one, text: 'one updated', images: [] })
+  removeQuickNote(two)
+  expect(readQuickNotes().map(note => note.text)).toEqual(['one updated'])
+})
+
+it('keeps healthy notes readable and editable while preserving a corrupt record', () => {
+  const id = saveQuickNote({ text: 'healthy', images: [] })
+  data.set('ling.quick-note.v2:broken', '{invalid')
+  expect(readQuickNotes().map(note => note.text)).toEqual(['healthy'])
+  expect(readQuickNotesSnapshot().unreadableKeys).toEqual(['ling.quick-note.v2:broken'])
+  expect(readQuickNote(id)?.text).toBe('healthy')
+  expect(() => readQuickNote('broken')).toThrow('速记数据无法读取，已保留原始内容。')
+  archiveQuickNote(id, true)
+  saveQuickNote({ id, text: 'updated', images: [] })
+  expect(readQuickNote(id)).toMatchObject({ text: 'updated', archived: true })
+  removeQuickNote(id)
+  expect(readQuickNotes()).toEqual([])
+  expect(data.get('ling.quick-note.v2:broken')).toBe('{invalid')
+})
+
+it('isolates corrupt legacy notes and malformed origins without hiding healthy sourced notes', () => {
+  const id = saveQuickNote({ text: 'sourced', origin: { taskId: 'task', title: 'Known title' }, images: [] })
+  data.set('ling.quick-note-origin.v1:task', 'null')
+  data.set('ling.task-notes.v1:broken', '{valuable')
+  data.set('ling.task-notes.v1:%invalid', '[]')
+  expect(readQuickNotes()[0]).toMatchObject({ id, text: 'sourced', origin: { taskId: 'task', title: 'Known title' } })
+  expect(readQuickNotesSnapshot().unreadableKeys).toHaveLength(3)
+  expect(data.get('ling.quick-note-origin.v1:task')).toBe('null')
+  expect(() => saveTaskNote('broken', 'replacement')).toThrow('已保留原始内容')
+  expect(data.get('ling.task-notes.v1:broken')).toBe('{valuable')
+})
+
+it('reports a readable draft error instead of exposing the JSON parser message', () => {
+  data.set(noteDraftKey, '{invalid')
+  expect(() => readNoteDraft()).toThrow('速记草稿无法读取，原始内容已保留。')
+  expect(() => writeNoteDraft({ text: 'replacement', images: [] })).toThrow('已保留')
+  expect(data.get(noteDraftKey)).toBe('{invalid')
+})

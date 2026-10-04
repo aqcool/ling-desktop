@@ -89,7 +89,7 @@ export function ArchivedSettings({ tasks, workspaces, archivedWorkspaceIds, onOp
             <Modal.Header><Modal.Heading className={tw("text-base font-semibold")}>彻底删除会话？</Modal.Heading></Modal.Header>
             <Modal.Body className={tw("gap-2")}>
               <p className={tw("m-0 break-words text-sm text-[var(--foreground)]")}>{deleteTarget?.title}</p>
-              <p className={tw("m-0 text-xs text-[var(--text-secondary)]")}>删除后无法恢复。</p>
+              <p className={tw("m-0 text-xs text-[var(--text-secondary)]")}>删除后无法恢复。项目文件、速记和 Wiki 会保留。</p>
               {!onDeleteTask ? <p className={tw("m-0 text-xs text-[var(--text-tertiary)]")}>当前运行时暂不支持彻底删除。</p> : null}
               {error ? <p className={tw("m-0 text-xs text-[var(--danger)]")} role="alert">{error}</p> : null}
             </Modal.Body>

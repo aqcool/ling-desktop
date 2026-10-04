@@ -1,49 +1,38 @@
+/** Add missing macOS window controls while retaining the official frontend. */
+import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-api-session-controller/client'
-import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type {} from '@deepseek-ai/dsh-client-file-upload/client'
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { IconPanelLeftOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import { mountLingRenderer } from 'ling-desktop/client'
-import { createDshAttachmentPreparation } from './attachment-preparation.js'
-import { createDshConversationProjection } from './conversation-projection.js'
-import { createDshInteractionProjection } from './interaction-projection.js'
-import { createDshWorkspaceChangesProjection } from './workspace-changes-projection.js'
+import { installWindowStyles } from './styles.ts'
 
-declare module '@deepseek-ai/dsh-api-session-controller/client' {
-  interface SessionReferenceSourceMap {
-    lingRenderer: unknown
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    'desktop-next': 'sidebar.open'
   }
 }
 
-export const inject = ['sessions', 'workspaces', 'fileUpload', 'uiConversation', 'uiSession']
+export const inject = ['slots', 'layout', 'locale']
 
-function installStylesheet(): () => void {
-  const existing = document.querySelector<HTMLLinkElement>('link[data-ling-renderer-styles]')
-  if (existing) return () => {}
-  const link = document.createElement('link')
-  link.rel = 'stylesheet'
-  link.href = '/ling-renderer.css'
-  link.dataset.lingRendererStyles = ''
-  document.head.append(link)
-  return () => { link.remove() }
+function WindowControls({ toggleSidebar, t }: PropsLocale<'desktop-next'> & { toggleSidebar(): void }) {
+  return createElement('div', { className: 'dshNextWindowControls', 'data-next-window-controls': '' },
+    createElement('div', { className: 'dshNextWindowDrag', 'aria-hidden': true }),
+    createElement('button', {
+      type: 'button', className: 'dshNextSidebarOpen',
+      'aria-label': t('sidebar.open'), title: t('sidebar.open'), onClick: toggleSidebar,
+    }, createElement(IconPanelLeftOutline16, { size: 16 })),
+  )
 }
 
 export function apply(ctx: Context): void {
-  const conversation = createDshConversationProjection(ctx.uiConversation)
-  const interactions = createDshInteractionProjection(ctx.uiSession)
-  const attachments = createDshAttachmentPreparation(ctx.fileUpload)
-  const changes = createDshWorkspaceChangesProjection(ctx.uiConversation)
-  ctx.effect(installStylesheet, 'LING renderer stylesheet')
-  ctx.reflect.provide('uiRenderer', {
-    mount: (container: HTMLElement) => mountLingRenderer(container, {
-      sessions: ctx.sessions,
-      workspaces: ctx.workspaces,
-      conversation,
-      interactions,
-      attachments,
-      changes,
-    }),
-  })
+  ctx.effect(() => ctx.locale.register('desktop-next', {
+    zh: { 'sidebar.open': '展开侧边栏' }, en: { 'sidebar.open': 'Open sidebar' },
+  }), 'Next window control labels')
+  ctx.effect(installWindowStyles, 'Next window controls and drag regions')
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay', id: 'desktop-next-window-controls', order: -100,
+    locale: 'desktop-next', inject: () => ({ toggleSidebar: () => ctx.layout.toggleSidebar() }),
+  }, WindowControls))
 }

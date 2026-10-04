@@ -15,6 +15,7 @@ import type {
   LingAgentPreset,
   LingExtensionSettingsService,
   LingPluginManager,
+  LingComputerControlService,
   LingAuthorizationInteraction,
   LingAuthorizationStatus,
   LingAttachmentContent,
@@ -75,6 +76,12 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 }
 
 export interface DshRuntimeFacades {
+  readonly hooks?: import('./hooks.js').LingHooksService
+  readonly replyFeatures?: import('./reply-features.js').LingReplyFeatures
+  readonly automation?: import('./automation.js').LingAutomationService
+  readonly knowledge?: import('./knowledge.js').LingKnowledgeService
+  readonly computerControl?: LingComputerControlService
+  readonly deleteArchivedSession?: (taskId: string) => Promise<LingReadResult<void>>
   readonly messageActions?: { prepareAttachments(taskId: string, sourceSeq: number, attachmentIds: readonly string[]): Promise<LingReadResult<Parameters<SessionBinding['session']['prompt']>[0]>> }
   readonly servers?: LingServerService
   /** The upstream client create helper currently drops agentPreset; use the wire API. */
@@ -98,6 +105,10 @@ export interface DshRuntimeFacades {
   readonly files?: {
     list(taskId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>>
     readDocument(taskId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>>
+    saveDocument?(taskId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>>
+    listDraftDirectory?(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>>
+    readDraftDocument?(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>>
+    saveDraftDocument?(workspaceId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>>
   }
   readonly attachments: {
     prepare(taskId: string, attachments: readonly LingPromptAttachment[]): Promise<{
@@ -519,6 +530,7 @@ export function goalObjective(line: string): string | undefined {
 export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntimeAdapter {
   const sendPrompt = createPromptSender(facades)
   const createdTasks = new Map<string, string>()
+  const deletedTasks = new Set<string>()
   const listeners = new Set<(event: LingRuntimeEvent) => void>()
   const terminalStatuses = new Map<string, LingTaskStatus>()
   const historyStates = new Map<string, boolean>()
@@ -527,10 +539,14 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
   const directoryPicker = facades.directoryPicker
   let disposeSources: (() => void) | undefined
 
+  const currentSnapshot = () => {
+    const snapshot = snapshotProjection(facades, terminalStatuses, historyStates)
+    return deletedTasks.size ? { ...snapshot, tasks: snapshot.tasks.filter(task => !deletedTasks.has(task.taskId)) } : snapshot
+  }
   const publishSnapshot = () => {
     const event: LingRuntimeEvent = {
       type: 'snapshot.replaced',
-      snapshot: snapshotProjection(facades, terminalStatuses, historyStates),
+      snapshot: currentSnapshot(),
     }
     for (const listener of [...listeners]) listener(event)
   }
@@ -570,7 +586,7 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       catch { return null }
     },
     async getSnapshot() {
-      return snapshotProjection(facades, terminalStatuses, historyStates)
+      return currentSnapshot()
     },
     async getModelSettings(signal = new AbortController().signal) {
       if (facades.models === undefined) return unavailableRead('模型设置暂时不可用。')
@@ -701,6 +717,11 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
     },
     extensionSettings: facades.extensions?.settings,
     pluginManager: facades.extensions?.manager,
+    knowledge: facades.knowledge,
+    replyFeatures: facades.replyFeatures,
+    automation: facades.automation,
+    hooks: facades.hooks,
+    computerControl: facades.computerControl,
     serverManager: facades.servers,
     async getTaskAgentPresets(taskId) {
       const extensions = facades.extensions
@@ -766,9 +787,9 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       try {
         const result = await facades.sessions.search(value, signal)
         if (!result.ok) return readRejected<LingTaskSearchPage>(result.error)
-        const snapshot = snapshotProjection(facades, terminalStatuses, historyStates)
+        const snapshot = currentSnapshot()
         const tasks = new Map(snapshot.tasks.map(task => [task.taskId, task]))
-        const indexedMatches: LingTaskSearchMatch[] = result.value.items.map((item: { sessionId: string; snippet: string }) => {
+        const indexedMatches: LingTaskSearchMatch[] = result.value.items.filter((item: { sessionId: string }) => !deletedTasks.has(String(item.sessionId))).map((item: { sessionId: string; snippet: string }) => {
           const task = tasks.get(String(item.sessionId))
           return {
             taskId: String(item.sessionId),
@@ -853,6 +874,10 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       if (files === undefined) return unavailableRead<LingWorkspaceDocument>('工作区文件暂时不可用。')
       return await files.readDocument(taskId, path, signal)
     },
+    ...(facades.files?.saveDocument ? { saveWorkspaceDocument: (taskId: string, path: string, text: string, version: string, signal?: AbortSignal) => facades.files!.saveDocument!(taskId, path, text, version, signal) } : {}),
+    ...(facades.files?.listDraftDirectory ? { listDraftWorkspaceDirectory: (workspaceId: string, path: string, signal?: AbortSignal) => facades.files!.listDraftDirectory!(workspaceId, path, signal) } : {}),
+    ...(facades.files?.readDraftDocument ? { readDraftWorkspaceDocument: (workspaceId: string, path: string, signal?: AbortSignal) => facades.files!.readDraftDocument!(workspaceId, path, signal) } : {}),
+    ...(facades.files?.saveDraftDocument ? { saveDraftWorkspaceDocument: (workspaceId: string, path: string, text: string, version: string, signal?: AbortSignal) => facades.files!.saveDraftDocument!(workspaceId, path, text, version, signal) } : {}),
     async getTaskAttachment(taskId, attachmentId) {
       try {
         const result = await withSession(facades, taskId, ({ session }) => {
@@ -1114,6 +1139,19 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
                 message: '这项请求已经结束。',
                 retryable: false,
               }
+        }
+        if (command.type === 'task.delete') {
+          const result = await facades.deleteArchivedSession?.(command.taskId) ?? unavailableRead<void>('删除服务暂不可用，请重启应用。')
+          if (!result.ok) return modelCommandResult(command.requestId, result)
+          deletedTasks.add(command.taskId)
+          terminalStatuses.delete(command.taskId)
+          historyStates.delete(command.taskId)
+          for (const listener of [...listeners]) listener({ type: 'task.removed', taskId: command.taskId })
+          // The durable delete succeeded. A list refresh failure must not turn it into
+          // an apparent deletion failure or cause a destructive retry.
+          await facades.sessions.refresh().catch(() => {})
+          publishSnapshot()
+          return { accepted: true, requestId: command.requestId }
         }
         if (command.type === 'task.archive' || command.type === 'task.unarchive') {
           await (command.type === 'task.archive'

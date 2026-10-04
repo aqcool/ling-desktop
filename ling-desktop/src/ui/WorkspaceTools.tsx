@@ -59,14 +59,15 @@ function readSaved(key: string): SavedTools {
   } catch { return { actions: [] } }
 }
 
-export function WorkspaceToolsToolbar({ workspaceId, tools, onRun }: {
-  workspaceId: string; tools: ReturnType<typeof useWorkspaceTools>; onRun: () => void
+export function WorkspaceToolsToolbar({ workspaceId, tools, onRun, actionsEnabled = true }: {
+  workspaceId: string; tools: ReturnType<typeof useWorkspaceTools>; onRun: () => void; actionsEnabled?: boolean
 }) {
   const storageKey = `ling.workspace-tools.${workspaceId}`
   const [saved, setSaved] = useState(() => readSaved(storageKey))
   const [editor, setEditor] = useState<SavedAction>()
   const [editing, setEditing] = useState(false)
   const [managing, setManaging] = useState(false)
+  useEffect(() => { if (!actionsEnabled) { setEditing(false); setManaging(false) } }, [actionsEnabled])
   const [error, setError] = useState<string>()
   const applications = tools.snapshot?.applications ?? []
   const application = applications.find(item => item.id === saved.applications) ?? applications[0]
@@ -80,7 +81,7 @@ export function WorkspaceToolsToolbar({ workspaceId, tools, onRun }: {
     setEditing(true); setError(undefined)
   }
   const run = async (action: SavedAction) => {
-    if (tools.busy) return
+    if (tools.busy || !actionsEnabled) return
     if (await tools.execute({ type: 'run', name: action.name, command: action.command })) {
       save({ ...saved, selected: action.id }); onRun()
     }
@@ -107,7 +108,7 @@ export function WorkspaceToolsToolbar({ workspaceId, tools, onRun }: {
           </button>)}
         </Menu>
       </div> : null}
-      {primary ? <div aria-label="工作区命令" className={tw(split)}>
+      {actionsEnabled ? primary ? <div aria-label="工作区命令" className={tw(split)}>
         <button aria-label={`运行 ${primary.name}`} className={tw(actionButton, 'max-w-36 pr-1.5')} disabled={tools.busy} onClick={() => { void run(primary) }} title={primary.command} type="button"><Icon name={primary.icon} size={14} /><span className={tw('truncate')}>{primary.name}</span></button>
         <span className={tw('h-3.5 w-px bg-[var(--panel-border)]')} />
         <Menu triggerAriaLabel="工作区命令菜单" triggerClassName={trigger} triggerLabel={<Icon name="chevronDown" size={12} />}>
@@ -116,7 +117,7 @@ export function WorkspaceToolsToolbar({ workspaceId, tools, onRun }: {
           <MenuItem icon="settings" onPress={() => { setManaging(true) }}>管理 Action</MenuItem>
           <MenuItem disabled={saved.actions.length >= 20} icon="plus" onPress={() => { edit() }}>添加 Action</MenuItem>
         </Menu>
-      </div> : <button aria-label="添加工作区命令" className={tw('grid size-6.5 place-items-center rounded-md border-0 bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} onClick={() => { edit() }} title="添加 Action" type="button"><Icon name="bolt" size={16} /></button>}
+      </div> : <button aria-label="添加工作区命令" className={tw('grid size-6.5 place-items-center rounded-md border-0 bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} onClick={() => { edit() }} title="添加 Action" type="button"><Icon name="bolt" size={16} /></button> : null}
       {tools.error || (!editing && error) ? <div className={tw('absolute top-full right-0 z-30 mt-2 w-64 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] p-3 text-xs text-[var(--danger)] shadow-lg')} role="alert">{tools.error ?? error}</div> : null}
     </div>
     <Modal.Backdrop isOpen={editing} onOpenChange={setEditing}>

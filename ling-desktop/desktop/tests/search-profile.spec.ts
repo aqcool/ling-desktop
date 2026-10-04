@@ -14,6 +14,36 @@ it('enables local message search over the published DSH base profile', () => {
   ])
 
   expect(entries.find(entry => entry.id === 'session-query-sqlite')).toMatchObject({
-    config: { path: ':memory:', openAt: 'first-search' },
+    config: { path: { __jsExpr: "dshHomePath('ling-session-search.sqlite')" }, openAt: 'first-search' },
   })
+})
+
+it('composes LING session lifecycle adapters instead of the original owners', () => {
+  const require = createRequire(import.meta.url)
+  const patch = (name: string) => join(dirname(require.resolve(name + '/package.json')), 'cordis.patch.yml')
+  const entries = composeEntries([
+    loadOverlayPatches('ling-desktop-host', patch('@deepseek-ai/dsh-base')),
+    loadOverlayPatches('ling-desktop-host', patch('@deepseek-ai/dsh-web-app')),
+    loadOverlayPatches('ling-desktop-host', fileURLToPath(new URL('../host.cordis.patch.yml', import.meta.url))),
+  ])
+  for (const id of ['agent-loop', 'session-persistence-jsonl', 'session-controller']) {
+    expect(entries.find(entry => entry.id === id)?.disabled).toBe(true)
+  }
+  for (const [id, name] of [['ling-session-lifecycle', 'session-lifecycle'], ['ling-session-storage', 'session-storage'], ['ling-session-controller', 'session-controller']]) {
+    expect(entries.find(entry => entry.id === id)).toMatchObject({ name: 'ling-desktop-host/' + name })
+  }
+  expect(entries.find(entry => entry.id === 'ling-session-storage')?.config).toEqual({ root: { __jsExpr: "dshHomePath('sessions')" } })
+})
+
+
+it('registers compaction settings while keeping the published Web engine ownership', () => {
+  const require = createRequire(import.meta.url)
+  const patch = (name: string) => join(dirname(require.resolve(name + '/package.json')), 'cordis.patch.yml')
+  const entries = composeEntries([
+    loadOverlayPatches('ling-desktop-host', patch('@deepseek-ai/dsh-base')),
+    loadOverlayPatches('ling-desktop-host', patch('@deepseek-ai/dsh-web-app')),
+    loadOverlayPatches('ling-desktop-host', fileURLToPath(new URL('../host.cordis.patch.yml', import.meta.url))),
+  ])
+  expect(entries.find(entry => entry.id === 'compaction-basic')).toMatchObject({ disabled: true, name: '@deepseek-ai/dsh-compaction-basic' })
+  expect(entries.find(entry => entry.id === 'ling-compaction-settings')).toMatchObject({ name: 'ling-desktop-host/compaction' })
 })

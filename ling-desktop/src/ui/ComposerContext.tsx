@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { LingContextBreakdown, LingContextPressure, LingWorkspaceSummary } from '../runtime/contract.js'
+import type { LingTimelineItem, LingContextBreakdown, LingContextPressure, LingWorkspaceSummary } from '../runtime/contract.js'
 import { ContextWindowIndicator } from './ContextWindowIndicator.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
@@ -19,13 +19,14 @@ interface ComposerContextProps {
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onSelectWithoutWorkspace: () => void
   readonly onCreateWorkspace: () => void
+  readonly compaction?: LingTimelineItem
   readonly contextPressure?: LingContextPressure
   readonly contextBreakdown?: LingContextBreakdown
   readonly compactDisabled: boolean
   readonly onCompactContext: () => void
 }
 
-export function ComposerContext({ showEnvironment = true, interactive = true, locationControl, operationsControl, branchControl, agentPresetControl, onGitOpen, branch, workspaceLabel, serverLabel, workspaces, onSelectWorkspace, onSelectWithoutWorkspace, onCreateWorkspace, contextPressure, contextBreakdown, compactDisabled, onCompactContext }: ComposerContextProps) {
+export function ComposerContext({ showEnvironment = true, interactive = true, locationControl, operationsControl, branchControl, agentPresetControl, onGitOpen, branch, workspaceLabel, serverLabel, workspaces, onSelectWorkspace, onSelectWithoutWorkspace, onCreateWorkspace, contextPressure, compaction, contextBreakdown, compactDisabled, onCompactContext }: ComposerContextProps) {
   const [open, setOpen] = useState<'workspace' | null>(null)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -56,7 +57,7 @@ export function ComposerContext({ showEnvironment = true, interactive = true, lo
     `${workspace.label} ${workspace.locationLabel ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
 
   return (
-    <div aria-label="当前工作区" className={tw("composer-context relative flex min-h-control min-w-0 items-center gap-3 px-1 pt-0.5 text-xs leading-4 text-[var(--text-secondary)]")} ref={rootRef}>
+    <div aria-label="当前工作区" className={tw("composer-context relative flex min-h-control min-w-0 flex-wrap items-center gap-x-2 gap-y-0 px-1 pt-0.5 text-xs leading-4 text-[var(--text-tertiary)]")} ref={rootRef}>
       {showEnvironment ? <>
       <div className={tw("composer-context__anchor relative min-w-0 max-w-[45%] shrink")}>
         <button disabled={!interactive} aria-expanded={open === 'workspace'} aria-haspopup="menu" className={tw("composer-context__item inline-flex h-control-xs max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-0.5 text-inherit hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={() => { setQuery(''); setOpen(current => current === 'workspace' ? null : 'workspace') }} title={workspaceLabel} type="button">
@@ -81,11 +82,11 @@ export function ComposerContext({ showEnvironment = true, interactive = true, lo
       {operationsControl}
       {(interactive ? branchControl : undefined) ?? (branch ? <button type="button" disabled={!interactive} onClick={onGitOpen} aria-label={`当前分支：${branch}`} className={tw("composer-context__branch inline-flex h-control-xs min-w-0 max-w-[35%] items-center gap-1.5 rounded-md border-0 bg-transparent px-0.5 hover:bg-[var(--surface-hover)]")} title="Git：分支与更改">
         <Icon name="branch" size={14} />
-        <span className={tw("truncate font-semibold text-[var(--foreground)]")}>{branch}</span>
+        <span className={tw("truncate font-medium text-[var(--text-secondary)]")}>{branch}</span>
       </button> : null)}
       </> : null}
       {agentPresetControl}
-      <ContextWindowIndicator breakdown={contextBreakdown} compactDisabled={compactDisabled} onCompact={onCompactContext} pressure={contextPressure} />
+      <ContextWindowIndicator compaction={compaction} breakdown={contextBreakdown} compactDisabled={compactDisabled} onCompact={onCompactContext} pressure={contextPressure} />
     </div>
   )
 }

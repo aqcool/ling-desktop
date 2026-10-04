@@ -17,7 +17,7 @@ const root = dirname(NEXT_PACKAGE)
 const home = resolve(process.env.DSH_DESKTOP_NEXT_HOME ?? join(root, '.desktop-next', 'home'))
 const electronData = join(home, 'electron-user-data')
 mkdirSync(electronData, { recursive: true, mode: 0o700 })
-app.setName('LING Next')
+app.setName('DSH Desktop Next')
 app.setPath('userData', electronData)
 protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true,
@@ -37,7 +37,6 @@ let failure = ''
 let windowsLanguage = 'zh-CN'
 const require = createRequire(NEXT_PACKAGE)
 const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'))
-const lingRoot = join(dirname(require.resolve('ling-desktop/package.json')), 'dist')
 
 function assertSender(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>, owner: BrowserWindow | undefined, origin: string): void {
   if (!owner || owner.isDestroyed() || event.sender !== owner.webContents
@@ -48,7 +47,7 @@ function assertSender(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
 
 function createWindow(preload: string, primary = false): BrowserWindow {
   const window = new BrowserWindow({ width: 1280, height: 840, minWidth: 800, minHeight: 580,
-    show: false, title: 'LING Next',
+    show: false, title: 'DSH Desktop Next',
     ...(process.platform === 'win32' && primary ? {
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
@@ -127,7 +126,7 @@ function start(): Promise<void> {
 }
 
 async function confirmed(message: string): Promise<boolean> {
-  const result = await dialog.showMessageBox({ type: 'question', title: 'LING Next', message,
+  const result = await dialog.showMessageBox({ type: 'question', title: 'DSH Desktop Next', message,
     detail: '将停止当前 Host，正在运行的任务会被中断。', buttons: ['继续', '取消'], defaultId: 1, cancelId: 1 })
   return result.response === 0
 }
@@ -174,13 +173,6 @@ async function main(): Promise<void> {
       } })
     }
     if (url.hostname !== 'app') return new Response(null, { status: 404 })
-    if (url.pathname === '/ling-renderer.css') {
-      const stylesheetRequest = new Request('dsh-app://app/renderer.css', {
-        method: request.method,
-        headers: request.headers,
-      })
-      return serveWebDocument(stylesheetRequest, lingRoot)
-    }
     if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
       || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) return serveWebDocument(request, webRoot)
     if (!backend.host || !hostUrl || !hostCookie) return new Response(null, { status: 503 })
@@ -236,7 +228,7 @@ async function main(): Promise<void> {
     { type: 'separator' }, { role: 'quit' },
   ]
   Menu.setApplicationMenu(process.platform === 'win32' ? null : Menu.buildFromTemplate([
-    { label: 'LING Next', submenu: applicationItems() },
+    { label: 'DSH Desktop Next', submenu: applicationItems() },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
   if (process.platform === 'win32') {

@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, protocol, safeStorage, session, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, powerSaveBlocker, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type NativeImage } from 'electron'
 import { DesktopHostProcess } from './host-process.ts'
 import { APP_URL, IPC } from './ipc.ts'
 import { readWorkspaceBranch, WorkspaceGit } from './workspace-git.ts'
@@ -17,6 +17,9 @@ import { ServerBroker, type HostFingerprint } from './server-broker.ts'
 import { ServerStore } from './server-store.ts'
 import { themeTokens, parseWindowAppearance, type WindowAppearance } from 'ling-desktop/theme'
 import { credentialDocument } from './credential-window.ts'
+import { quickNotesUrl, parseNoteWindowContext, parseNoteWindowAction } from './quick-notes-window.ts'
+import { SnapshotShortcut } from './snapshot-shortcut.ts'
+import { ApplicationIconController, FileApplicationIconStore, applyNativeApplicationIcon, type ApplicationIconStyle } from './application-icon.ts'
 
 const root = dirname(LING_HOST_PACKAGE)
 const workspaceGit = new WorkspaceGit(path => shell.openPath(path))
@@ -42,6 +45,23 @@ const lingRoot = join(dirname(require.resolve('ling-desktop/package.json')), 'di
 const browserPreload = join(root, 'lib', 'preload-browser.cjs')
 const browserPartition = 'persist:ling-browser'
 const windows = new Set<BrowserWindow>()
+const applicationIconImages = new Map<ApplicationIconStyle, NativeImage>()
+function applicationIconImage(style: ApplicationIconStyle): NativeImage {
+  let image = applicationIconImages.get(style)
+  if (!image) {
+    image = nativeImage.createFromPath(join(root, 'assets', 'application-icons', `${style}.png`))
+    if (image.isEmpty()) throw new Error('应用图标资源无法读取，请重新构建灵创。')
+    applicationIconImages.set(style, image)
+  }
+  return image
+}
+const applicationIcon = new ApplicationIconController(new FileApplicationIconStore(join(home, 'application-icon.json')), style => {
+  applyNativeApplicationIcon(process.platform, applicationIconImage(style), { dock: app.dock, windows: BrowserWindow.getAllWindows() })
+})
+const snapshotShortcut = new SnapshotShortcut(globalShortcut)
+let notesWindow: BrowserWindow | undefined
+let notesOwner: BrowserWindow | undefined
+let notesContext: ReturnType<typeof parseNoteWindowContext>
 let mainWindow: BrowserWindow | undefined
 let host: DesktopHostProcess | undefined
 let hostUrl: string | undefined
@@ -50,6 +70,14 @@ let injections: readonly unknown[] = []
 let startup: Promise<void> = Promise.resolve()
 let quitting = false
 let tray: Tray | undefined
+let automationAwakeId: number | undefined
+function setAutomationAwake(awake: boolean) {
+  if (awake && automationAwakeId === undefined) automationAwakeId = powerSaveBlocker.start('prevent-app-suspension')
+  if (!awake && automationAwakeId !== undefined) {
+    powerSaveBlocker.stop(automationAwakeId)
+    automationAwakeId = undefined
+  }
+}
 const deliveredNotifications = new Set<string>()
 const activeNotifications = new Set<Notification>()
 const serverStore = new ServerStore(join(home, 'ling-servers.json'))
@@ -91,10 +119,12 @@ function isBrowserUrl(url: unknown): url is string {
   try { return ['https:', 'http:'].includes(new URL(url).protocol) } catch { return false }
 }
 
-function createWindow(): BrowserWindow {
+function createWindow(notes = false): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1280, height: 840, minWidth: 800, minHeight: 580,
-    show: false, title: '灵创', backgroundColor: windowColors().surface,
+    width: notes ? 420 : 1280, height: notes ? 760 : 840, minWidth: notes ? 340 : 800, minHeight: notes ? 480 : 580,
+    ...(notes ? { useContentSize: true, maximizable: false, fullscreenable: false } : {}),
+    show: false, title: notes ? 'Quick Notes' : '灵创', backgroundColor: windowColors().surface,
+    ...(process.platform !== 'darwin' ? { icon: applicationIconImage(applicationIcon.snapshot().style) } : {}),
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
       trafficLightPosition: { x: 16, y: 18 },
@@ -105,14 +135,15 @@ function createWindow(): BrowserWindow {
     } : {}),
     webPreferences: {
       preload: join(root, 'lib', 'preload-app.cjs'),
-      contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true,
+      contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: !notes,
     },
   })
   windows.add(window)
-  window.on('closed', () => { windows.delete(window) })
+  const contentsId = window.webContents.id
+  window.on('closed', () => { snapshotShortcut.clearOwner(contentsId); windows.delete(window) })
   window.once('ready-to-show', () => window.show())
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isTaskWindowUrl(url) && !quitting) {
+    if (!notes && isTaskWindowUrl(url) && !quitting) {
       const task = createWindow()
       void task.loadURL(url).catch(reportFailure)
     } else openExternal(url)
@@ -171,11 +202,12 @@ async function startHost(): Promise<void> {
       return { ok: true as const }
     },
     async (request, signal) => {
-      if (request.action === 'read') return serverBroker.readFile(request.serverId, request.path, signal)
+      if (request.action === 'read') return serverBroker.readFile(request.serverId, request.path, signal, request.root, request.maxBytes)
       if (request.action === 'write') return serverBroker.writeFile(request.serverId, request.path, request.text, request.expected, request.policy, signal)
-      const entries = await serverBroker.listFiles(request.serverId, request.path, signal)
+      const entries = await serverBroker.listFiles(request.serverId, request.path, signal, request.root)
       return { path: request.path, entries: entries.map(entry => ({ name: entry.name, type: entry.type })) }
     },
+    setAutomationAwake,
   )
   const ready = await host.start()
   const url = new URL(ready.url)
@@ -188,7 +220,15 @@ async function startHost(): Promise<void> {
 
 async function main(): Promise<void> {
   await app.whenReady()
+  await applicationIcon.restore().catch(error => console.error(error))
   await rm(join(home, 'ling-server-terminals'), { recursive: true, force: true })
+  ipcMain.handle(IPC.applicationIcon, event => { assertAppSender(event); return applicationIcon.snapshot() })
+  ipcMain.handle(IPC.applicationIconSet, async (event, raw: unknown) => {
+    assertAppSender(event)
+    const snapshot = await applicationIcon.set(raw)
+    for (const window of windows) if (!window.isDestroyed()) window.webContents.send(IPC.applicationIconChanged, snapshot)
+    return snapshot
+  })
   function credentialSession(event: IpcMainInvokeEvent) {
     const item = credentialWindows.get(event.sender.id)
     if (!item || item.window.isDestroyed() || item.window.webContents !== event.sender
@@ -207,6 +247,7 @@ async function main(): Promise<void> {
     if (existing) { existing.window.focus(); return }
     const window = new BrowserWindow({ width: 560, height: 330, minWidth: 500, minHeight: 320, useContentSize: true,
       parent: owner, modal: true, show: false, title: '服务器认证', backgroundColor: windowColors().surface,
+      ...(process.platform !== 'darwin' ? { icon: applicationIconImage(applicationIcon.snapshot().style) } : {}),
       webPreferences: { preload: join(root, 'lib', 'preload-credentials.cjs'), contextIsolation: true,
         sandbox: true, nodeIntegration: false, webSecurity: true, partition: 'ling-credentials' },
     })
@@ -281,10 +322,51 @@ async function main(): Promise<void> {
     }
   }
   nativeTheme.on('updated', updateWindows)
+  ipcMain.handle(IPC.notesOpen, async (event, raw: unknown) => {
+    const owner = assertAppSender(event)
+    if (owner === notesWindow) throw new Error('Rejected Quick Notes window owner')
+    notesContext = parseNoteWindowContext(raw); notesOwner = owner
+    if (notesWindow && !notesWindow.isDestroyed()) {
+      notesWindow.webContents.send(IPC.notesContext, notesContext)
+      if (notesWindow.isMinimized()) notesWindow.restore()
+      notesWindow.show(); notesWindow.focus(); return
+    }
+    const window = createWindow(true); notesWindow = window
+    const bounds = owner.getBounds()
+    const area = screen.getDisplayMatching(bounds).workArea
+    const width = Math.min(420, area.width); const height = Math.min(760, area.height)
+    window.setBounds({ width, height, x: Math.max(area.x, Math.min(bounds.x + bounds.width - width - 20, area.x + area.width - width)), y: Math.max(area.y, Math.min(bounds.y + 60, area.y + area.height - height)) })
+    window.on('closed', () => { notesWindow = undefined; notesOwner = undefined })
+    try { await window.loadURL(quickNotesUrl) } catch (error) { window.destroy(); throw error }
+  })
+  ipcMain.handle(IPC.notesContext, event => {
+    if (assertAppSender(event) !== notesWindow) throw new Error('Rejected Quick Notes context sender')
+    return notesContext
+  })
+  ipcMain.handle(IPC.notesAction, (event, raw: unknown) => {
+    if (assertAppSender(event) !== notesWindow) throw new Error('Rejected Quick Notes action sender')
+    const action = parseNoteWindowAction(raw)
+    const owner = notesOwner && !notesOwner.isDestroyed() ? notesOwner : mainWindow
+    if (!owner || owner.isDestroyed()) throw new Error('请先打开任务窗口。速记内容已保留。')
+    if (owner.isMinimized()) owner.restore()
+    owner.show(); owner.focus(); owner.webContents.send(IPC.notesAction, action)
+  })
   ipcMain.handle(IPC.openExternal, async (event, url: unknown) => {
     assertAppSender(event)
     if (!isBrowserUrl(url)) throw new Error('无效的浏览器链接。')
     await shell.openExternal(url)
+  })
+  ipcMain.handle(IPC.snapshotShortcut, (event, value: unknown) => {
+    const owner = assertAppSender(event)
+    try {
+      snapshotShortcut.set(event.sender.id, value, () => { if (!owner.isDestroyed()) owner.webContents.send(IPC.snapshotRequested) })
+      return { ok: true, value: undefined }
+    } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '无法注册快照快捷键。', retryable: false } }
+  })
+  ipcMain.handle(IPC.snapshotReveal, event => {
+    const owner = assertAppSender(event)
+    if (owner.isMinimized()) owner.restore()
+    owner.show(); owner.focus()
   })
   ipcMain.handle(IPC.theme, (event, value: unknown) => {
     assertAppSender(event)
@@ -440,6 +522,8 @@ app.on('before-quit', event => {
   if (quitting) return
   event.preventDefault()
   quitting = true
+  snapshotShortcut.dispose()
+  setAutomationAwake(false)
   tray?.destroy()
   for (const notification of activeNotifications) notification.close()
   workspaceTools.dispose()

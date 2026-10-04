@@ -14,6 +14,7 @@ const fail = message => { throw new Error(`verify-layout: ${message}`) }
 const workspace = readJson('package.json')
 const upstream = readJson('upstream.json')
 const lingDesktop = readJson('ling-desktop/package.json')
+const lingHost = readJson('ling-desktop/desktop/package.json')
 const stablePlugin = readJson('dsh-plugin-desktop/package.json')
 const betaPlugin = readJson('dsh-plugin-desktop-beta/package.json')
 const nextDesktop = readJson('dsh-desktop-next/package.json')
@@ -32,6 +33,7 @@ if (workspace.packageManager !== 'yarn@4.18.0') {
 }
 if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'ling-desktop',
+  'ling-desktop/desktop',
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
   'dsh-desktop-next',
@@ -41,6 +43,7 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
 }
 for (const [name, manifest] of [
   ['ling-desktop', lingDesktop],
+  ['ling-desktop-host', lingHost],
   ['dsh-plugin-desktop', stablePlugin],
   ['dsh-plugin-desktop-beta', betaPlugin],
   ['dsh-desktop-next', nextDesktop],
@@ -50,6 +53,13 @@ for (const [name, manifest] of [
 }
 if (lingDesktop.name !== 'ling-desktop' || lingDesktop.private !== true) {
   fail('LING Desktop must remain a private workspace owned by this repository')
+}
+if (lingHost.name !== 'ling-desktop-host' || lingHost.private !== true) {
+  fail('LING Host must remain a private LING-owned workspace')
+}
+if (lingHost.dependencies?.['dsh-desktop-next'] || nextDesktop.dependencies?.['ling-desktop']
+  || nextDesktop.dependencies?.['ling-desktop-host']) {
+  fail('LING and Next must remain independent launch paths')
 }
 if (market.name !== 'dsh-community-market') fail('the market workspace must own dsh-community-market')
 const claudePath = resolve(root, 'CLAUDE.md')
@@ -89,6 +99,7 @@ if (typeof upstreamPackage.packageManager !== 'string' || !upstreamPackage.packa
 for (const [owner, manifest] of [
   ['root', workspace],
   ['ling desktop', lingDesktop],
+  ['ling host', lingHost],
   ['stable desktop', stablePlugin],
   ['beta desktop', betaPlugin],
   ['next desktop', nextDesktop],

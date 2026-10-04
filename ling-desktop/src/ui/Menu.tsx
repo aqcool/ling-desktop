@@ -35,6 +35,7 @@ export function placeList(
 }
 
 interface MenuProps {
+  readonly contextRequest?: { readonly x: number; readonly y: number; readonly nonce: number }
   readonly triggerLabel: ReactNode | ((open: boolean) => ReactNode)
   readonly triggerAriaLabel?: string
   readonly triggerClassName?: string
@@ -44,12 +45,18 @@ interface MenuProps {
   readonly children: ReactNode
 }
 
-export function Menu({ triggerLabel, triggerAriaLabel, triggerClassName, listClassName, align = 'end', side = 'bottom', children }: MenuProps) {
+export function Menu({ contextRequest, triggerLabel, triggerAriaLabel, triggerClassName, listClassName, align = 'end', side = 'bottom', children }: MenuProps) {
   const [open, setOpen] = useState(false)
   const [placement, setPlacement] = useState<ListPlacement | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const autoFocused = useRef(false)
+  const [contextPoint, setContextPoint] = useState<{ readonly x: number; readonly y: number }>()
+  useEffect(() => {
+    if (!contextRequest) return
+    setContextPoint(contextRequest)
+    setOpen(true)
+  }, [contextRequest])
 
   useEffect(() => {
     if (!open) {
@@ -61,10 +68,10 @@ export function Menu({ triggerLabel, triggerAriaLabel, triggerClassName, listCla
       const list = listRef.current
       if (!trigger || !list) return
       setPlacement(placeList(
-        trigger.getBoundingClientRect(),
+        contextPoint ? { left: contextPoint.x, right: contextPoint.x, top: contextPoint.y, bottom: contextPoint.y } : trigger.getBoundingClientRect(),
         { height: list.scrollHeight + list.offsetHeight - list.clientHeight, width: list.offsetWidth },
         { height: window.innerHeight, width: window.innerWidth },
-        align,
+        contextPoint ? 'start' : align,
         side,
       ))
     }
@@ -78,7 +85,7 @@ export function Menu({ triggerLabel, triggerAriaLabel, triggerClassName, listCla
       window.removeEventListener('resize', place)
       window.removeEventListener('scroll', place, true)
     }
-  }, [open, align, side])
+  }, [open, align, side, contextPoint])
 
   useEffect(() => {
     if (!open) {
@@ -145,7 +152,7 @@ export function Menu({ triggerLabel, triggerAriaLabel, triggerClassName, listCla
         aria-haspopup="menu"
         aria-label={triggerAriaLabel}
         className={tw("ling-menu__trigger inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 border-0 bg-transparent p-0 text-[var(--text-secondary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]", triggerClassName, open && "ling-menu__trigger--open bg-[var(--surface-hover)] text-[var(--foreground)]")}
-        onClick={() => { setOpen(current => !current) }}
+        onClick={() => { setContextPoint(undefined); setOpen(current => !current) }}
         type="button"
       >
         {typeof triggerLabel === 'function' ? triggerLabel(open) : triggerLabel}

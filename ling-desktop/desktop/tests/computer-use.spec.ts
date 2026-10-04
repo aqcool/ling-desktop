@@ -7,7 +7,7 @@ import ComputerUseRegistry from '@deepseek-ai/dsh-computer-use'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { fileURLToPath } from 'node:url'
-import { computerUseDecision, COMPUTER_USE_PREFIX as prefix } from '../src/computer-use-policy.ts'
+import { computerUseDecision, computerUseFeatureDenial, COMPUTER_USE_PREFIX as prefix } from '../src/computer-use-policy.ts'
 import * as ComputerUse from '../src/computer-use.ts'
 
 const fixture = vi.hoisted(() => ({ fail: false, shutdown: vi.fn() }))
@@ -27,6 +27,16 @@ const contexts: Context[] = []
 afterEach(async () => { await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose())); fixture.fail = false; fixture.shutdown.mockReset() })
 
 describe('desktop permission boundary', () => {
+  it('defaults optional features off without blocking inspection or recording cleanup', () => {
+    const off = { browserEnabled: false, recordingEnabled: false }
+    for (const raw of ['browser_prepare', 'browser_click', 'get_browser_state', 'page', 'start_recording', 'replay_trajectory']) expect(computerUseFeatureDenial(prefix + raw, off)).toBeTruthy()
+    for (const raw of ['list_windows', 'get_window_state', 'stop_recording', 'get_recording_state']) expect(computerUseFeatureDenial(prefix + raw, off)).toBeUndefined()
+    expect(computerUseFeatureDenial('page', off)).toBeUndefined()
+    const on = { browserEnabled: true, recordingEnabled: true }
+    expect(computerUseFeatureDenial(prefix + 'browser_click', on)).toBeUndefined()
+    expect(computerUseDecision(prefix + 'browser_click', {}, 'read-only', allow).kind).toBe('deny')
+    expect(computerUseDecision(prefix + 'replay_trajectory', {}, 'workspace-write', allow).kind).toBe('ask')
+  })
   it.each(['list_apps', 'list_windows', 'get_window_state', 'get_desktop_state', 'get_accessibility_tree'])('allows %s inspection in read-only sessions', raw => {
     expect(computerUseDecision(prefix + raw, {}, 'read-only', allow)).toBe(allow)
   })
@@ -58,6 +68,8 @@ async function setup() {
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode }) } as never)
   ctx.provide('sessionProjections', { stateOf: () => ({ openTurnStartSeq: 1 }) } as never)
   ctx.provide('sessions', {} as never)
+  const preferences = { browserEnabled: false, recordingEnabled: false, snapshotShortcut: '' }
+  ctx.provide('settings', { get: () => preferences } as never)
   let pre!: (exec: ToolExecution, next: () => Promise<PreToolDecision>) => Promise<PreToolDecision>
   let around!: (exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>) => Promise<ToolExecutionResult>
   let guard!: (exec: ToolExecution) => string | undefined
@@ -74,11 +86,28 @@ async function setup() {
   const fiber = ctx.plugin(ComputerUse); await fiber
   const exec = (taskId: string, raw: string) => ({ name: prefix + raw, arguments: {}, signal: new AbortController().signal,
     agent: { id: taskId, session: { id: taskId } } }) as ToolDispatchExecution
-  return { ctx, fiber, exec, pre, around, guard, end, setMode: (value: typeof mode) => { mode = value } }
+  return { ctx, fiber, exec, pre, around, guard, end, preferences, setMode: (value: typeof mode) => { mode = value } }
 }
 const result: ToolExecutionResult = { content: [{ type: 'text', text: 'ok' }], value: 'ok', isError: false }
 
 describe('opt-in LING provider composition', () => {
+  it('rechecks feature revocation before dispatching queued browser actions', async () => {
+    const { exec, pre, around, guard, preferences, setMode } = await setup()
+    const browser = exec('first', 'browser_click')
+    expect((await pre(browser, async () => allow)).kind).toBe('deny')
+    preferences.browserEnabled = true; setMode('danger-full-access')
+    expect((await pre(browser, async () => allow)).kind).toBe('allow')
+    const started = Promise.withResolvers<void>(); const finish = Promise.withResolvers<void>()
+    const inspection = around(exec('first', 'list_apps'), async () => { started.resolve(); await finish.promise; return result })
+    await started.promise
+    const body = vi.fn(async () => result)
+    const queued = around(browser, body)
+    const rejected = expect(queued).rejects.toThrow('浏览器连接已关闭')
+    preferences.browserEnabled = false
+    expect(guard(browser)).toContain('浏览器连接已关闭')
+    finish.resolve(); await inspection; await rejected
+    expect(body).not.toHaveBeenCalled()
+  })
   it('ships a disabled addressable Loader entry', () => {
     const entries = composeEntries([loadOverlayPatches('ling-desktop-host', fileURLToPath(new URL('../cordis.patch.yml', import.meta.url)))])
     expect(entries.find(entry => entry.id === 'ling-computer-use')).toMatchObject({ name: 'ling-desktop-host/computer-use', disabled: true })

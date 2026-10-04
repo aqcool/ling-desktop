@@ -12,11 +12,14 @@
   "scripts": {
     "build": "tsdown && node scripts/build-ssh-runtime.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build-ssh-runtime.mjs && vitest run",
+    "test": "node scripts/build-ssh-runtime.mjs && vitest run && node --test scripts/packaging/packaging.test.mjs",
     "check": "yarn build && yarn typecheck && yarn test",
     "dev": "yarn workspace ling-desktop build && yarn build && node scripts/start.mjs",
     "start": "node scripts/start.mjs",
-    "serve:web": "node scripts/serve-web.mjs"
+    "serve:web": "node scripts/serve-web.mjs",
+    "package:dir": "node scripts/package-macos.mjs --dir",
+    "package:mac": "node scripts/package-macos.mjs",
+    "check:package": "node scripts/package-macos.mjs --verify"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.2",
@@ -73,6 +76,7 @@
     "@deepseek-ai/dsh-command-feedback": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-commands": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-compaction": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-compaction-basic": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-compaction-image-offload": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-computer-use": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-cordis-client-runner": "0.1.6-alpha.2",
@@ -94,6 +98,8 @@
     "@deepseek-ai/dsh-goal-round-driver": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-home-paths": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-hook-protocol": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-hooks-claude-code": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-hooks-codex": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-host-directory-picker": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-host-directory-picker-browse": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-host-directory-picker-native": "0.1.6-alpha.2",
@@ -181,6 +187,8 @@
     "@deepseek-ai/dsh-workspace": "0.1.6-alpha.2",
     "@deepseek-ai/schemastery": "^3.18.2",
     "@earendil-works/pi-ai": "0.85.1",
+    "@vscode/ripgrep": "1.18.0",
+    "@vscode/tree-sitter-wasm": "0.3.1",
     "ling-desktop": "0.0.0-dev.0",
     "pnpm": "11.8.0",
     "react": "18.3.1",
@@ -189,13 +197,18 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "@types/node": "^22.20.0",
     "@types/react": "^18",
     "@types/ssh2": "^1",
     "electron": "44.0.0",
+    "electron-builder": "26.15.7",
+    "immer": "10.1.1",
+    "jsdom": "29.1.1",
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
-    "vitest": "4.1.8"
+    "vitest": "4.1.8",
+    "zustand": "4.4.7"
   },
   "exports": {
     ".": "./lib/extensions.js",
@@ -204,7 +217,11 @@
     "./webserver": "./lib/webserver.js",
     "./ssh-runtime": "./lib/ssh-runtime.js",
     "./ssh": "./lib/ssh-plugin.js",
-    "./computer-use": "./lib/computer-use.js"
+    "./computer-use": "./lib/computer-use.js",
+    "./compaction": "./lib/compaction.js",
+    "./session-lifecycle": "./lib/session-lifecycle.js",
+    "./session-storage": "./lib/session-storage.js",
+    "./session-controller": "./lib/session-controller.js"
   },
   "dsh": {
     "client": {

@@ -9,6 +9,7 @@ export interface TaskView {
   readonly sortBy: TaskSortBy
   readonly workspaceId: string
   readonly recency: TaskRecency
+  readonly modeFilter?: 'all'
 }
 
 export interface TaskGroup {
@@ -63,6 +64,7 @@ export function readTaskViewState(value: string | null): TaskViewState {
         sortBy: view?.sortBy === 'updated' || view?.sortBy === 'name' || view?.sortBy === 'created' ? view.sortBy : 'manual',
         workspaceId: typeof view?.workspaceId === 'string' ? view.workspaceId : 'all',
         recency: view?.recency === 'today' || view?.recency === '7days' || view?.recency === '30days' ? view.recency : 'all',
+        ...(view?.modeFilter === 'all' ? { modeFilter: 'all' as const } : {}),
       },
       groups: Array.isArray(data.groups) ? data.groups.filter((group): group is TaskGroup =>
         !!group && typeof group.id === 'string' && typeof group.name === 'string' && typeof group.color === 'string' && typeof group.marker === 'string') : [],

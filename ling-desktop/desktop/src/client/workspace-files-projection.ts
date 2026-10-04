@@ -4,6 +4,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-office-to-pdf/remote'
 import type { OfficeToPdfErrorCode } from '@deepseek-ai/dsh-office-to-pdf/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { LingWorkspaceDocumentsRemote } from '../workspace-document-contract.ts'
 import type {
   LingCommandRejectionReason,
   LingReadResult,
@@ -71,9 +72,11 @@ function rejected<Value>(
 function remoteFailure<Value>(error: { readonly code: string; readonly message?: string }): LingReadResult<Value> {
   const reason = /permission|denied|forbidden/i.test(error.code)
     ? 'permission-denied'
+    : /conflict|stale-version/i.test(error.code)
+      ? 'document-conflict'
     : /not-found/i.test(error.code)
       ? 'invalid-command'
-      : /outside-workspace|not-directory|not-regular-file|not-text|too-large|invalid|bad-request|validation/i.test(error.code)
+      : /outside-workspace|not-directory|not-regular-file|not-text|too-large|readonly|aborted|cancelled|invalid|bad-request|validation/i.test(error.code)
         ? 'invalid-command'
         : 'runtime-unavailable'
   return rejected(reason, error.message?.trim() || '操作未能完成。', /transport|connection|timeout|unavailable/i.test(error.code))
@@ -89,8 +92,39 @@ function documentSuffix(path: string): string {
   return index <= 0 ? '' : name.slice(index + 1).toLowerCase()
 }
 
-export function createDshWorkspaceFilesProjection(remote: ClientRemote) {
+export function createDshWorkspaceFilesProjection(remote: ClientRemote, editor?: LingWorkspaceDocumentsRemote) {
   return {
+    ...(editor === undefined ? {} : {
+      async listDraftDirectory(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>> {
+        try { const result = await editor.list({ workspaceId, path }, signal); return result.ok ? result : remoteFailure(result.error) }
+        catch { return rejected('runtime-unavailable', '目录内容暂时不可用。', true) }
+      },
+      async readDraftDocument(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>> {
+        const suffix = documentSuffix(path)
+        if (IMAGE_MEDIA_TYPES[suffix] || suffix === 'pdf' || OFFICE_EXTENSIONS.has(suffix) || UNVIEWABLE_BINARY_EXTENSIONS.has(suffix)) {
+          return { ok: true, value: { path, kind: 'unsupported', mediaType: 'application/octet-stream' } }
+        }
+        try {
+          const result = await editor.read({ workspaceId, path }, signal)
+          if (!result.ok) return remoteFailure(result.error)
+          const kind = MARKDOWN_EXTENSIONS.has(suffix) ? 'markdown' : CODE_EXTENSIONS.has(suffix) ? 'code' : 'text'
+          return { ok: true, value: { path, kind, mediaType: kind === 'markdown' ? 'text/markdown' : 'text/plain', text: result.value.text,
+            bytes: result.value.bytes, version: result.value.version, lines: result.value.text.length === 0 ? 0 : result.value.text.split('\n').length, truncated: false } }
+        } catch { return rejected('runtime-unavailable', '文档暂时不可用。', true) }
+      },
+      async saveDraftDocument(workspaceId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>> {
+        try { const result = await editor.save({ workspaceId, path, text, version }, signal); return result.ok ? result : remoteFailure(result.error) }
+        catch { return rejected('runtime-unavailable', '文件未能保存，请重试。', true) }
+      },
+      async saveDocument(taskId: string, path: string, text: string, version: string, signal?: AbortSignal): Promise<LingReadResult<{ readonly version: string }>> {
+        try {
+          const result = await editor.save({ taskId, path, text, version }, signal)
+          return result.ok ? result : remoteFailure(result.error)
+        } catch {
+          return rejected('runtime-unavailable', '文件未能保存，请重试。', true)
+        }
+      },
+    }),
     async list(taskId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDirectory>> {
       try {
         const result = await remote.workspaceFiles.list(
@@ -157,6 +191,17 @@ export function createDshWorkspaceFilesProjection(remote: ClientRemote) {
           return { ok: true, value: { path, kind: 'unsupported', mediaType: 'application/octet-stream' } }
         }
         const kind = MARKDOWN_EXTENSIONS.has(suffix) ? 'markdown' : CODE_EXTENSIONS.has(suffix) ? 'code' : 'text'
+        if (editor !== undefined) {
+          const full = await editor.read({ taskId, path }, signal)
+          if (full.ok) {
+            return { ok: true, value: { path, kind, mediaType: kind === 'markdown' ? 'text/markdown' : 'text/plain',
+              text: full.value.text, bytes: full.value.bytes, version: full.value.version,
+              lines: full.value.text.length === 0 ? 0 : full.value.text.split('\n').length, truncated: false } }
+          }
+          // A preview never carries a save version. Unsupported paths and large
+          // files retain the upstream read-only preview; text errors remain errors.
+          if (!/readonly|too-large|unavailable/i.test(full.error.code)) return remoteFailure(full.error)
+        }
         const result = await remote.workspaceFiles.read(brandString<SessionId>(taskId), path, { limit: PREVIEW_LINES }, signal)
         if (!result.ok) return remoteFailure(result.error)
         return {

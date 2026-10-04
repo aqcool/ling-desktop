@@ -11,6 +11,8 @@ import type {
 import type { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { LingTimelineAttachment, LingTimelineItem, LingServerExecution } from 'ling-desktop/runtime'
 
+import { projectCompaction } from './compaction-projection.js'
+
 function isoTime(value: number): string {
   return new Date(value).toISOString()
 }
@@ -339,6 +341,17 @@ function serverCalls(snapshot: ChatSnapshot): Array<RunningToolCall | ToolResult
 
 export function projectConversation(taskId: string, snapshot: ChatSnapshot, executions: readonly LingServerExecution[] = []): readonly LingTimelineItem[] {
   const stops = turnStops(snapshot)
+  const compactedSeqs = new Set<number>()
+  const compactCommands = new Set<string>()
+  let resumeSeq = -1
+  for (const node of snapshot.nodes.values()) {
+    if (node.kind === 'ling-compaction-boundary') resumeSeq = Math.max(resumeSeq, node.anchorSeq)
+    if (node.kind === 'ling-compaction') {
+      const { checkpointSeq: seq, sourceCommandId } = node.data as { checkpointSeq?: number; sourceCommandId?: string }
+      if (seq !== undefined) compactedSeqs.add(seq)
+      if (sourceCommandId !== undefined) compactCommands.add(sourceCommandId)
+    }
+  }
   // Carry engine-owned locations across the native Renderer boundary.
   const turnsBySeq = new Map<number, number>()
   for (const node of snapshot.nodes.values()) {
@@ -354,6 +367,8 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
     if (node.kind === 'assistant' && assistantText(node.blocks).trim()) lastReplies.set(node.turn, node.seq)
   }
   const items = snapshot.legacy.nodes.flatMap(node => {
+    if (node.kind === 'compaction' && compactedSeqs.has(node.seq)) return []
+    if (node.kind === 'command' && compactCommands.has(node.commandId)) return []
     const projected = projectNode(taskId, stops, node)
     if (projected === undefined) return []
     const turn = 'turn' in node && typeof node.turn === 'number' ? node.turn : turnsBySeq.get(node.seq)
@@ -369,8 +384,22 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
 
   for (const key of snapshot.order) {
     const node = snapshot.nodes.get(key)
-    if (node === undefined || node.kind !== 'workflow-run') continue
-    const item = projectWorkflowRun(taskId, node, snapshot)
+    if (node === undefined) continue
+    if (node.kind === 'ling-deliverables') {
+      const data = node.data as { turn: number; time: number; files: NonNullable<LingTimelineItem['presentedFiles']> }
+      const reply = items.findLastIndex(item => item.kind === 'assistant-message' && item.turn === data.turn && item.turnComplete)
+      if (reply >= 0) items[reply] = { ...items[reply]!, presentedFiles: [...items[reply]!.presentedFiles ?? [], ...data.files] }
+      else {
+        const item: LingTimelineItem = { itemId: `${taskId}:delivery:${node.anchorSeq}`, taskId, seq: node.anchorSeq, turn: data.turn,
+          kind: 'system-notice', text: '', createdAt: isoTime(data.time), status: 'completed', presentedFiles: data.files }
+        const at = items.findIndex(existing => existing.seq !== undefined && existing.seq > node.anchorSeq)
+        if (at === -1) items.push(item); else items.splice(at, 0, item)
+      }
+      continue
+    }
+    const compactTurn = node.kind === 'ling-compaction' ? (node.data as { turn?: number }).turn : undefined
+    const item = node.kind === 'ling-compaction' ? projectCompaction(taskId, node, node.anchorSeq < resumeSeq || (compactTurn !== undefined && snapshot.timeline.turns.get(compactTurn)?.end !== undefined))
+      : node.kind === 'workflow-run' ? projectWorkflowRun(taskId, node, snapshot) : undefined
     if (item === undefined) continue
     const at = items.findIndex(existing => existing.seq !== undefined && existing.seq > (item.seq ?? Number.POSITIVE_INFINITY))
     if (at === -1) items.push(item)
@@ -422,6 +451,19 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
     }
   }
 
+  // Re-presenting a file updates its durable coordinates rather than multiplying cards.
+  const delivered = new Set<string>()
+  for (let at = items.length - 1; at >= 0; at--) {
+    const item = items[at]!
+    if (!item.presentedFiles) continue
+    const files = [...item.presentedFiles].reverse().filter(file => {
+      const key = JSON.stringify([item.turn, file.path])
+      if (delivered.has(key)) return false
+      delivered.add(key); return true
+    }).reverse()
+    if (!files.length && !item.text) items.splice(at, 1)
+    else items[at] = { ...item, presentedFiles: files }
+  }
   return items
 }
 
