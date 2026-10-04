@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { packageConfiguration, nativeTarget, targetName, applicationLayout, localBuildEnvironment } from './packaging/config.mjs'
-import { BOOTSTRAP, json, materializeRuntime, verifyRuntime } from './packaging/runtime.mjs'
+import { BOOTSTRAP, json, materializeRuntime, verifyBootstrapArchive, verifyRuntime } from './packaging/runtime.mjs'
 
 const execute = promisify(execFile)
 const hostRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -116,8 +116,7 @@ try {
       const builderRequire = createRequire(require.resolve('electron-builder'))
       const asar = createRequire(builderRequire.resolve('app-builder-lib'))('@electron/asar')
       const archive = join(layout.resources, 'app.asar')
-      if (JSON.stringify(asar.listPackage(archive).sort()) !== JSON.stringify(['/main.mjs', '/package.json'])) throw new Error('Unexpected dependencies or files inside application bootstrap ASAR')
-      if (asar.extractFile(archive, 'main.mjs').toString() !== BOOTSTRAP) throw new Error('Packaged bootstrap does not match LING')
+      verifyBootstrapArchive(asar, archive)
       await verifyRuntime(finalRuntime, target)
       const relocated = await mkdtemp(join(tmpdir(), 'ling-installed-app-'))
       let report

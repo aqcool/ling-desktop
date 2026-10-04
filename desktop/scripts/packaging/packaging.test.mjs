@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { test } from 'node:test'
-import { excludedFile, installedPackage, materializeRuntime, supportsTarget, verifyRuntime } from './runtime.mjs'
+import { BOOTSTRAP, excludedFile, installedPackage, materializeRuntime, supportsTarget, verifyBootstrapArchive, verifyRuntime } from './runtime.mjs'
 import { localBuildEnvironment, packageConfiguration, nativeTarget, applicationLayout, RELEASE_TARGETS, targetName } from './config.mjs'
 
 const target = { platform: 'darwin', arch: 'arm64' }
+const require = createRequire(import.meta.url)
 async function packageAt(path, manifest, body = 'module.exports = 1') {
   await mkdir(path, { recursive: true })
   await writeFile(join(path, 'package.json'), JSON.stringify({ main: 'index.cjs', ...manifest }))
@@ -19,6 +20,31 @@ async function hostAt(path, dependencies) {
   await writeFile(join(path, 'lib/main.js'), 'export {}')
   for (const file of ['cordis.patch.yml', 'host.cordis.patch.yml', 'scripts/node-bin/node']) await writeFile(join(path, file), '')
 }
+
+test('bootstrap ASAR audit accepts Windows separators and still rejects extra files or changed code', async () => {
+  const builderRequire = createRequire(require.resolve('electron-builder'))
+  const asar = createRequire(builderRequire.resolve('app-builder-lib'))('@electron/asar')
+  const scratch = await mkdtemp(join(tmpdir(), 'ling-bootstrap-archive-'))
+  try {
+    const source = join(scratch, 'app'), archive = join(scratch, 'app.asar')
+    await mkdir(source)
+    await writeFile(join(source, 'main.mjs'), BOOTSTRAP)
+    await writeFile(join(source, 'package.json'), '{"main":"main.mjs"}')
+    await asar.createPackage(source, archive)
+    const windowsAsar = { ...asar, listPackage(path) { return asar.listPackage(path).map(file => win32.normalize(file)) } }
+    verifyBootstrapArchive(asar, archive)
+    verifyBootstrapArchive(windowsAsar, archive)
+    await writeFile(join(source, 'unexpected.cjs'), 'injected')
+    const extra = join(scratch, 'extra.asar')
+    await asar.createPackage(source, extra)
+    assert.throws(() => verifyBootstrapArchive(windowsAsar, extra), /Unexpected files/)
+    await rm(join(source, 'unexpected.cjs'))
+    await writeFile(join(source, 'main.mjs'), 'altered')
+    const changed = join(scratch, 'changed.asar')
+    await asar.createPackage(source, changed)
+    assert.throws(() => verifyBootstrapArchive(windowsAsar, changed), /bootstrap does not match/)
+  } finally { await rm(scratch, { recursive: true, force: true }) }
+})
 
 test('materialized Node graph preserves nested versions and works after the source is removed', async () => {
   const scratch = await mkdtemp(join(tmpdir(), 'ling-production-graph-'))

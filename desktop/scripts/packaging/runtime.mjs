@@ -16,6 +16,13 @@ export const BOOTSTRAP = "// LING code and native plugins live in the immutable 
 
 export async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
 
+export function verifyBootstrapArchive(asar, archive) {
+  // ASAR lists paths using the host OS separator, including its leading root.
+  const files = asar.listPackage(archive).map(path => path.replaceAll('\\', '/')).sort()
+  if (JSON.stringify(files) !== JSON.stringify(['/main.mjs', '/package.json'])) throw new Error(`Unexpected files inside application bootstrap ASAR: ${JSON.stringify(files)}`)
+  if (asar.extractFile(archive, 'main.mjs').toString() !== BOOTSTRAP) throw new Error('Packaged bootstrap does not match LING')
+}
+
 /** Resolve package manifests even when exports intentionally hide package.json. */
 export async function installedPackage(name, anchor) {
   if (!/^(?:@[^/]+\/)?[^/]+$/.test(name) || name === '.' || name === '..') throw new Error(`Invalid dependency name: ${name}`)
