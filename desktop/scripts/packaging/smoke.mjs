@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve, sep } from 'node:path'
@@ -39,8 +39,27 @@ async function checkNative() {
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(':memory:')
   assert.equal(db.prepare('select 7 as value').get().value, 7); db.close()
-  const lock = await open(join(scratch, 'lock'), 'w')
-  try { await require('@deepseek-ai/node-addon-system/flock').tryLockExclusive(lock.fd) } finally { await lock.close() }
+  // Exercise the real persistence lease: POSIX uses flock, Windows uses a
+  // named semaphore. Separate backends bypass the in-process writer guard.
+  const { Context } = require('@deepseek-ai/cordis')
+  const { default: Persistence } = require('@deepseek-ai/dsh-session-persistence-jsonl')
+  const { SessionAlreadyOwnedError } = require('@deepseek-ai/dsh-session-persistence')
+  const { SESSION_FORMAT_VERSION } = require('@deepseek-ai/dsh-session')
+  const owners = [new Context(), new Context()]
+  let writer
+  try {
+    for (const owner of owners) await owner.plugin(Persistence, { root: join(scratch, 'sessions') })
+    const id = 'ling-packaged-lock-probe'
+    writer = await owners[0].sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id, cwd: scratch, createdAt: Date.now(), isSeeded: false })
+    await writer.flush()
+    await assert.rejects(owners[1].sessionPersistence.open(id, 'write'), SessionAlreadyOwnedError)
+    await writer.close(); writer = undefined
+    writer = await owners[1].sessionPersistence.open(id, 'write')
+    await writer.close(); writer = undefined
+  } finally {
+    await writer?.close()
+    for (const owner of owners.reverse()) await owner.fiber.dispose()
+  }
   const koffi = require('koffi'), library = koffi.load(process.platform === 'win32' ? 'kernel32.dll' : null)
   try { assert.equal(library.func(process.platform === 'win32' ? 'uint32_t __stdcall GetCurrentProcessId(void)' : 'int getpid(void)')(), process.pid) } finally { library.unload() }
   const sharp = require('sharp'), pixels = Buffer.from([16, 100, 230])
@@ -67,7 +86,7 @@ async function checkNative() {
       try { assert.equal(event.exitCode, 0); assert.match(output, /ling-packaged-pty-ok/); accept() } catch (error) { reject(error) }
     })
   })
-  verified.push('sqlite-flock-koffi-sharp-ripgrep-tree-sitter-pty')
+  verified.push('sqlite-session-lock-koffi-sharp-ripgrep-tree-sitter-pty')
 }
 
 async function checkDocument() {
