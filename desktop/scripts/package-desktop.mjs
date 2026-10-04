@@ -86,7 +86,7 @@ try {
       const electronDist = join(dirname(require.resolve('electron/package.json')), 'dist')
       await smoke(electronExecutable, runtime)
       await mkdir(app)
-      await writeFile(join(app, 'package.json'), `${JSON.stringify({ name: 'ling-desktop-app', productName: 'LING', version, private: true, type: 'module', main: 'main.mjs', description: 'LING local desktop application', license: 'MIT' }, null, 2)}\n`)
+      await writeFile(join(app, 'package.json'), `${JSON.stringify({ name: 'ling-desktop-app', productName: 'LING', version, private: true, type: 'module', main: 'main.mjs', description: 'LING local desktop application', license: 'MIT', homepage: 'https://github.com/aqcool/ling-desktop', author: { name: 'LING Desktop', email: 'aqcool@users.noreply.github.com' }, desktopName: 'com.ling.desktop' }, null, 2)}\n`)
       await writeFile(join(app, 'main.mjs'), BOOTSTRAP)
       const config = packageConfiguration({ appRoot: app, runtimeRoot: runtime, output, electronDist, version,
         icon: join(hostRoot, 'assets/application-icons/fold-coral.png'), target })

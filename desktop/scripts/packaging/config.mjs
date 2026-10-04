@@ -47,13 +47,13 @@ export function packageConfiguration({ appRoot, runtimeRoot, output, electronDis
     dmg: { sign: false, writeUpdateInfo: false },
   }
   if (target.platform === 'win32') return { ...common,
-    win: { target: [{ target: 'nsis', arch: [target.arch] }], icon, signAndEditExecutable: false },
+    win: { target: [{ target: 'nsis', arch: [target.arch] }], icon },
     nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true,
       deleteAppDataOnUninstall: false, createDesktopShortcut: false },
   }
   return { ...common,
     linux: { target: [{ target: 'AppImage', arch: [target.arch] }, { target: 'deb', arch: [target.arch] }],
-      icon, category: 'Development', executableName: 'ling-desktop-app',
+      icon, category: 'Development', executableName: 'ling-desktop-app', syncDesktopName: true,
       maintainer: 'LING Desktop <aqcool@users.noreply.github.com>' },
   }
 }
