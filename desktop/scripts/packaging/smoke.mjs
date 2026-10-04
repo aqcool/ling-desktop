@@ -83,7 +83,12 @@ async function checkNative() {
     const timer = setTimeout(() => { terminal.kill(); reject(new Error('Packaged PTY timed out')) }, 15_000)
     const exit = terminal.onExit(event => {
       clearTimeout(timer); data.dispose(); exit.dispose()
-      try { assert.equal(event.exitCode, 0); assert.match(output, /ling-packaged-pty-ok/); accept() } catch (error) { reject(error) }
+      try {
+        // ConPTY's shell exit leaves its output worker owned by the caller.
+        // Explicitly close our PTY after capturing the exit and drained output.
+        if (process.platform === 'win32') terminal.kill()
+        assert.equal(event.exitCode, 0); assert.match(output, /ling-packaged-pty-ok/); accept()
+      } catch (error) { reject(error) }
     })
   })
   verified.push('sqlite-session-lock-koffi-sharp-ripgrep-tree-sitter-pty')
@@ -161,4 +166,7 @@ try {
     child.kill('SIGKILL'); await stopped
   }
   await rm(scratch, { recursive: true, force: true })
+  // This unreferenced diagnostic never delays a successful exit and emits
+  // resource kinds only; it must not expose Host URLs or profile contents.
+  setTimeout(() => console.error(`LING smoke pending resources: ${process.getActiveResourcesInfo().join(', ')}`), 10_000).unref()
 }
