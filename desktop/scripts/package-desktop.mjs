@@ -1,6 +1,6 @@
 /** Build and qualify a native LING package without opening UI. */
 import { execFile, spawn } from 'node:child_process'
-import { chmod, cp, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -46,6 +46,24 @@ async function smoke(executable, runtime) {
   console.log(`LING runtime verified: ${report.verified.join(', ')}`)
   return report
 }
+async function prepareElectron() {
+  // Resolve the binary before tests need it. A failed network download gets a
+  // fresh installer process, not a skipped native test or a changed version.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const result = await execute(process.execPath, ['-e', 'console.log(JSON.stringify(require("electron")))'], {
+        cwd: hostRoot, env: environment, timeout: 180_000, maxBuffer: 2 * 1024 * 1024,
+      })
+      const executable = JSON.parse(result.stdout.trim().split('\n').at(-1))
+      if (!(await stat(executable)).isFile()) throw new Error('Native Electron executable is missing')
+      return executable
+    } catch (error) {
+      if (attempt === 3) throw error
+      console.log(`Retrying native Electron preparation (${attempt}/3)`)
+      await new Promise(accept => setTimeout(accept, 5000))
+    }
+  }
+}
 async function verifyDiskImage(path) {
   await execute('/usr/bin/hdiutil', ['verify', path], { timeout: 120_000 })
   const mount = await mkdtemp(join(tmpdir(), 'ling-package-image-'))
@@ -70,6 +88,7 @@ try {
     await verifyRuntime(finalRuntime, target)
     await smoke(layout.executable, finalRuntime)
   } else {
+    const electronExecutable = await prepareElectron()
     // This gate builds and tests both LING workspaces, never a reference product.
     const pnpm = join(dirname(require.resolve('pnpm')), 'bin/pnpm.mjs')
     await run(process.execPath, [pnpm, 'check'], repository)
@@ -82,7 +101,6 @@ try {
       await chmod(join(hostRoot, 'scripts/node-bin/node'), 0o755)
       const manifest = await materializeRuntime({ hostRoot, runtime, target, sourceRevision: { commit, dirty } })
       await verifyRuntime(runtime, target)
-      const electronExecutable = require('electron')
       const electronDist = join(dirname(require.resolve('electron/package.json')), 'dist')
       await smoke(electronExecutable, runtime)
       await mkdir(app)

@@ -47,6 +47,8 @@ export function packageConfiguration({ appRoot, runtimeRoot, output, electronDis
     dmg: { sign: false, writeUpdateInfo: false },
   }
   if (target.platform === 'win32') return { ...common,
+    // The retained long-path installer manifest requires modern makensis.
+    toolsets: { nsis: '1.2.1' },
     win: { target: [{ target: 'nsis', arch: [target.arch] }], icon },
     nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true,
       deleteAppDataOnUninstall: false, createDesktopShortcut: false },
