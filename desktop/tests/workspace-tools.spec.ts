@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, statSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,7 +28,7 @@ describe('workspace tools', () => {
     await vi.waitFor(async () => {
       const current = await tools.handle(root, { type: 'inspect' })
       expect(current.runs[0]?.running).toBe(false)
-      expect(current.runs[0]?.output).toContain(root)
+      expect(statSync(current.runs[0]!.output.trim()).ino).toBe(statSync(root).ino)
       expect(current.runs[0]?.exitCode).toBe(3)
     }, { timeout: 5000 })
   })

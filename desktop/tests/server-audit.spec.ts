@@ -17,7 +17,8 @@ describe('server operation audit', () => {
       expect(events[0]!.operationId).toBe(events[1]!.operationId)
       expect(events[2]!.operationId).toBe(events[3]!.operationId)
       expect(await readFile(path, 'utf8')).not.toContain('secret-password')
-      expect((await stat(path)).mode & 0o777).toBe(0o600)
+      // Windows exposes synthetic mode bits; Unix mode assertions do not test its ACLs.
+      if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     } finally { await rm(home, { recursive: true, force: true }) }
   })
 })

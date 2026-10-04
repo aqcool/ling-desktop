@@ -19,7 +19,7 @@ export async function readWorkspaceBranch(path: unknown): Promise<string | null>
   }
 }
 
-import { lstat, readFile, readlink, realpath } from 'node:fs/promises'
+import { lstat, readFile, readlink, realpath, stat } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
 import type { LingGitFile, LingGitRequest, LingGitResult, LingGitSnapshot, LingGitWorktree } from 'ling-desktop/runtime'
 
@@ -181,7 +181,16 @@ export class WorkspaceGit {
       }
       case 'worktree-remove':
       case 'worktree-open': {
-        const target = state.worktrees.find(item => item.path === request.path)
+        // Git for Windows expands 8.3 aliases and uses forward slashes. Match
+        // the same directory identity without treating a child as its parent.
+        let target = state.worktrees.find(item => item.path === request.path)
+        if (!target && process.platform === 'win32') {
+          const identity = await stat(pathValue(request.path), { bigint: true })
+          if (identity.isDirectory() && identity.ino !== 0n) for (const item of state.worktrees) {
+            const candidate = await stat(item.path, { bigint: true }).catch(() => undefined)
+            if (candidate?.dev === identity.dev && candidate.ino === identity.ino) { target = item; break }
+          }
+        }
         if (!target) throw new Error('Worktree 不存在，请刷新。')
         if (request.type === 'worktree-open') {
           const error = await this.openPath(target.path)

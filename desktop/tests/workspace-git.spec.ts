@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, realpathSync, readFileSync, symlinkSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, statSync, readlinkSync, realpathSync, readFileSync, symlinkSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -54,7 +54,7 @@ describe('workspace Git operations', () => {
     writeFileSync(join(root, 'file.txt'), 'replacement\n')
     git('add', 'file.txt')
     writeFileSync(join(root, 'file.txt'), 'one\ntwo\nthird\n')
-    writeFileSync(join(root, 'new [a]\nfile.txt'), 'new\nlast')
+    writeFileSync(join(root, process.platform === 'win32' ? 'new [a] file.txt' : 'new [a]\nfile.txt'), 'new\nlast')
     writeFileSync(join(root, 'binary.dat'), Buffer.from([0, 1, 2]))
     const index = readFileSync(join(root, '.git', 'index'))
     expect((await service.handle(root, { type: 'inspect', lineChanges: true })).snapshot.lineChanges).toEqual({ added: 3, deleted: 0 })
@@ -76,7 +76,7 @@ describe('workspace Git operations', () => {
   })
 
   it('stages literal filenames and unstages an unborn index without removing newer contents', async () => {
-    const name = '中文 [a]*\nfile.txt'
+    const name = process.platform === 'win32' ? '中文 [a] file.txt' : '中文 [a]*\nfile.txt'
     writeFileSync(join(root, name), 'first')
     const state = await service.handle(root, { type: 'inspect' })
     expect(state.snapshot).toMatchObject({ unborn: true, branch: 'main', files: [{ path: name, index: '?' }] })
@@ -119,7 +119,7 @@ describe('workspace Git operations', () => {
 
   it('does not read a symlink target when previewing an untracked file', async () => {
     symlinkSync('/etc/hosts', join(root, 'link'))
-    expect((await service.handle(root, { type: 'diff', path: 'link', staged: false })).diff).toBe('符号链接 → /etc/hosts')
+    expect((await service.handle(root, { type: 'diff', path: 'link', staged: false })).diff).toBe(`符号链接 → ${readlinkSync(join(root, 'link'))}`)
   })
 
   it('switches branches without discarding conflicting local edits', async () => {
@@ -139,7 +139,12 @@ describe('workspace Git operations', () => {
     try {
       const result = await service.handle(root, { type: 'worktree-add', path: tree, branch: 'feature/tree', newBranch: true })
       expect(result.snapshot.worktrees).toHaveLength(2)
-      expect(result.snapshot.worktrees[1]).toMatchObject({ path: tree, branch: 'feature/tree', main: false })
+      expect(result.snapshot.worktrees[1]).toMatchObject({ branch: 'feature/tree', main: false })
+      expect(statSync(result.snapshot.worktrees[1]!.path).ino).toBe(statSync(tree).ino)
+      if (process.platform === 'win32') {
+        const child = join(tree, 'nested'); mkdirSync(child)
+        await expect(service.handle(root, { type: 'worktree-remove', path: child })).rejects.toThrow('不存在')
+      }
       await expect(service.handle(tree, { type: 'worktree-remove', path: tree })).rejects.toThrow('当前工作区')
       writeFileSync(join(tree, 'untracked'), 'keep')
       await expect(service.handle(root, { type: 'worktree-remove', path: tree })).rejects.toThrow()

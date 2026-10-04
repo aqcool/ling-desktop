@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { KnowledgeStore } from '../src/knowledge/store.ts'
 import { KnowledgeEngine, type KnowledgeAdapters } from '../src/knowledge/engine.ts'
-import { parseCode, codeGraph, readCode, indexLocalWorkspace, searchLocalCode } from '../src/knowledge/code-index.ts'
+import { parseCode, eligiblePath, codeGraph, readCode, indexLocalWorkspace, searchLocalCode } from '../src/knowledge/code-index.ts'
 import { knowledgeRequestSchema } from '../src/knowledge-contract.ts'
 
 const cleanup: (() => void | Promise<void>)[] = []
@@ -81,6 +81,12 @@ describe('knowledge durability and provenance', () => {
 })
 
 describe('code evidence', () => {
+  it('normalizes Windows evidence paths and excludes nested credential files', async () => {
+    expect(eligiblePath('src\\credentials.json')).toBe(false)
+    const file = await parseCode('src\\module\\main.ts', 'export function hello() {}')
+    expect(file.path).toBe('src/module/main.ts')
+    expect(file.nodes[0]?.source?.path).toBe(file.path)
+  })
   it('loads shipped WASM grammars and preserves symbol and import line references', async () => {
     const ts=await parseCode('src/a.ts',"import { b } from './b'\nexport function hello() { return b() }\nconst arrow = () => hello()")
     const go=await parseCode('main.go','package main\nfunc greet() {}\nfunc main() { greet() }')

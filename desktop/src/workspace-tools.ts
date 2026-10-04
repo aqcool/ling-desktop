@@ -71,7 +71,7 @@ export class WorkspaceTools {
       if ([...this.runs.values()].filter(run => run.running && run.cwd === cwd).length >= 8) throw new Error('当前工作区运行中的命令过多，请先停止部分命令。')
       // Only an explicit Run request executes shell text; inspection never runs project scripts.
       const child = process.platform === 'win32'
-        ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', request.command], { cwd, windowsHide: true })
+        ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${request.command}"`], { cwd, windowsHide: true, windowsVerbatimArguments: true })
         : spawn(process.env.SHELL || '/bin/sh', ['-lc', request.command], { cwd, detached: true, env: { ...process.env, TERM: 'dumb', NO_COLOR: '1' } })
       const run: Run = { id: randomUUID(), name: request.name, command: request.command, cwd, output: '', running: true, process: child }
       this.runs.set(run.id, run)

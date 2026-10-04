@@ -19,6 +19,7 @@ const languages = new Map<string, Promise<TreeSitterLanguage>>()
 const grammar: Record<string, string> = { '.ts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.go': 'go', '.py': 'python', '.rs': 'rust', '.java': 'java' }
 export const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 export function eligiblePath(path: string): boolean {
+  path = path.replaceAll('\\', '/')
   return !path.split(/[\\/]/).some(part => /^(?:node_modules|vendor|dist|build|coverage|\.ssh|\.aws|\.git|\.yarn|\.next|\.DS_Store|\.env(?:\..*)?)$/.test(part)) && !/(?:^|\/)(?:(?:auth|credentials|secrets|tokens)\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|.*\.(?:pem|key|p12|pfx))$/.test(path)
     && /\.(?:tsx?|jsx?|mjs|cjs|go|py|rs|java|md|json|ya?ml|toml|sql|css|html)$/.test(path)
 }
@@ -35,6 +36,7 @@ export async function readCode(root: string, path: string, signal?: AbortSignal)
 }
 const declarations = new Set(['function_declaration', 'function_definition', 'method_definition', 'method_declaration', 'class_declaration', 'class_definition', 'interface_declaration', 'type_alias_declaration', 'type_spec', 'struct_item', 'function_item', 'impl_item', 'enum_item'])
 export async function parseCode(path: string, body: string, commit?: string): Promise<IndexedFile> {
+  path = path.replaceAll('\\', '/')
   const hash = sha256(body)
   const source: KnowledgeSource = { kind: 'code', label: path, path, line: 1, hash, ...(commit ? { commit } : {}) }
   const fileId = `file:${path}`
@@ -90,7 +92,7 @@ export async function indexLocalWorkspace(root: string, previous: IndexedFile[],
   let output: string
   try { output = (await execute(rgPath, ['--files', '--hidden', '-g', '!.git', '-g', '!node_modules', '-g', '!vendor'], { cwd: root, signal, maxBuffer: 8 * 1024 * 1024 })).stdout }
   catch (error) { if (signal.aborted) throw error; output = (await execute('git', ['ls-files', '-c', '-o', '--exclude-standard'], { cwd: root, signal, maxBuffer: 8 * 1024 * 1024 })).stdout }
-  const paths = [...new Set(output.split('\n').filter(eligiblePath))].sort()
+  const paths = [...new Set(output.split(/\r?\n/).map(path => path.replaceAll('\\', '/')).filter(eligiblePath))].sort()
   if (paths.length > 20000) throw new Error('工作区超过 20,000 个可索引文件，请缩小项目范围。')
   let commit: string | undefined
   try { commit = (await execute('git', ['rev-parse', 'HEAD'], { cwd: root, signal })).stdout.trim() } catch { signal.throwIfAborted() }
@@ -146,7 +148,7 @@ export async function searchLocalCode(root: string, query: string, signal?: Abor
   for (const line of output.split('\n')) {
     if (!line) continue
     const record = JSON.parse(line) as { type: string; data: { path?: { text?: string }; line_number?: number; lines?: { text?: string } } }
-    const path = record.data.path?.text?.replace(/^\.\//, '')
+    const path = record.data.path?.text?.replaceAll('\\', '/').replace(/^\.\//, '')
     if (record.type !== 'match' || !path || !eligiblePath(path) || seen.has(path)) continue
     let body: string
     try { body = await readCode(root, path, signal) } catch { signal?.throwIfAborted(); continue }
