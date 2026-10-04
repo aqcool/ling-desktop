@@ -29,9 +29,10 @@ corepack pnpm check:package # recheck its installed runtime
 ```
 
 Output is in `desktop/dist/{mac-arm64,mac-x64,win-x64,linux-x64}/`.
-`packaging-report.json` records source revision, package versions, runtime
-hashes/size and the relocated-runtime probe. Preparation copies, smoke profiles
-and mounted images are removed afterward.
+`packaging-report.json` records the version, target, runtime file/package counts,
+size and relocated-runtime probe. The installed `runtime/ling-runtime.json`
+records the source revision, dependency versions and individual file hashes.
+Preparation copies, smoke profiles and mounted images are removed afterward.
 
 macOS builds use ad-hoc signatures without Apple notarization. Windows builds
 are unsigned. These packages may produce OS installation warnings; signing
