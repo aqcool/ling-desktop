@@ -1,9 +1,0 @@
-- insert:
-    - id: desktop-next-capabilities
-      name: dsh-desktop-next
-    - id: community-market
-      name: dsh-community-market
-      disabled: true
-    - id: agents-anywhere-bridge-next
-      name: '@agents-anywhere/dsh-bridge-next'
-      disabled: true

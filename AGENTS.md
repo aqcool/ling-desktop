@@ -1,43 +1,53 @@
 # LING Desktop repository rules
 
-LING Desktop is the sole product development track in this repository. Its app lives in
-`ling-desktop/` (Renderer) and `ling-desktop/desktop/` (Host). The Stable/Beta
-packages (`dsh-plugin-desktop/` and `dsh-plugin-desktop-beta/`) and
-`dsh-desktop-next/` are reference implementations only: use them to compare
-architecture, behavior, and compatibility, not as parallel product roadmaps or
-release targets. Do not count their feature coverage, packaging, or test results
-as LING completion. Build new desktop features in LING unless explicitly asked
-to maintain a reference package. DeepSeek Harness remains a pinned, unmodified
-upstream checkout.
+LING Desktop is the only product in this repository. The Renderer lives in
+`src/` at the repository root, and the Electron/DSH Host lives in `desktop/`.
+Keep these two pnpm workspaces separate. The Renderer must not import upstream
+DSH UI packages; DSH access belongs behind the explicit LING runtime adapter.
 
-## Prerequisites and setup
+## Setup and commands
 
-- Use Node.js `^22.19.0` or `>=24.0.0` and the root Yarn `4.18.0` release through Corepack.
-- Initialize the pinned upstream checkout with `git submodule update --init --recursive`.
-- Install root dependencies with `corepack yarn install --immutable`.
+- Use Node.js `^22.19.0` or `>=24.0.0` and the exact pnpm release recorded in
+  root `package.json`, through Corepack.
+- Install with `corepack pnpm install --frozen-lockfile`.
+- Start the real LING app with `corepack pnpm dev`; use `corepack pnpm start`
+  only after building. `corepack pnpm dev:demo` explicitly starts the demo UI.
+- `corepack pnpm build`, `typecheck`, `test`, and `check` cover both workspaces.
+- `corepack pnpm check:renderer` checks only the Renderer;
+  `corepack pnpm --filter ling-desktop-host check` checks only the Host.
+- Package on a matching native machine with `corepack pnpm dist` (macOS
+  arm64/x64, Windows x64 or Linux x64), or `corepack pnpm package:dir` for an
+  application directory. These commands run
+  headless qualification and never publish or launch a graphical application.
+- `corepack pnpm check:package` rechecks the built application's runtime.
+- GitHub Actions `LING Release` synchronizes versions, creates an annotated
+  `ling-vVERSION` tag, and publishes only after all native package gates pass.
+  See `docs/PACKAGING.md`. Never replace an existing release tag.
 
-## Build, run, and verify
+## Dependencies and upstream
 
-- Start the LING desktop app with `corepack yarn dev:ling`; validate both LING workspaces with `corepack yarn check:ling`.
-- `corepack yarn dev` starts the legacy Stable reference app, not LING. Use it only when inspecting or maintaining that reference.
-- `corepack yarn build` builds all workspaces; it is not a LING release/package command.
-- If explicitly maintaining a Stable/Beta release, run `corepack yarn aa:prepare-release` to build the latest official Agents Anywhere `main` for both reference Desktop channels. Commit the resulting artifact, provenance, manifests, and lockfile before packaging. Signed macOS releases and root Windows distribution commands verify freshness and installed versions; `DSH_AA_SOURCE_REF=pinned` is no longer supported. This reference release process does not establish LING release readiness.
-- Run unit tests with `corepack yarn test`.
-- Run type checking with `corepack yarn typecheck`.
-- Run the complete headless gate with `corepack yarn check`.
-- `corepack yarn dev:next` explicitly launches the experimental Next reference app; `corepack yarn check:next` validates it without a graphical application. Next uses the official published Web frontend and the recorded upstream Desktop presentation, with capabilities composed as a separate bundle.
-- Only when explicitly changing the Stable/Beta references, develop and validate shared changes in `dsh-plugin-desktop-beta/` first, then synchronize them into `dsh-plugin-desktop/` while preserving declared variant differences. Before committing or pushing those shared changes, run `corepack yarn check:desktop-variants` and validate both affected packages; neither package automatically inherits the other's source edits.
-- Run upstream operations through the root scripts, such as `corepack yarn upstream:build`.
+- The root `pnpm-workspace.yaml` owns workspace configuration, overrides,
+  package patches, dependency build permissions and supported architectures.
+- `desktop` depends on the root Renderer with `workspace:*`. Preserve their
+  separate React versions and declare dependencies in their owning workspace.
+- `vendor/dsh-runtime/` contains the pinned DSH artifacts used by LING.
+  Its manifest records the upstream source revision and archive hashes. Keep
+  runtime upgrades separate from desktop behavior changes. Do not modify an
+  upstream source checkout to implement a LING feature.
+- Keep the required `patches/` files version-scoped. Verify any removal against
+  the complete dependency graph, including the multi-platform SSH payload.
+- Native optional dependencies for Linux and macOS, x64 and arm64, are needed
+  by the SSH helper even when building on a macOS arm64 desktop.
+- Keep `pnpm-lock.yaml` committed. Do not reintroduce Yarn, reference desktop
+  workspaces or parallel product release targets into the LING checkout.
 
-- `deepseek-harness/` is a pinned upstream Git submodule. Never edit files inside it from a desktop feature branch.
-- `ling-desktop/` owns the LING-native Renderer and its presentation boundary; `ling-desktop/desktop/` owns its Host and Electron integration. Keep the Renderer independent of upstream DSH client UI packages; introduce DSH access only through an explicit adapter.
-- `dsh-plugin-desktop/` and `dsh-plugin-desktop-beta/` own the legacy Stable/Beta reference Host, Client faces, Electron bootstrap, packaging, and release tests.
-- `dsh-desktop-next/` owns the separate experimental reference shell, Profiles and recovery, and adapters for the existing AA bridge and Community Market. Next-only changes do not belong in the Stable/Beta variant mirror. Keep its upstream reference and published runtime versions aligned; do not fork the official main frontend.
-- `dsh-community-market/` owns the community-market shell. Until its runtime is implemented, it remains a private documentation scaffold and must not declare loadable DSH or package entry points.
-- The outer repository and all owned packages use the root Yarn release with `nodeLinker: node-modules`.
-- The upstream submodule keeps its own pnpm workspace. Run upstream commands through the root `upstream:*` scripts, whose Yarn portable-shell commands enter the submodule before invoking Corepack.
-- Compatibility mode must run the upstream default client without overrides. Advanced presentation belongs to desktop-owned client plugins and may replace documented slots or services through profile composition.
-- Keep graphical application launch explicit. Builds, typechecks, unit tests, and Loader smokes must remain headless-safe.
-- Do not launch separate demo or isolated graphical LING instances with fake workspaces unless the user explicitly requests one. Validate with headless checks or the user's real LING instance, preserving active tasks and SSH connections. Remove temporary test application bundles, profiles, and services after use.
-- Commit before major changes of direction and keep the submodule pin update separate from desktop behavior changes.
-- Keep the repository topology and package-manager split consistent with the [owning Agent Note](.agents/notes/implemented/process/2026-08-15-pinned-upstream-and-isolated-yarn-workspace.md).
+## Working safely
+
+- Keep builds, types, unit tests and runtime smokes headless-safe. Graphical
+  application launch must be explicit or part of switching the user's existing
+  LING instance after an authorized migration.
+- Do not launch separate fake-workspace desktop instances unless requested.
+  Preserve the user's sessions, active tasks, credentials and SSH connections.
+  Remove temporary test bundles, profiles and services after verification.
+- Commit before major changes of direction. Preserve current work before
+  destructive repository cleanup, and do not change unrelated project data.
