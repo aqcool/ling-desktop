@@ -1,111 +1,74 @@
-import type { LingReplyFeatures, LingPresentedFile } from '../runtime/reply-features.js'
-import { DeliveryPreview, deliveryName } from './DeliveryCards.js'
-import { openTaskNotes, openTaskNotesEvent, readTaskNotes, taskNotesEvent, registerNoteOrigin, noteOrigin, readQuickNote, readNoteImage, taskNoteText, type NoteOrigin } from './TaskNotes.js'
-import { QuickNotes } from './QuickNotes.js'
-import { nativeQuickNotes, type NoteWindowAction } from './quick-notes-native.js'
-import { MonitorSection, MonitorSectionsContext } from './MonitorSection.js'
-import { initialMonitorState, monitorReducer } from './monitor-state.js'
-import { TaskRecap } from './TaskRecap.js'
-import { browserNavigationEvent, requestBrowserNavigation, type BrowserNavigationRequest } from './browser-navigation.js'
-import { SideTaskPanel, type SideTaskState } from './SideTaskPanel.js'
-import { releaseComposerAttachment, toComposerQuote, workspaceContextScope, type ComposerAttachment, type WorkspaceContextReference } from './attachments.js'
-import { CompactSelect } from './SettingsControls.js'
-import { AgentPresetSettings, BuiltinPluginSettings } from './AgentSettings.js'
-import { BehaviorSettings } from './BehaviorSettings.js'
-import { useBehavior, updateBehavior } from './behavior-preferences.js'
 import { Button } from '@heroui/react/button'
 import { Tooltip } from '@heroui/react/tooltip'
-import { TextArea } from '@heroui/react/textarea'
-import { Fragment, useCallback, useEffect, useRef, useReducer, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type {
-  LingAuthorizationInteraction,
-  LingExtensionSettingsService,
-  LingPluginManager,
-  LingPresetSettings,
-  LingAuthorizationStatus,
-  LingAttachmentContent,
-  LingBackgroundJob,
-  LingCommandResult,
-  LingCustomProviderDraft,
-  LingDiscoveredModel,
-  LingFileDiff,
-  LingGitSnapshot,
   LingModelSelection,
   LingModelSettings,
-  LingPendingInteraction,
-  LingPluginEntry,
-  LingProviderTestTarget,
-  LingQuestionAnswer,
   LingReadResult,
-  LingRuntimeConnection,
-  LingRuntimeAdapter,
-  LingServerService,
-  LingSlashCommand,
-  LingSkill,
-  LingSubagentCatalog,
-  LingTaskAgentPreset,
-  LingTaskChanges,
-  LingTimelineAttachment,
-  LingTaskGoal,
-  LingTaskMode,
-  LingTaskPermission,
-  LingTaskSchedule,
-  LingTaskSearchMatch,
   LingTaskStatus,
-  LingTaskSummary,
-  LingTerminalService,
-  LingTimelineItem,
-  LingWorkspaceDirectory,
   LingWorkspaceDocument,
-  LingWorkspaceSummary,
 } from '../runtime/contract.js'
-import { BrowserPanel, type BrowserAnnotation } from './BrowserPanel.js'
-import { GitBranchMenu, GitDialog, GitPanel, GitSettings, type GitRequest } from './GitPanel.js'
+import type { LingPresentedFile } from '../runtime/reply-features.js'
 import { AutomationCenter } from './AutomationCenter.js'
-import { KnowledgeCenter } from './KnowledgeCenter.js'
-import { ProjectKnowledgePanel } from './ProjectKnowledgePanel.js'
-import { MemorySettings } from './MemorySettings.js'
-import { CatalogSettings } from './CatalogSettings.js'
-import { HooksSettings } from './HooksSettings.js'
-import { ComputerControlSettings } from './ComputerControlSettings.js'
-import { useComputerSnapshot } from './useComputerSnapshot.js'
-import { ServerSettings } from './ServerSettings.js'
-import { ArchivedSettings } from './ArchivedSettings.js'
-import { ChangeReview, type ChangeSelection } from './ChangeReview.js'
+import { BrowserPanel } from './BrowserPanel.js'
+import { ChangeReview } from './ChangeReview.js'
 import { Composer } from './Composer.js'
-import { WorkspaceModeMenu } from './WorkspaceModeMenu.js'
 import { ComposerContext } from './ComposerContext.js'
-import { WorkspaceToolsToolbar, WorkspaceActionOutput, useWorkspaceTools, type WorkspaceToolsRequest } from './WorkspaceTools.js'
-import { Conversation } from './Conversation.js'
-import { ExtensionSettings } from './ExtensionSettings.js'
-import { FileBrowser } from './FileBrowser.js'
-import { ServerFileBrowser } from './ServerFileBrowser.js'
-import { GeneralSettings, type LingTheme } from './GeneralSettings.js'
-import { SettingsSidebar } from './SettingsSidebar.js'
-import { type LingSettingsTab } from './settings-navigation.js'
-import { TerminalPanel } from './TerminalPanel.js'
-import { ServerTerminalPanel } from './ServerTerminalPanel.js'
-import { Icon, type IconName } from './Icon.js'
-import { InteractionPanel } from './InteractionPanel.js'
-import { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu.js'
-import { ModelSettings } from './ModelSettings.js'
-import { MonitorSettings } from './MonitorSettings.js'
-import { effectiveMonitorPresentation, monitorPreferencesStorageKey, readMonitorPreferences, type MonitorPreferences } from './monitor-preferences.js'
-import { PromptDialog } from './PromptDialog.js'
 import { ComposerNotice } from './ComposerNotice.js'
-import { TaskSearch } from './TaskSearch.js'
-import { TokenUsagePopover } from './TokenUsagePopover.js'
-import { UsageSettings } from './UsageSettings.js'
-import { TaskRow } from './TaskRow.js'
-import { TaskViewMenu } from './TaskViewMenu.js'
-import { filterTaskWorkMode, useTaskWorkModes } from './task-work-modes.js'
+import { Conversation } from './Conversation.js'
+import { DeliveryPreview } from './DeliveryCards.js'
+import { FileBrowser } from './FileBrowser.js'
+import { GitBranchMenu, GitDialog, GitPanel } from './GitPanel.js'
+import { Icon } from './Icon.js'
+import { InteractionPanel } from './InteractionPanel.js'
+import { KnowledgeCenter } from './KnowledgeCenter.js'
+import { Menu, MenuItem, MenuSeparator } from './Menu.js'
+import { MonitorSectionsContext } from './MonitorSection.js'
+import { ProjectKnowledgePanel } from './ProjectKnowledgePanel.js'
+import { PromptDialog } from './PromptDialog.js'
+import { QuickNotes } from './QuickNotes.js'
+import { ServerFileBrowser } from './ServerFileBrowser.js'
+import { ServerTerminalPanel } from './ServerTerminalPanel.js'
+import { SettingsSidebar } from './SettingsSidebar.js'
+import { SideTaskPanel } from './SideTaskPanel.js'
 import { TaskGroupDialog } from './TaskGroupDialog.js'
-import { WorkspaceCreateDialog, type WorkspaceDraft } from './WorkspaceCreateDialog.js'
-import { WorkspaceRow } from './WorkspaceRow.js'
-import { defaultTaskViewState, readTaskViewState, taskAgeDays, taskViewStorageKey, visibleTasks, type TaskViewState } from './task-view.js'
-import type { LingUiSlots } from './slots.js'
-import type { LingServer } from '../runtime/servers.js'
+import { TaskSearch } from './TaskSearch.js'
+import { TaskViewMenu } from './TaskViewMenu.js'
+import { TerminalPanel } from './TerminalPanel.js'
+import { TokenUsagePopover } from './TokenUsagePopover.js'
+import { WorkspaceCreateDialog } from './WorkspaceCreateDialog.js'
+import { WorkspaceModeMenu } from './WorkspaceModeMenu.js'
+import { WorkspaceActionOutput, WorkspaceToolsToolbar, useWorkspaceTools } from './WorkspaceTools.js'
+import { toComposerQuote, workspaceContextScope, type WorkspaceContextReference } from './attachments.js'
+import { updateBehavior, useBehavior } from './behavior-preferences.js'
+import { ShellSettings, useShellSettingsRouting } from './shell/ShellSettings.js'
+import { EnvironmentPanel } from './shell/TaskMonitor.js'
+import { WorkbenchHeaderAction, WorkbenchHomeAction, WorkbenchTabs } from './shell/WorkbenchControls.js'
+import { WorkspaceSection } from './shell/WorkspaceSection.js'
+import type { LingShellProps } from './shell/types.js'
+import { useShellGit } from './shell/useShellGit.js'
+import {
+  clampSidebarWidth,
+  clampTerminalHeight,
+  clampWorkbenchWidth,
+  positionResizeMarker,
+  sidebarMinWidth,
+  sidebarWidthLimit,
+  terminalHeightLimit,
+  terminalMinHeight,
+  useShellLayout,
+  workbenchWidthBounds,
+} from './shell/useShellLayout.js'
+import { useShellNotes } from './shell/useShellNotes.js'
+import { nativeRemoteBroker, remoteIssue, useShellRemote } from './shell/useShellRemote.js'
+import { useTaskMonitor } from './shell/useTaskMonitor.js'
+import { useTaskSidebar } from './shell/useTaskSidebar.js'
+import { useWorkbench } from './shell/useWorkbench.js'
 import { tw } from './tailwind.js'
+import { useComputerSnapshot } from './useComputerSnapshot.js'
+
+export { EnvironmentPanel, SubagentList } from './shell/TaskMonitor.js'
+export type { LingExtensionProps, LingShellProps } from './shell/types.js'
 
 const statusLabels: Record<LingTaskStatus, string> = {
   queued: '排队中',
@@ -116,106 +79,7 @@ const statusLabels: Record<LingTaskStatus, string> = {
   cancelled: '已取消',
 }
 
-interface RemoteFingerprint { readonly algorithm: string; readonly sha256: string }
-interface NativeRemoteBroker {
-  status(id: string): Promise<{ trusted: boolean; fingerprint?: RemoteFingerprint; credential: 'none' | 'password' | 'key' }>
-  inspect(id: string): Promise<RemoteFingerprint>
-  probe(id: string): Promise<{ home: string }>
-  credentials(id: string): Promise<void>
-}
-interface RemoteIssue { readonly title: string; readonly previous?: RemoteFingerprint; readonly observed?: RemoteFingerprint }
-function nativeRemoteBroker(): NativeRemoteBroker | undefined {
-  return (globalThis as { __LING_SERVER_BROKER__?: NativeRemoteBroker }).__LING_SERVER_BROKER__
-}
-async function remoteIssue(serverId: string): Promise<RemoteIssue | undefined> {
-  const broker = nativeRemoteBroker()
-  if (!broker) return { title: '远端任务需要桌面应用' }
-  const status = await broker.status(serverId)
-  if (status.trusted && status.credential !== 'none') {
-    try { await broker.probe(serverId); return undefined } catch { /* inspect below */ }
-  }
-  let observed: RemoteFingerprint | undefined
-  try { observed = await broker.inspect(serverId) } catch { /* connection error */ }
-  const changed = status.fingerprint && observed && (status.fingerprint.algorithm !== observed.algorithm || status.fingerprint.sha256 !== observed.sha256)
-  return { title: changed ? '服务器指纹已变更' : !status.trusted ? '需要确认服务器指纹' : status.credential === 'none' ? '需要服务器登录凭证' : '服务器连接已中断',
-    previous: changed ? status.fingerprint : undefined, observed }
-}
-
-function positionResizeMarker(event: ReactPointerEvent<HTMLDivElement>, orientation: 'vertical' | 'horizontal') {
-  const bounds = event.currentTarget.getBoundingClientRect()
-  const length = orientation === 'vertical' ? bounds.height : bounds.width
-  const halfMarker = Math.min(144, length / 2)
-  const pointerPosition = orientation === 'vertical' ? event.clientY - bounds.top : event.clientX - bounds.left
-  const position = Math.max(halfMarker, Math.min(length - halfMarker, pointerPosition))
-  event.currentTarget.style.setProperty(orientation === 'vertical' ? '--resize-marker-y' : '--resize-marker-x', `${String(position)}px`)
-}
-
 export type { LingSettingsTab } from './settings-navigation.js'
-
-export interface LingExtensionProps {
-  readonly manager?: LingPluginManager
-  readonly settings?: LingExtensionSettingsService
-  readonly onSettingsChanged?: (settings: LingPresetSettings) => Promise<void>
-  readonly onCreatePreset?: (id: string) => void
-  readonly listPlugins: () => Promise<LingReadResult<readonly LingPluginEntry[]>>
-  readonly onSelectPreset: (taskId: string, presetId: string) => Promise<LingCommandResult>
-  readonly readAgentPresets: (taskId: string) => Promise<LingReadResult<LingTaskAgentPreset>>
-  readonly readWorkspaceSkills?: (workspaceId: string | undefined, signal: AbortSignal, agentPreset?: string) => Promise<LingReadResult<readonly LingSkill[]>>
-  readonly readSkills: (taskId: string, signal: AbortSignal) => Promise<LingReadResult<readonly LingSkill[]>>
-}
-
-const sidebarStorageKey = 'ling.sidebar'
-const sidebarWidthStorageKey = 'ling.sidebar-width'
-const sidebarMinWidth = 220
-const sidebarMaxWidth = 440
-const sidebarMaxRatio = 0.25
-const workspaceMinWidth = 372
-const workbenchWidthStorageKey = 'ling.workbench-width.v3'
-const workbenchMinWidth = 288
-type WorkbenchTabKind = 'side-task' | 'files' | 'browser' | 'review' | 'terminal' | 'document'
-interface WorkbenchTab {
-  readonly delivery?: { taskId: string; file: LingPresentedFile }
-  readonly sideTask?: SideTaskState
-  readonly id: string
-  readonly kind: WorkbenchTabKind
-  readonly label: string
-}
-const conversationMinWidth = 336
-const terminalHeightStorageKey = 'ling.terminal-height'
-const terminalMinHeight = 160
-const terminalMaxHeight = 560
-const terminalMaxRatio = 0.55
-const terminalContentMinHeight = 320
-
-function terminalHeightLimit(workspaceHeight: number): number {
-  return Math.max(terminalMinHeight, Math.min(terminalMaxHeight, Math.floor(workspaceHeight * terminalMaxRatio), Math.floor(workspaceHeight - terminalContentMinHeight)))
-}
-
-function clampTerminalHeight(height: number, workspaceHeight: number): number {
-  const maximum = terminalHeightLimit(workspaceHeight)
-  return Math.round(Math.max(terminalMinHeight, Math.min(maximum, height)))
-}
-
-function sidebarWidthLimit(shellWidth: number): number {
-  return Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, Math.floor(shellWidth * sidebarMaxRatio), shellWidth - workspaceMinWidth))
-}
-
-function clampSidebarWidth(width: number, shell: HTMLElement): number {
-  return Math.round(Math.max(sidebarMinWidth, Math.min(sidebarWidthLimit(shell.getBoundingClientRect().width), width)))
-}
-
-function workbenchWidthBounds(workspaceWidth: number): { minimum: number; maximum: number } {
-  if (workspaceWidth <= workbenchMinWidth + conversationMinWidth) return { minimum: 50, maximum: 50 }
-  return {
-    minimum: Math.max(19, workbenchMinWidth / workspaceWidth * 100),
-    maximum: Math.min(80, (workspaceWidth - conversationMinWidth) / workspaceWidth * 100),
-  }
-}
-
-function clampWorkbenchWidth(width: number, workspaceWidth: number): number {
-  const { minimum, maximum } = workbenchWidthBounds(workspaceWidth)
-  return Math.round(Math.max(minimum, Math.min(maximum, width)) * 10) / 10
-}
 
 function modelDisplayName(
   settings: LingModelSettings | undefined,
@@ -230,751 +94,10 @@ function defaultModelName(settings: LingModelSettings | undefined): string {
   return modelDisplayName(settings, settings?.defaultSelection)
 }
 
-interface DialogState {
-  readonly kind: 'rename-task' | 'add-workspace' | 'rename-workspace' | 'delete-workspace'
-  readonly id?: string
-  readonly initial?: string
-}
-
-export interface LingShellProps {
-  readonly replyFeatures?: LingReplyFeatures
-  readonly automation?: import('../runtime/automation.js').LingAutomationService
-  readonly hooks?: import('../runtime/hooks.js').LingHooksService
-  readonly knowledge?: import('../runtime/knowledge.js').LingKnowledgeService
-  readonly computerControl?: import('../runtime/contract.js').LingComputerControlService
-  readonly sideTaskRuntime?: LingRuntimeAdapter
-  readonly serverManager?: LingServerService
-  readonly agentPresetControl?: ReactNode
-  readonly composerAgentPreset?: string
-  readonly composerPresetPending?: boolean
-  readonly supportsGoalLimit?: boolean
-  readonly workspaceGit?: GitRequest
-  readonly workspaceTools?: WorkspaceToolsRequest
-  readonly loadWorkspaceBranch?: (workspaceId: string) => Promise<string | null>
-  readonly attachments: readonly ComposerAttachment[]
-  readonly recordedAttachments?: readonly LingTimelineAttachment[]
-  readonly onRemoveRecordedAttachment?: (id: string) => void
-  readonly composerFocusKey?: number
-  readonly changeDiff?: LingFileDiff
-  readonly changeDiffLoading: boolean
-  readonly changeDiffMessage?: string
-  readonly changes: readonly LingTaskChanges[]
-  readonly changesLoading: boolean
-  readonly changesMessage?: string
-  readonly backgroundJobs: readonly LingBackgroundJob[]
-  readonly onSubagentsRefresh: () => void
-  readonly onSubagentPrompt?: (subagentSessionId: string, text: string) => Promise<{ readonly accepted: boolean; readonly message?: string }>
-  readonly onSubagentInterrupt?: (subagentSessionId: string) => Promise<{ readonly accepted: boolean; readonly message?: string }>
-  readonly subagents?: LingSubagentCatalog
-  readonly supportsSubagents: boolean
-  readonly schedules?: readonly LingTaskSchedule[]
-  readonly schedulesLoading: boolean
-  readonly schedulesMessage?: string
-  readonly supportsSchedules: boolean
-  readonly onSchedulesRefresh: () => void
-  readonly terminalService?: LingTerminalService
-  readonly connection: LingRuntimeConnection
-  readonly demo: boolean
-  readonly browserOpen: boolean
-  readonly extensions?: LingExtensionProps
-  readonly getTaskCommands?: (taskId: string) => Promise<LingReadResult<readonly LingSlashCommand[]>>
-  readonly hasOlder: boolean
-  readonly loadingOlder: boolean
-  readonly loadWorkspaceDirectory: (
-    taskId: string,
-    path: string,
-    signal: AbortSignal,
-  ) => Promise<LingReadResult<LingWorkspaceDirectory>>
-  readonly loadAttachment: (
-    taskId: string,
-    attachmentId: string,
-  ) => Promise<LingReadResult<LingAttachmentContent>>
-  readonly loadWorkspaceDocument: (
-    taskId: string,
-    path: string,
-    signal: AbortSignal,
-  ) => Promise<LingReadResult<LingWorkspaceDocument>>
-  readonly saveWorkspaceDocument?: (taskId: string, path: string, text: string, version: string, signal: AbortSignal) => Promise<LingReadResult<{ readonly version: string }>>
-  readonly listDraftWorkspaceDirectory?: (workspaceId: string, path: string, signal: AbortSignal) => Promise<LingReadResult<LingWorkspaceDirectory>>
-  readonly readDraftWorkspaceDocument?: (workspaceId: string, path: string, signal: AbortSignal) => Promise<LingReadResult<LingWorkspaceDocument>>
-  readonly saveDraftWorkspaceDocument?: (workspaceId: string, path: string, text: string, version: string, signal: AbortSignal) => Promise<LingReadResult<{ readonly version: string }>>
-  readonly modelSettings?: LingModelSettings
-  readonly modelSettingsLoading: boolean
-  readonly modelSettingsMessage?: string
-  readonly mode?: LingTaskMode
-  readonly notice: string
-  readonly onNoticeRetry?: () => void
-  readonly pendingInteractions: readonly LingPendingInteraction[]
-  readonly permission?: LingTaskPermission
-  readonly prompt: string
-  readonly running: boolean
-  readonly screen: 'workspace' | 'settings' | 'knowledge' | 'automation'
-  readonly canNavigateBack: boolean
-  readonly canNavigateForward: boolean
-  readonly searchHasMore: boolean
-  readonly searchLoading: boolean
-  readonly searchMessage?: string
-  readonly searchOpen: boolean
-  readonly searchQuery: string
-  readonly searchResults: readonly LingTaskSearchMatch[]
-  readonly selectedChange?: ChangeSelection
-  readonly selectedTask?: LingTaskSummary
-  readonly settingsTab: LingSettingsTab
-  readonly slots?: LingUiSlots
-  readonly supportsWorkspaceFiles: boolean
-  readonly taskModel?: LingModelSelection
-  readonly taskModelScoped: boolean
-  readonly tasks: readonly LingTaskSummary[]
-  readonly theme: LingTheme
-  readonly localePreference: 'zh' | 'en' | undefined
-  readonly localeLoading: boolean
-  readonly localeMessage?: string
-  readonly onLocaleChange: (preference: 'zh' | 'en' | undefined) => void
-  readonly timeline: readonly LingTimelineItem[]
-  readonly version: string
-  readonly workspaces: readonly LingWorkspaceSummary[]
-  readonly onAddFiles: (files: File[]) => void
-  readonly onAddWorkspaceContext?: (reference: WorkspaceContextReference, scope?: string) => void
-  readonly onWorkspaceContextScopeChange?: (scope: string) => void
-  readonly onAddQuote: (text: string, preview: string) => void
-  readonly onAnswerQuestion: (interactionId: string, answers: readonly LingQuestionAnswer[]) => void | Promise<unknown>
-  readonly onApprove: (interactionId: string, decision: 'allowed-once' | 'rejected') => void | Promise<unknown>
-  readonly onCancelInteraction: (interactionId: string) => void | Promise<unknown>
-  readonly onChangeDiffClose: () => void
-  readonly onChangeSelect: (selection: ChangeSelection) => void
-  readonly onSelectWorkspacePath: (path: string) => Promise<LingCommandResult>
-  readonly onCreateWorkspace: (path: string, name?: string) => Promise<LingCommandResult>
-  readonly onPickDirectory?: () => Promise<LingReadResult<string | undefined>>
-  readonly onPlanModeToggle: (active: boolean) => void
-  readonly onCompactContext: () => void
-  readonly onDeleteWorkspace: (workspaceId: string) => Promise<LingCommandResult>
-  readonly onExportTask: (task: LingTaskSummary) => void
-  readonly onBrowserToggle: () => void
-  readonly onGoalAction: (action: 'pause' | 'resume' | 'complete' | 'clear', goal: LingTaskGoal) => void
-  readonly onFork: (taskId: string, atSeq?: number) => void | Promise<void>
-  readonly onEditMessage?: (item: LingTimelineItem) => void
-  readonly onRetryMessage?: (item: LingTimelineItem) => Promise<void>
-  readonly onLoadOlder: () => void
-  readonly onModelDefaultSelect: (selection: LingModelSelection) => Promise<LingCommandResult>
-  readonly onModelEnabledChange: (selection: LingModelSelection, enabled: boolean) => Promise<string | undefined>
-  readonly onModelSelect: (selection: LingModelSelection) => Promise<LingCommandResult>
-  readonly onModelSettingsRefresh: () => void
-  readonly onProviderAuthorize: (
-    providerId: string,
-    interaction: LingAuthorizationInteraction,
-    signal: AbortSignal,
-  ) => Promise<LingReadResult<LingAuthorizationStatus>>
-  readonly onNewTask: () => void
-  readonly onNewTaskInWorkspace: (workspaceId: string) => void
-  readonly onNewTaskOnServer: (serverId: string) => void
-  readonly onSelectOperationsServer: (serverId: string) => Promise<boolean>
-  readonly onClearOperationsServer: () => void
-  readonly onNewTaskWithoutWorkspace: () => void
-  readonly newTaskWorkspaceId?: string
-  readonly newTaskServerId?: string
-  readonly newTaskOperationsServerId?: string
-  readonly newTaskWithoutWorkspace: boolean
-  readonly onNavigateBack: () => void
-  readonly onNavigateForward: () => void
-  readonly onPromptChange: (value: string) => void
-  readonly onProviderCreate: (provider: LingCustomProviderDraft) => Promise<LingCommandResult>
-  readonly onProviderDelete: (providerId: string) => Promise<LingCommandResult>
-  readonly onProviderSaveApiKey: (providerId: string, apiKey: string) => Promise<LingCommandResult>
-  readonly onProviderSignOut: (providerId: string) => Promise<LingReadResult<void>>
-  readonly onProviderTest: (target: LingProviderTestTarget) => Promise<LingReadResult<readonly LingDiscoveredModel[]>>
-  readonly onProviderUpdate: (provider: LingCustomProviderDraft) => Promise<LingCommandResult>
-  readonly onReconnect: () => void
-  readonly onRemoveAttachment: (id: string) => void
-  readonly onRenameTask: (taskId: string, title: string) => Promise<LingCommandResult>
-  readonly onRenameWorkspace: (workspaceId: string, title: string) => Promise<LingCommandResult>
-  readonly onSearchClose: () => void
-  readonly onSearchOpen: () => void
-  readonly onSearchQueryChange: (value: string) => void
-  readonly onSearchSelect: (taskId: string) => void
-  readonly onSelectPermission: (value: string) => void
-  readonly onSelectTask: (taskId: string) => void
-  readonly onSettingsOpen: () => void
-  readonly onSettingsTabChange: (tab: LingSettingsTab) => void
-  readonly onSubmit: (textOverride?: string, onAccepted?: () => void) => void
-  readonly onStop: () => void
-  readonly onThemeChange: (theme: LingTheme) => void
-  readonly onDeleteTask?: (taskId: string) => Promise<LingCommandResult>
-  readonly onToggleTaskArchive: (taskId: string, archived: boolean) => void
-  readonly onWorkspaceOpen: () => void
-  readonly onKnowledgeOpen: () => void
-  readonly onAutomationOpen: () => void
-}
-
 function SlotItems({ items, prefix }: { readonly items?: readonly ReactNode[]; readonly prefix: string }) {
   return items?.map((item, index) => (
     <Fragment key={`${prefix}-${String(index)}`}>{item}</Fragment>
   ))
-}
-
-function copyTaskId(taskId: string) {
-  const field = document.createElement('textarea')
-  field.value = taskId
-  field.style.position = 'fixed'
-  field.style.opacity = '0'
-  document.body.append(field)
-  field.select()
-  const copied = document.execCommand('copy')
-  field.remove()
-  if (!copied) void navigator.clipboard?.writeText(taskId).catch(() => {})
-}
-
-function browserAnnotationText(annotations: readonly BrowserAnnotation[]): string {
-  if (annotations.length === 0) return ''
-  return [
-    '请根据以下网页元素注释调整页面：',
-    ...annotations.map((annotation, index) => [
-      `${String(index + 1)}. ${annotation.note}`,
-      `   页面：${annotation.url}`,
-      `   元素：${annotation.element.selector}`,
-      annotation.element.text ? `   当前内容：${annotation.element.text}` : '',
-    ].filter(Boolean).join('\n')),
-  ].join('\n')
-}
-
-function WorkspaceSection({
-  newTaskWorkspaceId,
-  onExportTask,
-  onNewTask,
-  onOpenDialog,
-  onSelectTask,
-  onToggleArchive,
-  selectedTask,
-  tasks,
-  viewState,
-  onViewStateChange,
-  onEditGroup,
-  onNewTaskInWorkspace,
-  onCreateGroup,
-  workspaceAppearance,
-  workspaces,
-}: Pick<LingShellProps, 'onExportTask' | 'onNewTask' | 'onSelectTask' | 'newTaskWorkspaceId'> & {
-  readonly onToggleArchive: (taskId: string, archived: boolean) => void
-  readonly onOpenDialog: (dialog: DialogState) => void
-  readonly selectedTask?: LingTaskSummary
-  readonly tasks: readonly LingTaskSummary[]
-  readonly viewState: TaskViewState
-  readonly onViewStateChange: (next: TaskViewState) => void
-  readonly onEditGroup: (id: string) => void
-  readonly onNewTaskInWorkspace: (workspaceId: string) => void
-  readonly onCreateGroup: () => void
-  readonly workspaceAppearance: Readonly<Record<string, Pick<WorkspaceDraft, 'color' | 'marker'>>>
-  readonly workspaces: readonly LingWorkspaceSummary[]
-}) {
-  const behavior = useBehavior()
-  const modes = useTaskWorkModes()
-  const modeTasks = filterTaskWorkMode(tasks, modes, behavior.separateTaskLists && viewState.view.modeFilter !== 'all' ? behavior.workMode : undefined)
-  const activeTasks = visibleTasks(modeTasks.filter(task => !task.archived), viewState.view, new Date(), viewState.manualOrder, viewState.createdAtByTask)
-  const toggle = (id: string) => {
-    const collapsed = new Set(viewState.collapsedIds)
-    if (collapsed.has(id)) collapsed.delete(id)
-    else collapsed.add(id)
-    onViewStateChange({ ...viewState, collapsedIds: [...collapsed] })
-  }
-  const assign = (taskId: string, groupId: string | undefined) => {
-    const assignments = { ...viewState.assignments }
-    if (groupId) assignments[taskId] = groupId
-    else delete assignments[taskId]
-    onViewStateChange({ ...viewState, assignments })
-  }
-  const move = (sourceId: string, targetId: string) => {
-    const source = activeTasks.find(task => task.taskId === sourceId)
-    const target = activeTasks.find(task => task.taskId === targetId)
-    if (!source || !target || source.workspaceId !== target.workspaceId) return
-    const ids = activeTasks.map(task => task.taskId).filter(id => id !== sourceId)
-    const targetIndex = ids.indexOf(targetId)
-    if (targetIndex < 0) return
-    ids.splice(targetIndex, 0, sourceId)
-    onViewStateChange({ ...viewState, manualOrder: ids })
-  }
-
-  const toggleTaskFlag = (field: 'pinnedTaskIds' | 'workspacePinnedTaskIds' | 'unreadTaskIds', taskId: string) => {
-    const current = viewState[field]
-    onViewStateChange({ ...viewState, [field]: current.includes(taskId) ? current.filter(id => id !== taskId) : [...current, taskId] })
-  }
-  const selectTask = (taskId: string) => {
-    if (viewState.unreadTaskIds.includes(taskId)) {
-      onViewStateChange({ ...viewState, unreadTaskIds: viewState.unreadTaskIds.filter(id => id !== taskId) })
-    }
-    onSelectTask(taskId)
-  }
-
-  const renderTasks = (list: readonly LingTaskSummary[], archived: boolean) => (
-    <div className={tw("sidebar-tasks grid mt-0.5")}>
-      {list.length === 0 ? <p className={tw("sidebar-tasks__empty mt-0.5 mx-0 mb-1.5 pl-7 [color:var(--text-tertiary)] text-xs")}>暂无任务</p> : null}
-      {[...list].sort((left, right) =>
-        Number(viewState.workspacePinnedTaskIds.includes(right.taskId)) - Number(viewState.workspacePinnedTaskIds.includes(left.taskId)),
-      ).map(task => (
-        <TaskRow
-          archived={archived}
-          groups={viewState.groups}
-          onAssignGroup={assign}
-          assignedGroupId={viewState.assignments[task.taskId]}
-          onCopyId={copyTaskId}
-          onCreateGroup={onCreateGroup}
-          onExport={onExportTask}
-          onGlobalPin={taskId => { toggleTaskFlag('pinnedTaskIds', taskId) }}
-          onMarkUnread={taskId => { toggleTaskFlag('unreadTaskIds', taskId) }}
-          onOpenWindow={taskId => { const url = new URL(window.location.href); url.searchParams.set('task', taskId); window.open(url.href, '_blank', 'noopener,noreferrer') }}
-          onRename={target => { onOpenDialog({ kind: 'rename-task', id: target.taskId, initial: target.title }) }}
-          onWorkspacePin={taskId => { toggleTaskFlag('workspacePinnedTaskIds', taskId) }}
-          key={task.taskId}
-          onMove={viewState.view.sortBy === 'manual' ? move : undefined}
-          onSelect={selectTask}
-          onToggleArchive={onToggleArchive}
-          selected={selectedTask?.taskId === task.taskId}
-          task={task}
-          unread={viewState.unreadTaskIds.includes(task.taskId)}
-          globallyPinned={viewState.pinnedTaskIds.includes(task.taskId)}
-          workspacePinned={viewState.workspacePinnedTaskIds.includes(task.taskId)}
-          workspaceLabel={workspaces.find(workspace => workspace.workspaceId === task.workspaceId)?.label}
-        />
-      ))}
-    </div>
-  )
-
-  const globallyPinnedTasks = activeTasks.filter(task => viewState.pinnedTaskIds.includes(task.taskId) && !viewState.archivedWorkspaceIds.includes(task.workspaceId ?? ''))
-  const unpinnedTasks = activeTasks.filter(task => !viewState.pinnedTaskIds.includes(task.taskId))
-  const byWorkspace = (workspaceId: string) => unpinnedTasks.filter(task => task.workspaceId === workspaceId)
-  const unassigned = unpinnedTasks.filter(task => !task.workspaceId || !workspaces.some(workspace => workspace.workspaceId === task.workspaceId))
-  const workspaceRows = workspaces.filter(workspace => viewState.view.workspaceId === 'all' || viewState.view.workspaceId === workspace.workspaceId)
-  const shownWorkspaces = workspaceRows.filter(workspace => !viewState.archivedWorkspaceIds.includes(workspace.workspaceId))
-    .sort((left, right) => Number(viewState.pinnedWorkspaceIds.includes(right.workspaceId)) - Number(viewState.pinnedWorkspaceIds.includes(left.workspaceId)))
-  const togglePinned = (workspaceId: string) => {
-    const pinned = viewState.pinnedWorkspaceIds.includes(workspaceId)
-    onViewStateChange({ ...viewState, pinnedWorkspaceIds: pinned
-      ? viewState.pinnedWorkspaceIds.filter(id => id !== workspaceId)
-      : [...viewState.pinnedWorkspaceIds, workspaceId] })
-  }
-  const toggleArchivedWorkspace = (workspaceId: string) => {
-    if (newTaskWorkspaceId === workspaceId) onNewTask()
-    onViewStateChange({ ...viewState,
-      archivedWorkspaceIds: [...viewState.archivedWorkspaceIds, workspaceId],
-      view: viewState.view.workspaceId === workspaceId ? { ...viewState.view, workspaceId: 'all' } : viewState.view,
-    })
-  }
-  const workspaceRow = (workspace: LingWorkspaceSummary) => (
-    <WorkspaceRow
-      appearance={workspaceAppearance[workspace.locationLabel ?? '']}
-      archived={false}
-      collapsed={viewState.collapsedIds.includes(workspace.workspaceId)}
-      key={workspace.workspaceId}
-      onArchive={() => { toggleArchivedWorkspace(workspace.workspaceId) }}
-      onEdit={() => { onOpenDialog({ kind: 'rename-workspace', id: workspace.workspaceId, initial: workspace.label }) }}
-      onNewTask={() => { onNewTaskInWorkspace(workspace.workspaceId) }}
-      onPin={() => { togglePinned(workspace.workspaceId) }}
-      onRemove={() => { onOpenDialog({ kind: 'delete-workspace', id: workspace.workspaceId, initial: workspace.label }) }}
-      onToggle={() => { toggle(workspace.workspaceId) }}
-      pinned={viewState.pinnedWorkspaceIds.includes(workspace.workspaceId)}
-      tasks={activeTasks.filter(task => task.workspaceId === workspace.workspaceId)}
-      unreadCount={activeTasks.filter(task => task.workspaceId === workspace.workspaceId && viewState.unreadTaskIds.includes(task.taskId)).length}
-      workspace={workspace}
-    >{renderTasks(byWorkspace(workspace.workspaceId), false)}</WorkspaceRow>
-  )
-
-  const section = (id: string, label: string, list: readonly LingTaskSummary[], icon: IconName = 'folder', actions?: ReactNode, color?: string) => (
-    <section className={tw("sidebar-project mb-3")} key={id}>
-      <div className={tw("sidebar-project__heading flex min-h-control items-center gap-0 px-0.5 font-[590] hover:bg-transparent focus-within:bg-transparent")}>
-        <button aria-expanded={!viewState.collapsedIds.includes(id)} aria-label={`${viewState.collapsedIds.includes(id) ? '展开' : '折叠'}${label}`} className={tw("sidebar-project__toggle inline-flex items-center justify-start border-0 bg-transparent [color:var(--text-secondary)] cursor-pointer hover:[background:var(--surface-hover)] hover:[color:var(--foreground)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px] min-w-0 [min-height:2rem] flex-1 gap-1.5 py-0 px-2 rounded-lg text-left")} onClick={() => { toggle(id) }} type="button">
-          <Icon name={viewState.collapsedIds.includes(id) ? 'chevronRight' : 'chevronDown'} size={13} />
-          <span className={tw("sidebar-project__icon inline-flex flex-none")} style={color ? { color } as CSSProperties : undefined}><Icon name={icon} size={16} /></span>
-          <span className={tw("sidebar-project__name flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [color:var(--text-secondary)] text-compact [font-weight:500]")} title={label}>{label}</span>
-        </button>
-        {actions}
-      </div>
-      {!viewState.collapsedIds.includes(id) ? renderTasks(list, false) : null}
-    </section>
-  )
-
-  return (
-    <div className={tw("sidebar-projects__list grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-px overflow-x-hidden overflow-y-auto")}>
-      {viewState.view.groupBy === 'workspace' && globallyPinnedTasks.length > 0 ? section('global-pinned', '已置顶', globallyPinnedTasks, 'pin') : null}
-      {viewState.view.groupBy === 'workspace' ? shownWorkspaces.map(workspace => workspaceRow(workspace)) : null}
-      {viewState.view.groupBy === 'workspace' && unassigned.length > 0 ? section('unassigned', '无工作区', unassigned) : null}
-      {viewState.view.groupBy === 'activity' ? [
-        { id: 'today', label: '今天', matches: (days: number) => days === 0 },
-        { id: 'week', label: '最近 7 天', matches: (days: number) => days > 0 && days < 7 },
-        { id: 'month', label: '最近 30 天', matches: (days: number) => days >= 7 && days < 30 },
-        { id: 'older', label: '更早', matches: (days: number) => days >= 30 },
-      ].map(bucket => {
-        const list = activeTasks.filter(task => bucket.matches(taskAgeDays(task)))
-        return list.length > 0 ? section(bucket.id, bucket.label, list, 'clock') : null
-      }) : null}
-      {viewState.view.groupBy === 'custom' ? <>
-        {viewState.groups.map(group => section(group.id, group.name, activeTasks.filter(task => viewState.assignments[task.taskId] === group.id), group.marker as IconName,
-          <Menu triggerAriaLabel={`分组 ${group.name} 操作`} triggerClassName="sidebar-project__more" triggerLabel={<Icon name="more" size={15} />}>
-            <MenuItem icon="edit" onPress={() => { onEditGroup(group.id) }}>编辑分组</MenuItem>
-            <MenuItem danger icon="trash" onPress={() => {
-              const assignments = Object.fromEntries(Object.entries(viewState.assignments).filter(([, id]) => id !== group.id))
-              onViewStateChange({ ...viewState, groups: viewState.groups.filter(item => item.id !== group.id), assignments })
-            }}>删除分组</MenuItem>
-          </Menu>, group.color))}
-        {section('ungrouped', '未分组对话', activeTasks.filter(task => !viewState.groups.some(group => group.id === viewState.assignments[task.taskId])))}
-      </> : null}
-    </div>
-  )
-}
-
-const jobStatusLabels: Record<LingBackgroundJob['status'], string> = {
-  running: '运行中',
-  stopping: '停止中',
-  completed: '已完成',
-  killed: '已终止',
-  failed: '已失败',
-}
-
-function BackgroundJobList({ jobs }: { readonly jobs: readonly LingBackgroundJob[] }) {
-  if (jobs.length === 0) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>当前任务没有后台作业。</p>
-  return (
-    <ul className={tw("job-list m-0 p-0 [list-style:none]")}>
-      {jobs.map(job => (
-        <li className={tw("job-list__item flex min-w-0 items-center gap-2 py-1.5 px-1.5 text-xs")} key={job.jobId}>
-          <span className={tw(
-            "job-list__state size-[0.45rem] flex-none rounded-full bg-[var(--disabled-background)]",
-            job.status === 'running' && "job-list__state--running bg-[var(--success)]",
-            job.status === 'stopping' && "job-list__state--stopping bg-[var(--warning)]",
-            (job.status === 'failed' || job.status === 'killed') && "job-list__state--failed bg-[var(--danger)]",
-          )} />
-          <span className={tw("job-list__label min-w-0 overflow-hidden mr-auto [color:var(--foreground)] text-ellipsis whitespace-nowrap")} title={job.label}>{job.label}</span>
-          <span className={tw("job-list__kind [flex-shrink:0] py-0 px-1.5 rounded-md [background:var(--surface-secondary)] [color:var(--text-secondary)] text-caption")}>{job.kind}</span>
-          <span className={tw("job-list__status [flex-shrink:0] [max-width:9rem] overflow-hidden [color:var(--text-secondary)] text-caption text-ellipsis whitespace-nowrap")} title={job.detail ?? jobStatusLabels[job.status]}>
-            {job.detail ?? jobStatusLabels[job.status]}
-          </span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-export function SubagentList({ catalog, onPrompt, onInterrupt }: {
-  readonly catalog: LingSubagentCatalog | undefined
-  readonly onPrompt?: (subagentSessionId: string, text: string) => Promise<{ readonly accepted: boolean; readonly message?: string }>
-  readonly onInterrupt?: (subagentSessionId: string) => Promise<{ readonly accepted: boolean; readonly message?: string }>
-}) {
-  const [promptTarget, setPromptTarget] = useState<string>()
-  const [busyTarget, setBusyTarget] = useState<string>()
-  const [actionMessage, setActionMessage] = useState<string>()
-
-  const interrupt = async (subagentSessionId: string) => {
-    if (busyTarget !== undefined || onInterrupt === undefined) return
-    setBusyTarget(subagentSessionId)
-    setActionMessage(undefined)
-    try {
-      const result = await onInterrupt(subagentSessionId)
-      if (!result.accepted) setActionMessage(result.message ?? '中断子任务失败。')
-    } catch {
-      setActionMessage('中断子任务失败。')
-    } finally {
-      setBusyTarget(undefined)
-    }
-  }
-  if (catalog === undefined || catalog.state === 'loading') {
-    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>正在读取子任务…</p>
-  }
-  if (catalog.state === 'error') {
-    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>{catalog.message ?? '子任务读取失败。'}</p>
-  }
-  if (catalog.subagents.length === 0 && catalog.unreadable.length === 0) {
-    return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>当前任务没有子任务。</p>
-  }
-  return (
-    <>
-      <ul className={tw("subagent-list m-0 p-0 [list-style:none]")}>
-        {catalog.subagents.map(subagent => (
-          <li className={tw("subagent-list__item flex min-w-0 items-center gap-2 py-1.5 px-1.5 text-xs")} key={subagent.sessionId}>
-            <span className={tw("subagent-list__state size-[0.45rem] flex-none rounded-full bg-[var(--disabled-background)]", subagent.activity === 'running' && "subagent-list__state--running bg-[var(--success)]")} />
-            <span className={tw("subagent-list__title min-w-0 overflow-hidden mr-auto [color:var(--foreground)] text-ellipsis whitespace-nowrap")} title={subagent.title}>{subagent.title}</span>
-            <span className={tw("subagent-list__mode [flex-shrink:0] py-0 px-1.5 rounded-md [background:var(--surface-secondary)] [color:var(--text-secondary)] text-caption")}>{subagent.mode === 'continuable' ? '可持续' : '一次性'}</span>
-            {onPrompt && subagent.mode === 'continuable' ? (
-              <button
-                aria-label={`向子任务 ${subagent.title} 追加指令`}
-                className={tw("subagent-list__action [flex-shrink:0] py-0 px-2 [border:1px_solid_var(--panel-border)] rounded-md [background:var(--surface)] [color:var(--text-secondary)] text-caption cursor-pointer hover:[background:var(--surface-secondary)]")}
-                disabled={busyTarget !== undefined}
-                onClick={() => { setPromptTarget(subagent.sessionId) }}
-                type="button"
-              >
-                追加指令
-              </button>
-            ) : null}
-            {onInterrupt && subagent.activity === 'running' ? (
-              <button
-                aria-busy={busyTarget === subagent.sessionId}
-                aria-label={`中断子任务 ${subagent.title}`}
-                className={tw("subagent-list__action [flex-shrink:0] py-0 px-2 [border:1px_solid_var(--panel-border)] rounded-md [background:var(--surface)] [color:var(--text-secondary)] text-caption cursor-pointer hover:[background:var(--surface-secondary)]")}
-                disabled={busyTarget !== undefined}
-                onClick={() => { void interrupt(subagent.sessionId) }}
-                type="button"
-              >
-                {busyTarget === subagent.sessionId ? '中断中…' : '中断'}
-              </button>
-            ) : null}
-          </li>
-        ))}
-        {catalog.unreadable.length === 0
-          ? null
-          : <li className={tw("subagent-list__unreadable py-1.5 px-1.5 [color:var(--text-secondary)] text-caption")}>{`${String(catalog.unreadable.length)} 个子任务无法读取`}</li>}
-      </ul>
-      {actionMessage ? <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")} role="status">{actionMessage}</p> : null}
-      {promptTarget !== undefined && onPrompt ? (
-        <PromptDialog
-          confirmLabel="发送"
-          description="指令会排队送达该子任务。"
-          label="指令"
-          onCancel={() => { setPromptTarget(undefined) }}
-          onConfirm={value => onPrompt(promptTarget, value)}
-          open
-          placeholder="输入要追加给该子任务的指令"
-          title="追加指令"
-        />
-      ) : null}
-    </>
-  )
-}
-
-const scheduleKindLabels: Record<LingTaskSchedule['kind'], string> = {
-  after: '延时',
-  at: '定时',
-  every: '周期',
-}
-
-function ScheduleList(props: {
-  readonly schedules: readonly LingTaskSchedule[]
-  readonly loading: boolean
-  readonly message?: string
-}) {
-  if (props.loading) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>正在读取定时提醒…</p>
-  if (props.message) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>{props.message}</p>
-  if (props.schedules.length === 0) return <p className={tw("environment-panel__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>当前任务没有定时提醒。</p>
-  return (
-    <ul className={tw("schedule-list m-0 p-0 [list-style:none]")}>
-      {props.schedules.map(schedule => (
-        <li className={tw("schedule-list__item flex min-w-0 items-center gap-2 py-1.5 px-1.5 text-xs")} key={schedule.scheduleId}>
-          <span className={tw("schedule-list__prompt min-w-0 overflow-hidden mr-auto [color:var(--foreground)] text-ellipsis whitespace-nowrap")} title={schedule.prompt}>{schedule.prompt}</span>
-          <span className={tw("schedule-list__kind [flex-shrink:0] py-0 px-1.5 rounded-md [background:var(--surface-secondary)] [color:var(--text-secondary)] text-caption")}>{scheduleKindLabels[schedule.kind]}</span>
-          <span className={tw("schedule-list__status [flex-shrink:0] [max-width:9rem] overflow-hidden [color:var(--text-secondary)] text-caption text-ellipsis whitespace-nowrap")}>{new Date(schedule.scheduledAt).toLocaleString()}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-const monitorRowClassName = "flex min-h-7 min-w-0 items-center gap-2 text-compact text-[var(--foreground)]"
-const monitorIconClassName = "grid size-5 shrink-0 place-items-center rounded bg-[var(--surface-secondary)] text-[var(--text-secondary)]"
-
-function taskSkillNames(items: readonly LingTimelineItem[]): readonly string[] {
-  const names = new Set<string>()
-  for (const item of items) {
-    for (const match of item.text.matchAll(/-\s+`([^`]+)`\s*:/g)) names.add(match[1] ?? '')
-  }
-  return [...names].filter(Boolean)
-}
-
-function taskWebLinks(items: readonly LingTimelineItem[]): readonly string[] {
-  const links = new Set<string>()
-  for (const item of items) {
-    if (item.kind !== 'tool-activity') continue
-    for (const match of `${item.text} ${item.detail ?? ''}`.matchAll(/https?:\/\/[^\s<>()[\]"']+/g)) {
-      links.add((match[0] ?? '').replace(/[.,;:!?]+$/, ''))
-    }
-  }
-  return [...links]
-}
-
-export function EnvironmentPanel({ preferences, presentation, sideChats, onSelectSideChat, workspaceBranch, gitLineChanges, onGitOpen, onGitReview, recapRemoteTaskId, onOpenRecap, ...props }: LingShellProps & {
-  readonly environmentPinned?: boolean
-  readonly onEnvironmentPinToggle?: () => void
-  readonly recapRemoteTaskId?: string
-  readonly onOpenRecap?: (id: string) => void
-  readonly onGitOpen?: () => void
-  readonly onGitReview?: () => void
-  readonly workspaceBranch?: string | null
-  readonly gitLineChanges?: LingGitSnapshot['lineChanges']
-  readonly preferences: MonitorPreferences
-  readonly presentation: MonitorPreferences['presentation']
-  readonly sideChats: readonly WorkbenchTab[]
-  readonly onSelectSideChat: (id: string) => void
-}) {
-  const behavior = useBehavior()
-  const { selectedTask, workspaces } = props
-  const subscribeNotes = useCallback((refresh: () => void) => {
-    window.addEventListener(taskNotesEvent, refresh)
-    window.addEventListener('storage', refresh)
-    return () => { window.removeEventListener(taskNotesEvent, refresh); window.removeEventListener('storage', refresh) }
-  }, [])
-  const readNoteCount = () => {
-    try { return selectedTask ? readTaskNotes(selectedTask.taskId).filter(note => !note.archived).length : 0 }
-    catch { return 0 }
-  }
-  const noteCount = useSyncExternalStore(subscribeNotes, readNoteCount, readNoteCount)
-  const [skills, setSkills] = useState<readonly LingSkill[]>([])
-  const activeWorkspace = workspaces.find(workspace => workspace.workspaceId === selectedTask?.workspaceId)
-  const attachments = props.timeline.flatMap(item => (item.attachments ?? []).map(attachment => ({ ...attachment, taskId: item.taskId })))
-  const sourceInput = useRef<HTMLInputElement>(null)
-  const [sourceError, setSourceError] = useState<string>()
-  const [downloading, setDownloading] = useState<string>()
-  const downloadSource = async (taskId: string, attachmentId: string, name: string) => {
-    setSourceError(undefined); setDownloading(attachmentId)
-    try {
-      const result = await props.loadAttachment(taskId, attachmentId)
-      if (!result.ok) { setSourceError(result.message); return }
-      const url = URL.createObjectURL(new Blob([new Uint8Array(result.value.data)], { type: result.value.mediaType }))
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = name
-      document.body.append(anchor); anchor.click(); anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch (cause) { setSourceError(cause instanceof Error ? cause.message : '附件下载失败。') }
-    finally { setDownloading(undefined) }
-  }
-  const visibleSkillNames = skills.length > 0 ? skills.map(skill => skill.name) : taskSkillNames(props.timeline)
-  const webLinks = taskWebLinks(props.timeline)
-  const goal = props.mode?.goal
-  const hasSubagents = props.supportsSubagents && selectedTask && props.subagents?.state === 'ready'
-    && (props.subagents.subagents.length > 0 || props.subagents.unreadable.length > 0)
-  const fixed = presentation === 'fixed'
-
-  useEffect(() => {
-    const readSkills = props.extensions?.readSkills
-    setSkills([])
-    if (!selectedTask || !readSkills) return
-    const controller = new AbortController()
-    void readSkills(selectedTask.taskId, controller.signal).then(result => {
-      if (!controller.signal.aborted) setSkills(result.ok ? result.value : [])
-    }).catch(() => { if (!controller.signal.aborted) setSkills([]) })
-    return () => { controller.abort() }
-  }, [props.extensions?.readSkills, selectedTask?.taskId])
-
-  return <div className={tw('task-monitor min-w-0', fixed && 'pt-2')}>
-    {!fixed ? <div className={tw("sticky top-0 z-2 flex h-10 items-center justify-between bg-[var(--surface)]")}>
-      <h2 className={tw("m-0 text-compact font-medium text-[var(--text-secondary)]")}>任务监控</h2>
-      <button aria-pressed={props.environmentPinned} aria-label={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} className={tw("grid size-control-xs place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] aria-pressed:text-[var(--foreground)]")} onClick={props.onEnvironmentPinToggle} title={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} type="button"><Icon active={props.environmentPinned} name="pin" size={14} /></button>
-    </div> : null}
-    {preferences.recap && selectedTask && onOpenRecap ? <TaskRecap key={`${recapRemoteTaskId ?? selectedTask.workspaceId}:${selectedTask.taskId}`} service={props.knowledge} workspaceId={selectedTask.workspaceId} remoteTaskId={recapRemoteTaskId} taskId={selectedTask.taskId} onOpen={onOpenRecap} /> : null}
-    {preferences.goal && goal ? <MonitorSection title="任务目标"><p className={tw("mb-2 mt-0 break-words text-compact leading-6")}>{goal.objective}</p><span className={tw("text-caption text-[var(--text-tertiary)]")}>{goal.phase === 'complete' ? '已完成' : goal.phase === 'paused' ? '已暂停' : goal.phase === 'blocked' ? '已阻塞' : '进行中'} · 第 {goal.roundsStarted} / {goal.maxGoalRounds} 轮</span></MonitorSection> : null}
-    {preferences.plan && (props.mode?.planActive || props.mode?.planPending) ? <MonitorSection title="计划"><div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="listCheck" size={14} /></span><span>{props.mode.planPending ? '等待确认' : '按计划执行'}</span></div></MonitorSection> : null}
-    {behavior.modes[behavior.workMode].monitorEnvironment ? <MonitorSection title="环境信息">
-      <div className={tw("grid gap-0.5")}>
-        {gitLineChanges ? <button aria-label="审阅未提交更改" className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} disabled={!onGitReview} onClick={onGitReview} type="button"><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>未提交</span> : null}<span className={tw('flex gap-1.5 tabular-nums', !fixed && 'ml-auto')}><span className={tw("text-[var(--success)]")}>+{gitLineChanges.added.toLocaleString()}</span><span className={tw("text-[var(--danger)]")}>−{gitLineChanges.deleted.toLocaleString()}</span></span></button> : null}
-        <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="desktop" size={14} /></span><span>本地</span>{!fixed ? <span className={tw("ml-auto min-w-0 truncate text-[var(--text-secondary)]")} title={activeWorkspace?.label}>{activeWorkspace?.label ?? '未指定'}</span> : null}</div>
-        {workspaceBranch ? <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>分支</span> : null}<span className={tw('min-w-0 truncate text-[var(--foreground)]', !fixed && 'ml-auto')} title={workspaceBranch}>{workspaceBranch}</span></div> : null}
-        <button className={tw(monitorRowClassName, 'w-full border-0 bg-transparent p-0 text-left disabled:text-[var(--text-tertiary)]')} disabled={!onGitOpen} onClick={onGitOpen} title="Git：查看更改、提交或推送" type="button"><span className={tw(monitorIconClassName)}><Icon name="gitCommit" size={14} /></span><span>提交或推送</span></button>
-      </div>
-    </MonitorSection> : null}
-    {preferences.subagents && hasSubagents ? <MonitorSection title="子智能体"><SubagentList catalog={props.subagents} onInterrupt={props.onSubagentInterrupt} onPrompt={props.onSubagentPrompt} /></MonitorSection> : null}
-    {preferences.processes && props.backgroundJobs.length > 0 ? <MonitorSection title="后台进程"><BackgroundJobList jobs={props.backgroundJobs} /></MonitorSection> : null}
-    {preferences.sideChats && sideChats.length > 0 ? <MonitorSection title="侧边聊天">{sideChats.map(chat => <button className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} key={chat.id} onClick={() => { onSelectSideChat(chat.id) }} type="button"><span className={tw(monitorIconClassName)}><Icon name="sideChat" size={14} /></span><span className={tw("min-w-0 truncate")}>{chat.label}</span><Icon className={tw("ml-auto shrink-0 text-[var(--text-tertiary)]")} name="external" size={12} /></button>)}</MonitorSection> : null}
-    {props.schedules?.length ? <MonitorSection title="定时提醒"><ScheduleList loading={props.schedulesLoading} message={props.schedulesMessage} schedules={props.schedules} /></MonitorSection> : null}
-    {preferences.skills && visibleSkillNames.length > 0 ? <MonitorSection accessory={<span className={tw("shrink-0 text-caption text-[var(--text-tertiary)]")} title="当前任务可用的技能">可用 {visibleSkillNames.length}</span>} title="技能与 MCP">
-      <ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{visibleSkillNames.map(name => <li className={tw(monitorRowClassName)} key={name}><span className={tw(monitorIconClassName)}><Icon name="hammer" size={14} /></span><span className={tw("min-w-0 truncate")} title={name}>{name}</span></li>)}</ul>
-    </MonitorSection> : null}
-    {preferences.outputs && props.changes.some(change => change.files.length > 0) ? <MonitorSection title="产出" initiallyOpen={props.selectedChange !== undefined}>
-      <ChangeReview changes={props.changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} />
-    </MonitorSection> : null}
-    {preferences.web && webLinks.length > 0 ? <MonitorSection initiallyOpen={false} title="网页查阅"><ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{webLinks.slice(0, 8).map(link => <li key={link}><button type="button" onClick={() => requestBrowserNavigation(link)} className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName)}><Icon name="globe" size={14} /></span><span className={tw("min-w-0 truncate")} title={link}>{link}</span></button></li>)}</ul></MonitorSection> : null}
-    {preferences.sources && attachments.length > 0 ? <MonitorSection accessory={<button aria-label="添加来源" className={tw("grid size-control-xs place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)]")} onClick={() => sourceInput.current?.click()} title="添加附件到输入框" type="button"><Icon name="plus" size={14} /></button>} title="来源" initiallyOpen={false}>
-      <input ref={sourceInput} type="file" multiple hidden onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; if (files.length) props.onAddFiles(files) }} />
-      {sourceError ? <p role="alert" className={tw('text-xs text-[var(--danger)]')}>{sourceError}</p> : null}
-      <ul className={tw("m-0 grid list-none gap-1 p-0")}>{attachments.map((attachment, index) => <li className={tw(monitorRowClassName)} key={`${attachment.attachmentId}-${index}`}><button type="button" disabled={Boolean(downloading)} onClick={() => { void downloadSource(attachment.taskId, attachment.attachmentId, attachment.name) }} className={tw('flex w-full min-w-0 items-center gap-2 rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName, 'text-[var(--focus)]')}><Icon name={attachment.kind === 'image' ? 'image' : 'file'} size={14} /></span><span className={tw("min-w-0 truncate")} title={attachment.name}>{attachment.name}</span><Icon name="download" size={12} className={tw('ml-auto shrink-0')} /></button></li>)}</ul>
-    </MonitorSection> : null}
-    {preferences.quickNotes && (behavior.quickNotes || behavior.replyAnnotations) && selectedTask && noteCount > 0 ? <button className={tw("flex h-control-lg w-full items-center justify-between border-0 bg-transparent p-0 text-left text-compact text-[var(--text-tertiary)]")} onClick={() => openTaskNotes(selectedTask.taskId)} title="打开任务速记" type="button"><span>Quick Notes</span><Icon name="external" size={13} /></button> : null}
-  </div>
-}
-
-function WorkbenchHomeAction({ detail, icon, onClick, title }: { readonly detail?: string; readonly icon: IconName; readonly onClick: () => void; readonly title: string }) {
-  return (
-    <button className={tw("mx-auto grid min-h-13 w-[min(15rem,calc(100%_-_1rem))] cursor-pointer grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-2.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 py-1.5 text-left [color:var(--foreground)] hover:bg-[var(--surface-secondary)]")} onClick={onClick} type="button">
-      <span className={tw("grid size-control-lg place-items-center rounded-md bg-[var(--surface-tertiary)] [color:var(--text-secondary)]")}><Icon name={icon} size={17} /></span>
-      <span className={tw("flex min-w-0 flex-col justify-center gap-0.5")}><strong className={tw("block overflow-hidden text-ellipsis whitespace-nowrap text-compact font-medium leading-[18px]")}>{title}</strong>{detail ? <small className={tw("block overflow-hidden text-ellipsis whitespace-nowrap text-caption leading-[14px] [color:var(--text-tertiary)]")}>{detail}</small> : null}</span>
-    </button>
-  )
-}
-
-function workbenchTabIcon(kind: WorkbenchTabKind): IconName {
-  return kind === 'document' ? 'file' : kind === 'side-task' ? 'sideChat' : kind === 'files' ? 'folderOpen' : kind === 'browser' ? 'globe' : kind === 'review' ? 'review' : 'terminalSquare'
-}
-
-function WorkbenchTabs({ tabs, activeId, onSelect, onClose }: {
-  readonly tabs: readonly WorkbenchTab[]
-  readonly activeId?: string
-  readonly onSelect: (id: string) => void
-  readonly onClose: (id: string) => void
-}) {
-  const listRef = useRef<HTMLDivElement>(null)
-  const [availableWidth, setAvailableWidth] = useState(0)
-  const visibleCount = Math.max(1, Math.floor((availableWidth + 4) / 120))
-  const overflow = availableWidth > 0 && tabs.length > visibleCount
-  const tabWidth = overflow ? (availableWidth - (visibleCount - 1) * 4) / visibleCount : undefined
-
-  useEffect(() => {
-    const list = listRef.current
-    if (!list) return
-    let frame = 0
-    const revealActive = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        setAvailableWidth(list.clientWidth)
-        const selected = list.querySelector<HTMLElement>('[aria-selected="true"]')?.parentElement
-        if (!selected) return
-        const bounds = list.getBoundingClientRect()
-        const tab = selected.getBoundingClientRect()
-        if (tab.left < bounds.left) list.scrollLeft += tab.left - bounds.left
-        else if (tab.right > bounds.right) list.scrollLeft += tab.right - bounds.right
-      })
-    }
-    revealActive()
-    const observer = new ResizeObserver(revealActive)
-    observer.observe(list)
-    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [activeId, tabs, availableWidth])
-
-  return <div className={tw("flex min-w-0 flex-1 items-center gap-0.5")}>
-    <div aria-label="工作面与文件标签页" className={tw("flex h-control min-w-0 flex-1 items-center gap-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none]")} ref={listRef} role="tablist">
-      {tabs.map((tab, index) => <div className={tw("group/tab [-webkit-app-region:no-drag] flex h-control-sm min-w-0 shrink-0 snap-start items-center rounded-md px-1", !overflow && "max-w-44", tab.id === activeId ? "bg-[var(--surface-tertiary)] text-[var(--foreground)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]")} key={tab.id} style={tabWidth ? { width: tabWidth } : undefined}>
-        <button aria-selected={tab.id === activeId} className={tw("flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-sm border-0 bg-transparent px-1 text-compact outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { onSelect(tab.id) }} onKeyDown={event => {
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-          event.preventDefault()
-          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-          const target = tabs[next]
-          if (target) { onSelect(target.id); listRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus() }
-        }} role="tab" tabIndex={tab.id === activeId ? 0 : -1} title={tab.label} type="button">
-          <Icon className={tw("shrink-0")} name={workbenchTabIcon(tab.kind)} size={16} />
-          <span className={tw("min-w-0 truncate")}>{tab.label}</span>
-        </button>
-        <button aria-label={`关闭 ${tab.label} 标签页`} className={tw("grid size-5 shrink-0 place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)] opacity-0 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] group-hover/tab:opacity-100 group-focus-within/tab:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} onClick={() => { onClose(tab.id) }} type="button"><Icon name="close" size={11} /></button>
-      </div>)}
-    </div>
-    {overflow ? <Menu align="end" triggerAriaLabel="已打开的标签页" triggerClassName="[-webkit-app-region:no-drag] size-control-xs shrink-0 justify-center rounded-md p-0" triggerLabel={<Icon name="chevronDown" size={14} />}>
-      {tabs.map(tab => <MenuItem suffix={tab.id === activeId ? <Icon name="check" size={13} /> : undefined} icon={workbenchTabIcon(tab.kind)} key={tab.id} onPress={() => { onSelect(tab.id) }}>{tab.label}</MenuItem>)}
-    </Menu> : null}
-  </div>
-}
-
-function WorkbenchHeaderAction({ active = false, expanded, controls, icon, label, onClick }: {
-  readonly active?: boolean
-  readonly expanded?: boolean
-  readonly controls?: string
-  readonly icon: IconName
-  readonly label: string
-  readonly onClick: () => void
-}) {
-  return (
-    <button
-      aria-controls={controls}
-      aria-expanded={expanded}
-      aria-label={label}
-      className={tw(
-        "[-webkit-app-region:no-drag] grid size-control-sm shrink-0 place-items-center rounded-md border-0 p-0 text-[var(--text-secondary)] shadow-none outline-none transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]",
-        active ? "bg-[var(--surface-secondary)] text-[var(--foreground)]" : "bg-transparent",
-      )}
-      onClick={onClick}
-      title={label}
-      type="button"
-    >
-      <Icon active={active} name={icon} size={17} />
-    </button>
-  )
 }
 
 export function LingShell(props: LingShellProps) {
@@ -1020,247 +143,118 @@ export function LingShell(props: LingShellProps) {
   const snapshot = useComputerSnapshot({ manager: props.extensions?.manager, computer: props.computerControl,
     draftId: selectedTask?.taskId ?? `new:${props.newTaskWorkspaceId ?? ''}:${props.newTaskServerId ?? ''}:${props.newTaskWithoutWorkspace ?? false}`,
     addFiles: onAddFiles, addQuote: props.onAddQuote, openWorkspace: props.onWorkspaceOpen })
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem(sidebarStorageKey) === 'collapsed')
+  const {
+    dialog,
+    setDialog,
+    creatingWorkspace,
+    setCreatingWorkspace,
+    creatingGroup,
+    setCreatingGroup,
+    editingGroupId,
+    setEditingGroupId,
+    taskViewState,
+    setTaskViewState,
+    workspaceAppearance,
+    beginAddWorkspace,
+    createWorkspace,
+    saveGroup,
+    allCollapsed,
+    toggleAll,
+    confirmDialog,
+    dialogCopy,
+  } = useTaskSidebar(props)
   const behavior = useBehavior()
   const modePreferences = behavior.modes[behavior.workMode]
-  const [monitorPreferences, setMonitorPreferences] = useState(() => readMonitorPreferences(window.localStorage.getItem(monitorPreferencesStorageKey)))
-  const [monitorState, dispatchMonitor] = useReducer(monitorReducer, initialMonitorState)
-  const [monitorSections, setMonitorSections] = useState<Record<string, Record<string, boolean>>>({})
-  const monitorContext = selectedTask?.taskId ?? 'new-task'
-  const monitorRef = useRef<HTMLElement>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = Number(window.localStorage.getItem(sidebarWidthStorageKey))
-    const initial = Number.isFinite(saved) && saved >= sidebarMinWidth ? saved : Math.min(260, Math.round(window.innerWidth * 0.15))
-    return Math.round(Math.max(sidebarMinWidth, Math.min(initial, sidebarMaxWidth)))
-  })
-  const [sidebarAvailableWidth, setSidebarAvailableWidth] = useState(() => sidebarWidthLimit(window.innerWidth))
-  const displayedSidebarWidth = Math.min(sidebarWidth, sidebarAvailableWidth)
   const [reviewSource, setReviewSource] = useState<'git' | 'task' | 'worktrees'>('git')
   const [gitOpen, setGitOpen] = useState(false)
-  const [settingsGitWorkspace, setSettingsGitWorkspace] = useState<string>()
-  const [workspaceGit, setWorkspaceGit] = useState<{ workspaceId: string; branch: string | null }>()
-  const [monitorGit, setMonitorGit] = useState<{ id: string; request: GitRequest; lineChanges: LingGitSnapshot['lineChanges'] }>()
-  const [servers, setServers] = useState<readonly LingServer[]>([])
-  const [taskServerId, setTaskServerId] = useState<string>()
-  const [taskRemoteCwd, setTaskRemoteCwd] = useState<string>()
-  const [taskFileBindingReady, setTaskFileBindingReady] = useState<string>()
-  const [remoteGitBranch, setRemoteGitBranch] = useState<string | null>(null)
-  const remoteGitRequest = useCallback<GitRequest>((taskId, request) => props.serverManager
-    ? props.serverManager.gitRequest(taskId, request)
-    : Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '远端 Git 服务不可用。', retryable: true }), [props.serverManager])
-  const [taskOperationsBinding, setTaskOperationsBinding] = useState<{ taskId: string; serverId: string }>()
-  const activeServerId = selectedTask ? taskServerId : props.newTaskServerId
-  const activeOperationsServerId = activeServerId ? undefined : selectedTask
-    ? taskOperationsBinding?.taskId === selectedTask.taskId ? taskOperationsBinding.serverId : undefined
-    : props.newTaskOperationsServerId
-  const issueServerId = selectedTask ? taskServerId ?? activeOperationsServerId : undefined
-  const [serverIssue, setServerIssue] = useState<RemoteIssue>()
-  const [serverIssuePending, setServerIssuePending] = useState(false)
-  useEffect(() => {
-    if (!props.serverManager) return
-    let active = true
-    void props.serverManager.list().then(result => { if (active && result.ok) setServers(result.value) })
-    return () => { active = false }
-  }, [props.serverManager, props.screen])
-  useEffect(() => {
-    setTaskServerId(undefined)
-    setTaskRemoteCwd(undefined)
-    setTaskFileBindingReady(undefined)
-    setRemoteGitBranch(null)
-    setServerIssue(undefined)
-    if (!selectedTask || !props.serverManager) return
-    let active = true
-    void props.serverManager.taskBinding(selectedTask.taskId).then(result => {
-      if (active && result.ok) { setTaskServerId(result.value?.serverId); setTaskRemoteCwd(result.value?.cwd); setTaskFileBindingReady(selectedTask.taskId) }
-    })
-    return () => { active = false }
-  }, [selectedTask?.taskId, props.serverManager])
-  useEffect(() => {
-    if (!selectedTask || !props.serverManager || !taskServerId) return
-    let active = true
-    void props.serverManager.taskBinding(selectedTask.taskId).then(result => {
-      if (active && result.ok) setTaskRemoteCwd(result.value?.cwd)
-    })
-    return () => { active = false }
-  }, [selectedTask?.taskId, props.serverManager, taskServerId, timeline.length])
-  useEffect(() => {
-    setTaskOperationsBinding(undefined)
-    if (!selectedTask || !props.serverManager) return
-    let active = true
-    void props.serverManager.operationsBinding(selectedTask.taskId).then(result => {
-      if (active && result.ok && result.value) setTaskOperationsBinding({ taskId: selectedTask.taskId, serverId: result.value.serverId })
-    })
-    return () => { active = false }
-  }, [selectedTask?.taskId, props.serverManager])
-  useEffect(() => {
-    if (!issueServerId || props.screen !== 'workspace') return
-    let active = true
-    const check = () => { void remoteIssue(issueServerId).then(issue => { if (active) setServerIssue(issue) }).catch(() => {
-      if (active) setServerIssue({ title: '服务器连接已中断' })
-    }) }
-    check()
-    window.addEventListener('focus', check)
-    return () => { active = false; window.removeEventListener('focus', check) }
-  }, [issueServerId, props.screen, timeline.length])
-  const sidebarDragStart = useRef<{ pointerX: number; width: number } | null>(null)
-  const notePromptRef = useRef(prompt); notePromptRef.current = prompt
-  const [notesFloating, setNotesFloating] = useState(false)
-  const [notesOrigin, setNotesOrigin] = useState<NoteOrigin>()
-  const [notesError, setNotesError] = useState<string>()
-  const [utilityPanel, setUtilityPanel] = useState<'knowledge' | null>(null)
-  const [knowledgeTarget, setKnowledgeTarget] = useState<{ workspaceId?: string; remoteTaskId?: string; documentId?: string }>()
-  const [memoryRecapRequested, setMemoryRecapRequested] = useState(false)
-  useEffect(() => { if (props.settingsTab !== 'memory') setMemoryRecapRequested(false) }, [props.settingsTab])
-  const [dialog, setDialog] = useState<DialogState | null>(null)
-  const [creatingWorkspace, setCreatingWorkspace] = useState(false)
-  const [creatingGroup, setCreatingGroup] = useState(false)
-  const [editingGroupId, setEditingGroupId] = useState<string>()
-  const [taskViewState, setTaskViewState] = useState(() => readTaskViewState(window.localStorage.getItem(taskViewStorageKey)))
-  const [workspaceAppearance, setWorkspaceAppearance] = useState<Record<string, Pick<WorkspaceDraft, 'color' | 'marker'>>>(() => {
-    try { return JSON.parse(window.localStorage.getItem('ling.workspace-appearance.v1') ?? '{}') as Record<string, Pick<WorkspaceDraft, 'color' | 'marker'>> }
-    catch { return {} }
-  })
-  const [terminalOpen, setTerminalOpen] = useState(false)
-  const [actionOutputOpen, setActionOutputOpen] = useState(false)
-  const [terminalHeight, setTerminalHeight] = useState(() => {
-    const saved = Number(window.localStorage.getItem(terminalHeightStorageKey))
-    return Number.isFinite(saved) && saved >= terminalMinHeight
-      ? Math.round(Math.min(saved, terminalMaxHeight))
-      : clampTerminalHeight(window.innerHeight * 0.25, window.innerHeight)
-  })
-  const [workbenchMaximized, setWorkbenchMaximized] = useState(false)
-  const [workbenchTabs, setWorkbenchTabs] = useState<readonly WorkbenchTab[]>([])
-  useEffect(() => {
-    if (!activeServerId) return
-    setWorkbenchTabs(current => current.filter(tab => tab.kind === 'browser' || tab.kind === 'files' || tab.kind === 'terminal'))
-  }, [activeServerId])
-  const [activeWorkbenchTabId, setActiveWorkbenchTabId] = useState<string>()
-  const sideTaskSequence = useRef(0)
-  const [browserInitialized, setBrowserInitialized] = useState(false)
-  const [browserNavigation, setBrowserNavigation] = useState<BrowserNavigationRequest>()
-  const [browserAnnotations, setBrowserAnnotations] = useState<readonly BrowserAnnotation[]>([])
-  const [browserAnnotationResetKey, setBrowserAnnotationResetKey] = useState(0)
-  const [workbenchWidth, setWorkbenchWidth] = useState(() => {
-    const saved = Number(window.localStorage.getItem(workbenchWidthStorageKey))
-    return Number.isFinite(saved) && saved >= 19 && saved <= 80 ? saved : 44
-  })
-  const [projectKnowledgeWidth, setProjectKnowledgeWidth] = useState(360)
-  const [workspaceAvailableWidth, setWorkspaceAvailableWidth] = useState(() => Math.max(1, window.innerWidth - (sidebarCollapsed ? 0 : displayedSidebarWidth)))
-  const [workspaceAvailableHeight, setWorkspaceAvailableHeight] = useState(() => window.innerHeight)
-  const displayedWorkbenchWidth = clampWorkbenchWidth(utilityPanel === 'knowledge' ? projectKnowledgeWidth / workspaceAvailableWidth * 100 : workbenchWidth, workspaceAvailableWidth)
-  const workbenchBounds = workbenchWidthBounds(workspaceAvailableWidth)
-  const displayedTerminalHeight = clampTerminalHeight(terminalHeight, workspaceAvailableHeight)
-  const workbenchOpen = screen === 'workspace' && (browserOpen || utilityPanel !== null)
-  const monitorPresentation = effectiveMonitorPresentation(monitorPreferences.presentation, workbenchOpen, workspaceAvailableWidth)
-  const monitorOpen = monitorState.open && screen === 'workspace' && !workbenchMaximized && !(workbenchOpen && window.innerWidth <= 700)
-  const monitorFloating = monitorOpen && monitorPresentation === 'floating'
-  const monitorFixed = monitorOpen && !monitorFloating
-  const terminalVisible = terminalOpen && screen === 'workspace'
-  const isDarwin = document.documentElement.dataset.platform === 'darwin'
-  const activeWorkbenchTab = workbenchTabs.find(tab => tab.id === activeWorkbenchTabId)
-
-  useEffect(() => {
-    window.localStorage.setItem(sidebarStorageKey, sidebarCollapsed ? 'collapsed' : 'expanded')
-  }, [sidebarCollapsed])
-
-  useEffect(() => { window.localStorage.setItem(monitorPreferencesStorageKey, JSON.stringify(monitorPreferences)) }, [monitorPreferences])
-
-  useEffect(() => {
-    if (screen !== 'workspace') return
-    dispatchMonitor({ type: 'enter', context: monitorContext, defaultOpen: workbenchOpen ? monitorState.open : Boolean(selectedTask && monitorPreferences.presentation === 'fixed' && monitorPreferences.showByDefault && workspaceAvailableWidth >= 800) })
-  }, [screen, monitorContext, selectedTask, workbenchOpen, monitorState.open, monitorPreferences.presentation, monitorPreferences.showByDefault, workspaceAvailableWidth])
-
-  useEffect(() => {
-    if (!monitorFloating || monitorState.pinned) return
-    const dismiss = () => { dispatchMonitor({ type: 'dismiss', presentation: monitorPresentation }) }
-    const pointer = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Element) || monitorRef.current?.contains(target) || target.closest('[aria-controls="task-monitor"], [role="dialog"], [role="menu"], [role="listbox"], [data-overlay-container]')) return
-      dismiss()
-    }
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return
-      event.preventDefault()
-      dismiss()
-      document.querySelector<HTMLButtonElement>('[aria-controls="task-monitor"]')?.focus()
-    }
-    document.addEventListener('pointerdown', pointer)
-    document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', key) }
-  }, [monitorFloating, monitorState.pinned, monitorPresentation])
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => { window.localStorage.setItem(sidebarWidthStorageKey, String(sidebarWidth)) }, 150)
-    return () => { window.clearTimeout(timeout) }
-  }, [sidebarWidth])
-
-  useEffect(() => {
-    const workspace = document.querySelector<HTMLElement>('main.workspace')
-    if (!workspace || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(entries => {
-      const width = Math.round(entries[0]?.contentRect.width ?? workspace.getBoundingClientRect().width)
-      const height = Math.round(entries[0]?.contentRect.height ?? workspace.getBoundingClientRect().height)
-      setWorkspaceAvailableWidth(width)
-      setWorkspaceAvailableHeight(height)
-    })
-    observer.observe(workspace)
-    return () => { observer.disconnect() }
-  }, [])
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => { window.localStorage.setItem(workbenchWidthStorageKey, String(workbenchWidth)) }, 150)
-    return () => { window.clearTimeout(timeout) }
-  }, [workbenchWidth])
-
-  useEffect(() => {
-    const onResize = () => {
-      const shell = document.querySelector<HTMLElement>('.desktop-shell')
-      if (!shell) return
-      setSidebarAvailableWidth(sidebarWidthLimit(shell.getBoundingClientRect().width))
-    }
-    window.addEventListener('resize', onResize)
-    return () => { window.removeEventListener('resize', onResize) }
-  }, [])
-
-  useEffect(() => { window.localStorage.setItem(taskViewStorageKey, JSON.stringify(taskViewState)) }, [taskViewState])
-  useEffect(() => {
-    const timeout = window.setTimeout(() => { window.localStorage.setItem(terminalHeightStorageKey, String(terminalHeight)) }, 150)
-    return () => { window.clearTimeout(timeout) }
-  }, [terminalHeight])
-  useEffect(() => { window.localStorage.setItem('ling.workspace-appearance.v1', JSON.stringify(workspaceAppearance)) }, [workspaceAppearance])
-  useEffect(() => {
-    setTaskViewState(current => {
-      const unseen = tasks.filter(task => !task.createdAt && !current.createdAtByTask[task.taskId])
-      if (unseen.length === 0) return current
-      return { ...current, createdAtByTask: { ...current.createdAtByTask, ...Object.fromEntries(unseen.map(task => [task.taskId, task.updatedAt])) } }
-    })
-  }, [tasks])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (dialog || event.key.toLowerCase() !== 'b' || !(event.metaKey || event.ctrlKey)) return
-      event.preventDefault()
-      setSidebarCollapsed(current => !current)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown) }
-  }, [dialog])
-
-  useEffect(() => {
-    if (screen !== 'workspace' || (browserOpen && activeWorkbenchTab?.kind === 'browser')) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 't') return
-      event.preventDefault()
-      setBrowserInitialized(true)
-      openWorkbenchTab('browser')
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown) }
-  }, [activeWorkbenchTab?.kind, browserOpen, screen, workbenchTabs])
-
-  const emptyConversation = timeline.length === 0 && !loadingOlder
+  const { settingsGitWorkspace, setSettingsGitWorkspace, memoryRecapRequested, setMemoryRecapRequested } = useShellSettingsRouting(props.settingsTab)
+  const {
+    setTaskOperationsBinding,
+    servers,
+    taskServerId,
+    taskRemoteCwd,
+    setTaskRemoteCwd,
+    taskFileBindingReady,
+    remoteGitBranch,
+    setRemoteGitBranch,
+    remoteGitRequest,
+    activeServerId,
+    activeOperationsServerId,
+    issueServerId,
+    serverIssue,
+    setServerIssue,
+    serverIssuePending,
+    setServerIssuePending,
+  } = useShellRemote(props)
   const activeWorkspaceId = activeServerId ? undefined : selectedTask ? selectedTask.workspaceId
     : props.newTaskWithoutWorkspace ? undefined : props.newTaskWorkspaceId ?? workspaces[0]?.workspaceId
+  const workspaceLabel = activeServerId ? servers.find(server => server.id === activeServerId)?.name ?? '服务器'
+    : (selectedTask && !selectedTask.workspaceId) || (!selectedTask && props.newTaskWithoutWorkspace)
+    ? '不指定工作区'
+    : workspaces.find(workspace => workspace.workspaceId === (selectedTask?.workspaceId ?? props.newTaskWorkspaceId))?.label
+      ?? workspaces[0]?.label ?? '不指定工作区'
+  const {
+    clearBrowserAnnotations,
+    setBrowserAnnotations,
+    utilityPanel,
+    setUtilityPanel,
+    workbenchMaximized,
+    setWorkbenchMaximized,
+    workbenchTabs,
+    setWorkbenchTabs,
+    activeWorkbenchTabId,
+    setActiveWorkbenchTabId,
+    activeWorkbenchTab,
+    browserInitialized,
+    browserNavigation,
+    setBrowserNavigation,
+    browserAnnotations,
+    browserAnnotationResetKey,
+    submitWithBrowserAnnotations,
+    toggleUtilityPanel,
+    openWorkbenchTab,
+    previewDelivery,
+    closeWorkbenchTab,
+    closeWorkbench,
+  } = useWorkbench({ props, activeServerId, activeOperationsServerId, taskServerId, activeWorkspaceId, workspaceLabel })
+  const {
+    sidebarAvailableWidth,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    setSidebarWidth,
+    displayedSidebarWidth,
+    sidebarDragStart,
+    setTerminalHeight,
+    displayedTerminalHeight,
+    setWorkbenchWidth,
+    setProjectKnowledgeWidth,
+    workspaceAvailableWidth,
+    workspaceAvailableHeight,
+    displayedWorkbenchWidth,
+    workbenchBounds,
+  } = useShellLayout({ utilityPanel, shortcutBlocked: Boolean(dialog) })
+  const { notesFloating, setNotesFloating, notesOrigin, notesError, requestNotes, handleNoteAction } = useShellNotes(props)
+  const [knowledgeTarget, setKnowledgeTarget] = useState<{ workspaceId?: string; remoteTaskId?: string; documentId?: string }>()
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [actionOutputOpen, setActionOutputOpen] = useState(false)
+  const workbenchOpen = screen === 'workspace' && (browserOpen || utilityPanel !== null)
+  const {
+    monitorPreferences,
+    setMonitorPreferences,
+    monitorState,
+    monitorRef,
+    monitorPresentation,
+    monitorOpen,
+    monitorFloating,
+    monitorFixed,
+    toggleLocalStatus,
+    toggleMonitorPin,
+    sections: monitorSections,
+  } = useTaskMonitor({ screen, taskId: selectedTask?.taskId, workbenchOpen, workbenchMaximized, workspaceAvailableWidth })
+  const terminalVisible = terminalOpen && screen === 'workspace'
+  const isDarwin = document.documentElement.dataset.platform === 'darwin'
+
+  const emptyConversation = timeline.length === 0 && !loadingOlder
   const fileContextScope = workspaceContextScope({ workspaceId: activeWorkspaceId, serverId: activeServerId, cwd: taskRemoteCwd })
   useEffect(() => {
     if (!selectedTask || (props.serverManager && taskFileBindingReady !== selectedTask.taskId)) return
@@ -1278,108 +272,24 @@ export function LingShell(props: LingShellProps) {
   const saveDraftFile = useCallback<NonNullable<LingShellProps['saveWorkspaceDocument']>>((_scope, path, text, version, signal) =>
     activeWorkspaceId && props.saveDraftWorkspaceDocument ? props.saveDraftWorkspaceDocument(activeWorkspaceId, path, text, version, signal)
       : Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '工作区文件暂时不可用。', retryable: true }), [activeWorkspaceId, props.saveDraftWorkspaceDocument])
-  const gitSettingsWorkspaceId = workspaces.find(workspace => workspace.workspaceId === settingsGitWorkspace)?.workspaceId ?? activeWorkspaceId ?? workspaces[0]?.workspaceId
   const workspaceTools = useWorkspaceTools(activeWorkspaceId, props.workspaceTools)
-  const workspaceBranch = workspaceGit?.workspaceId === activeWorkspaceId ? workspaceGit?.branch : null
-  const activeGitId = activeServerId ? selectedTask?.taskId : activeWorkspaceId
-  const activeGitRequest = activeServerId ? remoteGitRequest : props.workspaceGit
-  const gitBranch = activeServerId ? remoteGitBranch : workspaceBranch
-  const gitLineChanges = monitorGit?.id === activeGitId && monitorGit?.request === activeGitRequest ? monitorGit?.lineChanges : undefined
-  useEffect(() => {
-    if (!monitorOpen || !activeGitId || !activeGitRequest) return
-    let active = true, pending = false
-    const id = activeGitId, request = activeGitRequest
-    const refresh = async () => {
-      if (pending || document.visibilityState === 'hidden') return
-      pending = true
-      try {
-        const result = await request(id, { type: 'inspect', lineChanges: true })
-        if (active) setMonitorGit({ id, request, lineChanges: result.ok ? result.value.snapshot.lineChanges : undefined })
-      } catch { if (active) setMonitorGit({ id, request, lineChanges: undefined }) }
-      finally { pending = false }
-    }
-    const changed = (event: Event) => { if ((event as CustomEvent<string>).detail === id) void refresh() }
-    void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 5000)
-    window.addEventListener('focus', refresh)
-    window.addEventListener('ling:git-changed', changed)
-    document.addEventListener('visibilitychange', refresh)
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('ling:git-changed', changed); document.removeEventListener('visibilitychange', refresh) }
-  }, [monitorOpen, activeGitId, activeGitRequest])
-  const onGitChanged = (branch: string | null) => {
-    if (activeServerId) {
-      setRemoteGitBranch(branch)
-      if (selectedTask && props.serverManager) void props.serverManager.taskBinding(selectedTask.taskId).then(result => {
-        if (result.ok) setTaskRemoteCwd(result.value?.cwd)
-      })
-    } else if (activeWorkspaceId) setWorkspaceGit({ workspaceId: activeWorkspaceId, branch })
-  }
-  useEffect(() => {
-    if (!activeServerId || !selectedTask || !props.serverManager) return
-    let active = true
-    void props.serverManager.gitRequest(selectedTask.taskId, { type: 'inspect' }).then(result => {
-      if (active && result.ok) setRemoteGitBranch(result.value.snapshot.branch)
-    })
-    return () => { active = false }
-  }, [activeServerId, selectedTask?.taskId, props.serverManager])
-  useEffect(() => {
-    if (!activeWorkspaceId || !props.loadWorkspaceBranch) return
-    let active = true
-    let pending = false
-    const refresh = async () => {
-      if (pending || document.visibilityState === 'hidden') return
-      pending = true
-      try {
-        const branch = await props.loadWorkspaceBranch!(activeWorkspaceId)
-        if (active) setWorkspaceGit({ workspaceId: activeWorkspaceId, branch })
-      } catch {
-        if (active) setWorkspaceGit({ workspaceId: activeWorkspaceId, branch: null })
-      } finally { pending = false }
-    }
-    void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 5000)
-    window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refresh)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-      window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', refresh)
-    }
-  }, [activeWorkspaceId, props.loadWorkspaceBranch])
-
-  const workspaceLabel = activeServerId ? servers.find(server => server.id === activeServerId)?.name ?? '服务器'
-    : (selectedTask && !selectedTask.workspaceId) || (!selectedTask && props.newTaskWithoutWorkspace)
-    ? '不指定工作区'
-    : workspaces.find(workspace => workspace.workspaceId === (selectedTask?.workspaceId ?? props.newTaskWorkspaceId))?.label
-      ?? workspaces[0]?.label ?? '不指定工作区'
+  const { workspaceBranch, activeGitId, activeGitRequest, gitBranch, gitLineChanges, onGitChanged } = useShellGit({
+    taskId: selectedTask?.taskId,
+    activeWorkspaceId,
+    activeServerId,
+    monitorOpen,
+    workspaceGitRequest: props.workspaceGit,
+    remoteGitRequest,
+    remoteGitBranch,
+    setRemoteGitBranch,
+    setTaskRemoteCwd,
+    serverManager: props.serverManager,
+    loadWorkspaceBranch: props.loadWorkspaceBranch,
+  })
   const defaultLabel = defaultModelName(props.modelSettings)
   const modelLabel = (props.taskModelScoped
     ? (modelDisplayName(props.modelSettings, props.taskModel) || defaultLabel)
     : defaultLabel) || '选择模型'
-
-  const clearBrowserAnnotations = () => {
-    setBrowserAnnotations([])
-    setBrowserAnnotationResetKey(current => current + 1)
-  }
-
-  const submitWithBrowserAnnotations = (annotations: readonly BrowserAnnotation[] = browserAnnotations) => {
-    const annotationText = browserAnnotationText(annotations)
-    const combined = [prompt.trim(), annotationText].filter(Boolean).join('\n\n')
-    if (!combined) return
-    onSubmit(combined, clearBrowserAnnotations)
-  }
-
-  const beginAddWorkspace = () => {
-    setCreatingWorkspace(true)
-  }
-
-  const toggleUtilityPanel = (kind: 'knowledge') => {
-    props.onWorkspaceOpen()
-    setWorkbenchMaximized(false)
-    if (browserOpen) props.onBrowserToggle()
-    setUtilityPanel(current => current === kind ? null : kind)
-  }
 
   const openKnowledgeCenter = (project = false, documentId?: string) => {
     setKnowledgeTarget(project ? { workspaceId: activeWorkspaceId, remoteTaskId: activeServerId ? selectedTask?.taskId : undefined, documentId } : undefined)
@@ -1394,28 +304,6 @@ export function LingShell(props: LingShellProps) {
     document.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.focus()
   }, [props.onAddQuote])
 
-  const openWorkbenchTab = (kind: WorkbenchTabKind, initialSideTask?: Pick<SideTaskState, 'attachments' | 'prompt'>) => {
-    setUtilityPanel(null)
-    if (!browserOpen) props.onBrowserToggle()
-    const existing = kind === 'side-task' ? undefined : workbenchTabs.find(tab => tab.kind === kind)
-    if (existing) {
-      setActiveWorkbenchTabId(existing.id)
-      return
-    }
-    const id = kind === 'side-task' ? `side-task-${String(++sideTaskSequence.current)}` : kind
-    const label = kind === 'side-task' ? `新任务 ${String(sideTaskSequence.current)}` : kind === 'files' ? '工作区文件' : kind === 'browser' ? '内置浏览器' : kind === 'review' ? '审阅' : '终端'
-    setWorkbenchTabs(current => [...current, { id, kind, label, ...(kind === 'side-task' ? { sideTask: { workspaceId: activeWorkspaceId, workspaceLabel, agentPreset: props.composerAgentPreset, permissionPreset: props.permission?.currentValue, prompt: '', attachments: [], ...initialSideTask } } : {}) }])
-    setActiveWorkbenchTabId(id)
-    if (kind === 'browser') setBrowserInitialized(true)
-  }
-
-  const previewDelivery = useCallback((taskId: string, file: LingPresentedFile) => {
-    setUtilityPanel(null)
-    if (!browserOpen) props.onBrowserToggle()
-    const tab: WorkbenchTab = { id: 'document', kind: 'document', label: deliveryName(file.path), delivery: { taskId, file } }
-    setWorkbenchTabs(current => current.some(item => item.id === tab.id) ? current.map(item => item.id === tab.id ? tab : item) : [...current, tab])
-    setActiveWorkbenchTabId(tab.id)
-  }, [browserOpen, props.onBrowserToggle])
   const openDelivery = useCallback(async (taskId: string, file: LingPresentedFile): Promise<LingReadResult<void>> => {
     if (behavior.artifactOpen === 'right' || activeServerId) { previewDelivery(taskId, file); return { ok: true, value: undefined } }
     return props.replyFeatures?.openFile(taskId, file, AbortSignal.timeout(15_000)) ?? { ok: false, reason: 'runtime-unavailable', message: '系统应用打开暂不可用，请使用预览。', retryable: false }
@@ -1429,142 +317,10 @@ export function LingShell(props: LingShellProps) {
     return props.loadWorkspaceDocument(taskId, path, signal)
   }, [activeServerId, props.serverManager, props.loadWorkspaceDocument])
 
-  useEffect(() => {
-    const service = props.serverManager
-    if (screen !== 'workspace' || !selectedTask || !(activeOperationsServerId || taskServerId) || !service) return
-    let active = true
-    const taskId = selectedTask.taskId
-    const check = () => { void service.takeTerminalUiRequest(taskId).then(result => {
-      if (!active || !result.ok || !result.value.open) return
-      setUtilityPanel(null)
-      if (!browserOpen) props.onBrowserToggle()
-      setWorkbenchTabs(current => current.some(tab => tab.id === 'terminal') ? current : [...current, { id: 'terminal', kind: 'terminal', label: '终端' }])
-      setActiveWorkbenchTabId('terminal')
-    }) }
-    check()
-    const timer = window.setInterval(check, 800)
-    return () => { active = false; window.clearInterval(timer) }
-  }, [screen, selectedTask?.taskId, activeOperationsServerId, taskServerId, props.serverManager, browserOpen, props.onBrowserToggle])
-
-  useEffect(() => {
-    const navigate = (event: Event) => {
-      const request = (event as CustomEvent<BrowserNavigationRequest>).detail
-      if (!request?.id || typeof request.url !== 'string') return
-      openWorkbenchTab('browser'); setBrowserInitialized(true); setBrowserNavigation(request)
-    }
-    window.addEventListener(browserNavigationEvent, navigate)
-    return () => { window.removeEventListener(browserNavigationEvent, navigate) }
-  }, [browserOpen, workbenchTabs, behavior.quickNotes, behavior.replyAnnotations])
-
-  useEffect(() => {
-    try {
-      for (const task of tasks) registerNoteOrigin({ taskId: task.taskId, title: task.title, workspace: workspaces.find(workspace => workspace.workspaceId === task.workspaceId)?.label })
-    } catch { /* Reading notes will surface a storage error without disrupting the task. */ }
-  }, [tasks, workspaces])
-  const requestNotes = useCallback((taskId?: string) => {
-    if (!behavior.quickNotes && !behavior.replyAnnotations) return
-    try {
-      const origin = taskId ? noteOrigin(taskId) : undefined
-      const bridge = nativeQuickNotes()
-      setNotesError(undefined)
-      if (bridge) void bridge.open(origin).catch(cause => setNotesError(cause instanceof Error ? cause.message : '无法打开速记板。'))
-      else { setNotesOrigin(origin); setNotesFloating(true) }
-    } catch (cause) { setNotesError(cause instanceof Error ? cause.message : '无法打开速记板。') }
-  }, [behavior.quickNotes, behavior.replyAnnotations])
-  const handleNoteAction = useCallback(async ({ action, id }: NoteWindowAction) => {
-    const note = readQuickNote(id)
-    if (!note) throw new Error('这条速记已被删除。')
-    if (action === 'source') {
-      if (!note.origin || !tasks.some(task => task.taskId === note.origin?.taskId)) throw new Error('来源会话已不可用，速记内容仍保留。')
-      props.onWorkspaceOpen(); props.onSelectTask(note.origin.taskId); return
-    }
-    const files = await Promise.all(note.images.map(async image => new File([await readNoteImage(image.id)], image.name, { type: image.type })))
-    if (files.length) onAddFiles(files)
-    const text = taskNoteText(note)
-    if (text) onPromptChange([notePromptRef.current, text].filter(Boolean).join('\n\n'))
-    props.onWorkspaceOpen()
-  }, [tasks, prompt, onAddFiles, onPromptChange, props.onWorkspaceOpen, props.onSelectTask])
-  useEffect(() => {
-    const notes = (event: Event) => requestNotes((event as CustomEvent<{ taskId?: string }>).detail?.taskId)
-    const key = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === '9' && !document.querySelector('[role="dialog"]')) {
-        event.preventDefault(); requestNotes(screen === 'workspace' ? selectedTask?.taskId : undefined)
-      }
-    }
-    window.addEventListener(openTaskNotesEvent, notes); window.addEventListener('keydown', key)
-    return () => { window.removeEventListener(openTaskNotesEvent, notes); window.removeEventListener('keydown', key) }
-  }, [requestNotes, selectedTask?.taskId, screen])
-  useEffect(() => nativeQuickNotes()?.onAction(action => {
-    void handleNoteAction(action).catch(cause => setNotesError(cause instanceof Error ? cause.message : '速记操作失败。'))
-  }), [handleNoteAction])
-
-  const closeWorkbenchTab = (id: string) => {
-    const index = workbenchTabs.findIndex(tab => tab.id === id)
-    if (index < 0) return
-    workbenchTabs[index]?.sideTask?.attachments.forEach(releaseComposerAttachment)
-    const remaining = workbenchTabs.filter(tab => tab.id !== id)
-    setWorkbenchTabs(remaining)
-    if (activeWorkbenchTabId === id) setActiveWorkbenchTabId(remaining[Math.min(index, remaining.length - 1)]?.id)
-  }
-
-  const toggleLocalStatus = () => {
-    dispatchMonitor({ type: 'toggle' })
-    if (!monitorOpen && monitorPresentation === 'floating') window.requestAnimationFrame(() => { monitorRef.current?.querySelector<HTMLButtonElement>('button')?.focus() })
-  }
-  const toggleMonitorPin = () => {
-    dispatchMonitor({ type: 'pin' })
-    if (monitorState.pinned) window.requestAnimationFrame(() => { document.querySelector<HTMLButtonElement>('[aria-controls="task-monitor"]')?.focus() })
-  }
-
-  const closeWorkbench = () => {
-    setWorkbenchMaximized(false)
-    if (utilityPanel) setUtilityPanel(null)
-    else if (browserOpen) props.onBrowserToggle()
-  }
-
   const openExtensions = () => {
     setUtilityPanel(null)
     onSettingsOpen()
     props.onSettingsTabChange('extensions')
-  }
-
-  const createWorkspace = async (draft: WorkspaceDraft): Promise<LingCommandResult> => {
-    const result = await props.onCreateWorkspace(draft.path, draft.name)
-    if (result.accepted) setWorkspaceAppearance(current => ({ ...current, [draft.path]: { color: draft.color, marker: draft.marker } }))
-    return result
-  }
-
-  const saveGroup = (group: TaskViewState['groups'][number]) => {
-    setTaskViewState(current => ({ ...current, groups: current.groups.some(item => item.id === group.id)
-      ? current.groups.map(item => item.id === group.id ? group : item)
-      : [...current.groups, group] }))
-  }
-
-  const visibleSectionIds = taskViewState.view.groupBy === 'workspace'
-    ? [...workspaces.filter(workspace => !taskViewState.archivedWorkspaceIds.includes(workspace.workspaceId)).map(workspace => workspace.workspaceId), 'unassigned']
-    : taskViewState.view.groupBy === 'activity' ? ['today', 'week', 'month', 'older'] : [...taskViewState.groups.map(group => group.id), 'ungrouped']
-  const allCollapsed = visibleSectionIds.every(id => taskViewState.collapsedIds.includes(id))
-  const toggleAll = () => {
-    setTaskViewState(current => ({ ...current, collapsedIds: allCollapsed
-      ? current.collapsedIds.filter(id => !visibleSectionIds.includes(id))
-      : [...new Set([...current.collapsedIds, ...visibleSectionIds])] }))
-  }
-
-  const confirmDialog = async (value: string): Promise<LingCommandResult> => {
-    if (!dialog) return { accepted: false, requestId: '', reason: 'invalid-command', message: '无效操作。', retryable: false }
-    switch (dialog.kind) {
-      case 'rename-task': return await props.onRenameTask(dialog.id ?? '', value)
-      case 'rename-workspace': return await props.onRenameWorkspace(dialog.id ?? '', value)
-      case 'delete-workspace': return await props.onDeleteWorkspace(dialog.id ?? '')
-      case 'add-workspace': return await props.onCreateWorkspace(value)
-    }
-  }
-
-  const dialogCopy: Record<DialogState['kind'], { title: string; label: string; placeholder?: string; confirm?: string; danger?: boolean; description?: string }> = {
-    'rename-task': { title: '重命名任务', label: '任务名称' },
-    'rename-workspace': { title: '重命名工作区', label: '工作区名称' },
-    'add-workspace': { title: '添加工作区', label: '目录路径', placeholder: '/absolute/path/to/project', confirm: '添加', description: '输入要纳入灵创管理的本地目录绝对路径。' },
-    'delete-workspace': { title: '移除工作区', label: '工作区名称', confirm: '移除', danger: true, description: '仅从灵创移除该工作区，不会删除磁盘文件。' },
   }
 
   return (
@@ -1816,77 +572,7 @@ export function LingShell(props: LingShellProps) {
         {screen === 'automation' ? <AutomationCenter service={props.automation} workspaces={workspaces} workspaceId={activeWorkspaceId} models={props.modelSettings} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} /> : screen === 'knowledge' ? (
           <KnowledgeCenter key={`${knowledgeTarget?.remoteTaskId ?? knowledgeTarget?.workspaceId ?? 'center'}:${knowledgeTarget?.documentId ?? ''}`} initialProject={!!knowledgeTarget} initialDocumentId={knowledgeTarget?.documentId} remoteTaskId={knowledgeTarget?.remoteTaskId ?? (activeServerId ? selectedTask?.taskId : undefined)} service={props.knowledge} workspaceId={knowledgeTarget?.workspaceId ?? activeWorkspaceId} workspaces={workspaces} taskId={selectedTask?.taskId} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} onSettings={() => { onSettingsOpen(); props.onSettingsTabChange('memory') }} />
         ) : screen === 'settings' ? (
-          <div className={tw("settings-layout min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]")}>
-            <div className={tw("settings-body mx-auto min-h-full w-[min(100%,58rem)] min-w-0 px-20 pb-12 pt-2.5 max-[980px]:px-5 max-[980px]:pb-8 max-[700px]:px-3 max-[700px]:pb-8", props.settingsTab === 'control' && 'w-[min(100%,38rem)] px-6 pb-6 max-[980px]:px-6 max-[980px]:pb-6 max-[700px]:px-4 max-[700px]:pb-6')}>
-              {props.settingsTab === 'general' || props.settingsTab === 'modes' ? <BehaviorSettings section={props.settingsTab} supportsGoalLimit={props.supportsGoalLimit} pluginManager={props.extensions?.manager} /> : props.settingsTab === 'git' ? <GitSettings /> : props.settingsTab === 'worktrees' ? <section className={tw('flex min-h-[32rem] flex-col gap-5')}>
-                <h1 className={tw('m-0 text-xl font-semibold')}>Worktrees</h1>
-                <div className={tw('flex items-center gap-3 text-xs text-[var(--text-secondary)]')}>工作区<CompactSelect label="Worktrees 工作区" className={tw('w-full flex-1')} onChange={setSettingsGitWorkspace} value={gitSettingsWorkspaceId ?? ''} options={workspaces.map(workspace => ({ value: workspace.workspaceId, label: workspace.label }))} /></div>
-                {gitSettingsWorkspaceId && props.workspaceGit ? <GitPanel onAddWorkspace={props.onCreateWorkspace} view="worktrees" key={gitSettingsWorkspaceId} request={props.workspaceGit} workspaceId={gitSettingsWorkspaceId} /> : <p className={tw('text-sm text-[var(--text-tertiary)]')}>先添加本地工作区</p>}
-              </section> : props.settingsTab === 'usage' ? (
-                <UsageSettings selectedTask={selectedTask} tasks={tasks} />
-              ) : props.settingsTab === 'models' ? (
-                <ModelSettings
-                  loading={props.modelSettingsLoading}
-                  message={props.modelSettingsMessage}
-                  onCreateCustomProvider={props.onProviderCreate}
-                  onDeleteProvider={props.onProviderDelete}
-                  onAuthorizeProvider={props.onProviderAuthorize}
-                  onRefresh={props.onModelSettingsRefresh}
-                  onSaveApiKey={props.onProviderSaveApiKey}
-                  onSelectDefault={props.onModelDefaultSelect}
-                  onModelEnabledChange={props.onModelEnabledChange}
-                  onSignOutProvider={props.onProviderSignOut}
-                  onTestProvider={props.onProviderTest}
-                  onUpdateCustomProvider={props.onProviderUpdate}
-                  settings={props.modelSettings}
-                />
-              ) : props.settingsTab === 'monitor' ? (
-                <MonitorSettings onChange={setMonitorPreferences} preferences={monitorPreferences} onOpenRecapSettings={() => { setMemoryRecapRequested(true); props.onSettingsTabChange('memory') }} />
-              ) : props.settingsTab === 'agent-presets' ? (
-                <AgentPresetSettings service={props.extensions?.settings} onChanged={props.extensions?.onSettingsChanged ?? (async () => {})} onCreate={props.extensions?.onCreatePreset ?? (() => {})} />
-              ) : props.settingsTab === 'builtin-plugins' ? (
-                <BuiltinPluginSettings service={props.extensions?.settings} />
-              ) : props.settingsTab === 'extensions' && props.extensions !== undefined ? (
-                <ExtensionSettings
-                  manager={props.extensions.manager}
-                  readSkills={props.extensions.readSkills}
-                  taskId={selectedTask?.taskId}
-                />
-              ) : props.settingsTab === 'appearance' || props.settingsTab === 'shortcuts' ? (
-                <GeneralSettings
-                  section={props.settingsTab}
-                  localeLoading={props.localeLoading}
-                  localeMessage={props.localeMessage}
-                  localePreference={props.localePreference}
-                  onLocaleChange={props.onLocaleChange}
-                  onThemeChange={onThemeChange}
-                  theme={theme}
-                  version={props.version}
-                />
-              ) : props.settingsTab === 'archived' ? (
-                <ArchivedSettings
-                  onDeleteTask={props.onDeleteTask}
-                  archivedWorkspaceIds={taskViewState.archivedWorkspaceIds}
-                  onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }}
-                  onRestoreTask={taskId => { props.onToggleTaskArchive(taskId, false) }}
-                  onRestoreWorkspace={workspaceId => { setTaskViewState(current => ({ ...current, archivedWorkspaceIds: current.archivedWorkspaceIds.filter(id => id !== workspaceId) })) }}
-                  onRemoveWorkspace={workspace => { setDialog({ kind: 'delete-workspace', id: workspace.workspaceId, initial: workspace.label }) }}
-                  tasks={tasks.filter(task => task.archived)}
-                  workspaces={workspaces}
-                />
-              ) : props.settingsTab === 'connections' ? (
-                <ServerSettings service={props.serverManager} />
-              ) : props.settingsTab === 'memory' ? (
-                <MemorySettings service={props.knowledge} models={props.modelSettings} workspaces={workspaces} remoteTaskId={activeServerId ? selectedTask?.taskId : undefined} remoteLabel={taskRemoteCwd} initialRecapSettings={memoryRecapRequested} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} />
-              ) : props.settingsTab === 'hooks' ? (
-                <HooksSettings service={props.hooks} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} />
-              ) : props.settingsTab === 'control' ? (
-                <ComputerControlSettings service={props.extensions?.manager} computer={props.computerControl} />
-              ) : (
-                <CatalogSettings tab={props.settingsTab} modelSettings={props.modelSettings} onTestProvider={props.onProviderTest} />
-              )}
-            </div>
-          </div>
+          <ShellSettings settings={props} memoryRecapRequested={memoryRecapRequested} setMemoryRecapRequested={setMemoryRecapRequested} activeWorkspaceId={activeWorkspaceId} settingsGitWorkspace={settingsGitWorkspace} setSettingsGitWorkspace={setSettingsGitWorkspace} remoteTaskId={activeServerId ? selectedTask?.taskId : undefined} remoteLabel={taskRemoteCwd} taskViewState={taskViewState} setTaskViewState={setTaskViewState} monitorPreferences={monitorPreferences} setMonitorPreferences={setMonitorPreferences} onOpenDialog={setDialog} />
         ) : (
           <>
             <div className={tw("workspace-content flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", workbenchOpen && "col-start-1 row-start-2", workbenchMaximized && "hidden", workbenchOpen && "max-[700px]:hidden", monitorFixed ? "w-[calc(100%_-_var(--monitor-width))]" : "w-full", selectedTask && "workspace-content--task", emptyConversation && "justify-center overflow-y-auto py-6")}>
@@ -2052,7 +738,7 @@ export function LingShell(props: LingShellProps) {
                       terminalVisible && "bottom-[var(--terminal-height)]",
                     ),
               )} id="task-monitor" style={monitorFloating && workbenchOpen ? { width: Math.max(0, Math.min(280, workspaceAvailableWidth * (1 - displayedWorkbenchWidth / 100) - 18)) } : undefined}>
-                <MonitorSectionsContext.Provider value={{ values: monitorSections[monitorContext] ?? {}, set: (title, open) => { setMonitorSections(current => ({ ...current, [monitorContext]: { ...current[monitorContext], [title]: open } })) } }}>
+                <MonitorSectionsContext.Provider value={monitorSections}>
                 {slots?.['rightbar.session'] ?? <EnvironmentPanel {...props} environmentPinned={monitorState.pinned} recapRemoteTaskId={activeServerId ? selectedTask?.taskId : undefined} onOpenRecap={id => openKnowledgeCenter(true, id)} gitLineChanges={gitLineChanges} onGitReview={activeGitId && activeGitRequest ? () => { setReviewSource('git'); openWorkbenchTab('review') } : undefined} onGitOpen={activeGitId && activeGitRequest ? () => setGitOpen(true) : undefined} workspaceBranch={gitBranch} onEnvironmentPinToggle={toggleMonitorPin} onSelectSideChat={id => { setActiveWorkbenchTabId(id); if (!browserOpen) props.onBrowserToggle() }} preferences={monitorPreferences} presentation={monitorPresentation} sideChats={workbenchTabs.filter(tab => tab.kind === 'side-task')} />}
                 </MonitorSectionsContext.Provider>
               </aside>
