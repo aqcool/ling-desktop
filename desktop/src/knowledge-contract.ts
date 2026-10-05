@@ -178,6 +178,7 @@ export const knowledgeRequestSchema: z.ZodType<KnowledgeRequest> =
     z
       .object({ ...scope, type: z.literal('graph'), nodeId: id.optional() })
       .strict(),
+    z.object({ ...scope, type: z.literal('knowledgeMap'), focusId: z.string().min(1).max(10000).optional(), query: z.string().trim().max(256).optional() }).strict(),
     z
       .object({ ...scope, type: z.literal('source'), source: sourceSchema })
       .strict(),
@@ -309,6 +310,17 @@ const responseSchema: z.ZodType<KnowledgeResponse> = z
       )
       .optional(),
     text: z.string().optional(),
+    map: z.object({
+      nodes: z.array(z.object({
+        id: z.string(), label: z.string(),
+        kind: z.enum(['wiki', 'card', 'summary', 'reference', 'file', 'session']),
+        documentId: z.string().optional(),
+        state: z.enum(['active', 'candidate', 'stale', 'archived']).optional(),
+        source: sourceSchema.optional(),
+      }).strict()),
+      edges: z.array(z.object({ id: z.string(), source: z.string(), target: z.string(), kind: z.enum(['contains', 'derived', 'cites', 'links']), citation: sourceSchema.optional() }).strict()),
+      totalNodes: z.number().int().nonnegative(), totalEdges: z.number().int().nonnegative(), truncated: z.boolean(),
+    }).strict().optional(),
     startLine: z.number().int().positive().optional(),
     stale: z.boolean().optional(),
     job: jobSchema.optional(),

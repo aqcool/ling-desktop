@@ -1218,6 +1218,9 @@ importers:
       '@vscode/tree-sitter-wasm':
         specifier: 0.3.1
         version: 0.3.1
+      ignore:
+        specifier: 7.0.5
+        version: 7.0.5
       ling-desktop:
         specifier: workspace:*
         version: link:..
@@ -6993,6 +6996,10 @@ packages:
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
+
+  ignore@7.0.5:
+    resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
+    engines: {node: '>= 4'}
 
   immediate@3.0.6:
     resolution: {integrity: sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==}
@@ -15825,6 +15832,8 @@ snapshots:
   human-signals@8.0.1: {}
 
   ieee754@1.2.1: {}
+
+  ignore@7.0.5: {}
 
   immediate@3.0.6: {}
 

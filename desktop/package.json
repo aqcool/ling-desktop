@@ -195,6 +195,7 @@
     "@earendil-works/pi-ai": "0.85.1",
     "@vscode/ripgrep": "1.18.0",
     "@vscode/tree-sitter-wasm": "0.3.1",
+    "ignore": "7.0.5",
     "ling-desktop": "workspace:*",
     "pnpm": "11.8.0",
     "react": "18.3.1",

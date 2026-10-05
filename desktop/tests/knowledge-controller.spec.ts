@@ -367,6 +367,9 @@ describe('knowledge host scope and session evidence', () => {
       },
     })
     const sharedDocId = sharedDoc.ok ? sharedDoc.value.document!.id : 'missing'
+    expect(await remote.request({ type: 'knowledgeMap', workspaceId: null, libraryId: sharedId })).toMatchObject({
+      ok: true, value: { map: { nodes: [{ id: `document:${sharedDocId}`, kind: 'reference', documentId: sharedDocId, state: 'active', label: '共享约定' }], edges: [], totalNodes: 1, totalEdges: 0, truncated: false } },
+    })
     expect(
       await remote.request({ type: 'read', workspaceId: 'b', id: sharedDocId }),
     ).toMatchObject({ ok: true, value: { document: { title: '共享约定' } } })

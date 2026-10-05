@@ -29,12 +29,13 @@ import {
   type KnowledgeScope,
   type SessionEvidence,
 } from '../knowledge/engine.ts'
-import { indexRemoteCode, readRemoteCode } from '../knowledge/remote-code.ts'
+import { indexRemoteCode, listRemoteCodePaths, readRemoteCode } from '../knowledge/remote-code.ts'
 import {
   readCode,
   sha256,
   searchLocalCode,
   indexLocalWorkspace,
+  listLocalCodePaths,
 } from '../knowledge/code-index.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -68,6 +69,7 @@ export class LingKnowledgeController extends TypertRemoteService {
     store.setMeta('identity', this.identity)
     this.engine = new KnowledgeEngine(store, {
       scope: (id, taskId) => this.scope(id, taskId),
+      paths: async (scope, signal) => new Set(scope.remote ? await listRemoteCodePaths(scope, signal) : await listLocalCodePaths(scope.root!, signal)),
       session: (scope, id, seq) => this.session(scope, id, seq),
       index: (scope, previous, signal) =>
         scope.remote

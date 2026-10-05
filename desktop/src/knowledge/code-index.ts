@@ -88,12 +88,26 @@ export async function parseCode(path: string, body: string, commit?: string): Pr
   } finally { parser.delete() }
   return { path, body, hash, commit, nodes, edges, imports }
 }
-export async function indexLocalWorkspace(root: string, previous: IndexedFile[], signal: AbortSignal): Promise<IndexedFile[]> {
+export async function listLocalCodePaths(root: string, signal?: AbortSignal): Promise<string[]> {
   let output: string
-  try { output = (await execute(rgPath, ['--files', '--hidden', '-g', '!.git', '-g', '!node_modules', '-g', '!vendor'], { cwd: root, signal, maxBuffer: 8 * 1024 * 1024 })).stdout }
-  catch (error) { if (signal.aborted) throw error; output = (await execute('git', ['ls-files', '-c', '-o', '--exclude-standard'], { cwd: root, signal, maxBuffer: 8 * 1024 * 1024 })).stdout }
-  const paths = [...new Set(output.split(/\r?\n/).map(path => path.replaceAll('\\', '/')).filter(eligiblePath))].sort()
+  try { output = (await execute(rgPath, ['--files', '--null', '--hidden', '--no-require-git', '-g', '!.git', '-g', '!node_modules', '-g', '!vendor'], { cwd: root, signal, maxBuffer: 8 * 1024 * 1024 })).stdout }
+  catch (error) {
+    signal?.throwIfAborted()
+    if (error && typeof error === 'object' && 'code' in error && error.code === 1) output = ''
+    else {
+      const options = { cwd: root, signal, maxBuffer: 8 * 1024 * 1024 }
+      const listed = (await execute('git', ['ls-files', '-z', '-c', '-o', '--exclude-standard'], options)).stdout
+      // Git's cached listing includes tracked files that now match ignore rules.
+      const ignored = new Set((await execute('git', ['ls-files', '-z', '-c', '-i', '--exclude-standard'], options)).stdout.split('\0'))
+      output = listed.split('\0').filter(path => !ignored.has(path)).join('\0')
+    }
+  }
+  const paths = [...new Set(output.split('\0').map(path => path.replaceAll('\\', '/')).filter(eligiblePath))].sort()
   if (paths.length > 20000) throw new Error('工作区超过 20,000 个可索引文件，请缩小项目范围。')
+  return paths
+}
+export async function indexLocalWorkspace(root: string, previous: IndexedFile[], signal: AbortSignal): Promise<IndexedFile[]> {
+  const paths = await listLocalCodePaths(root, signal)
   let commit: string | undefined
   try { commit = (await execute('git', ['rev-parse', 'HEAD'], { cwd: root, signal })).stdout.trim() } catch { signal.throwIfAborted() }
   const old = new Map(previous.map(file => [file.path, file])), files: IndexedFile[] = []
@@ -137,7 +151,7 @@ export function codeGraph(files: IndexedFile[]): { nodes: KnowledgeNode[]; edges
 export async function searchLocalCode(root: string, query: string, signal?: AbortSignal): Promise<import('ling-desktop/runtime').KnowledgeHit[]> {
   let output: string
   try {
-    output = (await execute(rgPath, ['--json', '--fixed-strings', '--ignore-case', '--hidden', '--max-count', '3', '--glob', '!.git/**', '--glob', '!node_modules/**', '--glob', '!vendor/**', '--glob', '!dist/**', '--glob', '!build/**', '--', query, '.'], { cwd: root, signal, maxBuffer: 4 * 1024 * 1024 })).stdout
+    output = (await execute(rgPath, ['--json', '--fixed-strings', '--ignore-case', '--hidden', '--no-require-git', '--max-count', '3', '--glob', '!.git/**', '--glob', '!node_modules/**', '--glob', '!vendor/**', '--glob', '!dist/**', '--glob', '!build/**', '--', query, '.'], { cwd: root, signal, maxBuffer: 4 * 1024 * 1024 })).stdout
   } catch (error) {
     signal?.throwIfAborted()
     // No matches, unavailable rg, or excessive results fall back to the local FTS index.

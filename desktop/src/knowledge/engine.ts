@@ -9,7 +9,8 @@ import type {
 } from 'ling-desktop/runtime'
 import { wikiDefaults, type WikiOptions } from 'ling-desktop/runtime'
 import { KnowledgeStore } from './store.ts'
-import { codeGraph, indexLocalWorkspace, sha256 } from './code-index.ts'
+import { codeGraph, indexLocalWorkspace, listLocalCodePaths, sha256 } from './code-index.ts'
+import { knowledgeMap } from './knowledge-map.ts'
 import { wikiEvidence, wikiInventory } from './wiki-evidence.ts'
 
 export interface KnowledgeScope {
@@ -27,6 +28,7 @@ export interface SessionEvidence {
   text: string
 }
 export interface KnowledgeAdapters {
+  paths?(scope: KnowledgeScope, signal: AbortSignal): Promise<ReadonlySet<string>>
   scope(workspaceId: string | null, taskId?: string): Promise<KnowledgeScope>
   index?(
     scope: KnowledgeScope,
@@ -141,6 +143,12 @@ export class KnowledgeEngine {
   wikiOptions(scope: string): WikiOptions {
     return this.store.meta<WikiOptions>(`wiki-options:${scope}`, wikiDefaults)
   }
+  private async visibleCodePaths(scope: KnowledgeScope, signal?: AbortSignal): Promise<ReadonlySet<string> | undefined> {
+    if (!scope.root) return undefined
+    if (this.adapters.paths) return this.adapters.paths(scope, signal ?? new AbortController().signal)
+    if (scope.remote) throw new Error('SSH 文件范围暂不可用，请重连后再试。')
+    return new Set(await listLocalCodePaths(scope.root, signal))
+  }
   async request(
     request: KnowledgeRequest,
     signal?: AbortSignal,
@@ -161,6 +169,7 @@ export class KnowledgeEngine {
         'search',
         'export',
         'source',
+        'knowledgeMap',
       ].includes(request.type)
     )
       throw new Error('此操作不适用于知识库。')
@@ -471,8 +480,11 @@ export class KnowledgeEngine {
           !request.libraryId && (!request.kind || request.kind === 'code')
             ? ((await this.adapters.code?.(scope, request.query, signal)) ?? [])
             : []
+        // A rule change must hide stale FTS hits before the next index refresh.
+        const paths = !library && hits.some(hit => hit.kind === 'code') ? await this.visibleCodePaths(scope, signal) : undefined
         for (const list of [code, hits, history])
           list.forEach((hit, i) => {
+            if (hit.kind === 'code' && paths && (!hit.source?.path || !paths.has(hit.source.path.replaceAll('\\', '/')))) return
             const key = `${hit.kind}:${hit.id}`
             const old = ranks.get(key)
             ranks.set(key, {
@@ -487,8 +499,13 @@ export class KnowledgeEngine {
             .map((item) => item.hit),
         }
       }
+      case 'knowledgeMap': {
+        const paths = await this.visibleCodePaths(scope, signal)
+        return { map: knowledgeMap(library ? visible() : visible().filter(doc => doc.kind !== 'reference'), { ...request, paths }) }
+      }
       case 'graph': {
-        const graph = codeGraph(this.store.structure(scope.id))
+        const paths = await this.visibleCodePaths(scope, signal)
+        const graph = codeGraph(this.store.structure(scope.id).filter(file => !paths || paths.has(file.path)))
         if (!request.nodeId) {
           const nodes = graph.nodes.filter((node) => node.kind === 'module'),
             edges = new Map<string, (typeof graph.edges)[number]>()

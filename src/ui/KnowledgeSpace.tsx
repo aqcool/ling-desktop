@@ -11,6 +11,7 @@ import type {
 import { CompactButton, CompactInput } from './SettingsControls.js'
 import { KnowledgeReader } from './KnowledgeReader.js'
 import { KnowledgeGraph } from './KnowledgeGraph.js'
+import { KnowledgeMapView } from './KnowledgeMapView.js'
 import { useKnowledge, type KnowledgeScopeInput } from './useKnowledge.js'
 import {
   downloadKnowledge,
@@ -32,7 +33,7 @@ const projectViews = [
   { id: 'code', label: '代码查找' },
   { id: 'graph', label: '代码图谱' },
 ] as const
-type View = (typeof projectViews)[number]['id'] | 'reference' | 'memory'
+type View = (typeof projectViews)[number]['id'] | 'reference' | 'memory' | 'map'
 export function KnowledgeSpace({
   service,
   scope,
@@ -86,6 +87,7 @@ export function KnowledgeSpace({
         ? initialKind
         : 'wiki'
   const [view, setView] = useState<View>(initialView)
+  const mapReturn = useRef<View>(initialView)
   const [selected, setSelected] = useState<KnowledgeDocument>(),
     [revisions, setRevisions] = useState<KnowledgeDocument[]>([]),
     [query, setQuery] = useState(''),
@@ -159,7 +161,7 @@ export function KnowledgeSpace({
         query: query.trim(),
         ...(library
           ? { libraryId: library.id }
-          : { kind: view === 'graph' ? 'code' : view }),
+          : { kind: 'code' as const }),
       }).then((value) => {
         if (live && value?.hits) setHits(value.hits)
       })
@@ -188,6 +190,7 @@ export function KnowledgeSpace({
       void loadGraph(graphPath.at(-1))
   }, [view, graphPath.join('|'), snapshot?.indexedAt])
   const changeView = (id: View) => navigate(() => {
+    if (id === 'map' && view !== 'map') mapReturn.current = view
     reading.current++
     setConfigure(id === 'wiki' || id === 'card')
     setView(id)
@@ -300,7 +303,7 @@ export function KnowledgeSpace({
     (job) => job.kind === 'wiki' && ['queued', 'running'].includes(job.status),
   )
   const modelReady = !!snapshot?.settings.provider && !!snapshot?.settings.model
-  const hasDirectory = library
+  const hasDirectory = view === 'map' ? false : library
     ? !!documents.length
     : isWiki
       ? !!(wikiDocuments.length || (snapshot?.documents.some(doc => doc.kind === 'card' && doc.state !== 'archived')))
@@ -344,6 +347,10 @@ export function KnowledgeSpace({
         </div>
         <div className={tw('flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]')}>
           {headerActions}
+          {library || isProject ? <CompactButton variant="tertiary" aria-pressed={view === 'map'} aria-label={view === 'map' && (selected || source) ? '返回图谱' : '知识图谱'} onPress={() => {
+            if (view === 'map' && (selected || source)) navigate(() => { reading.current++; setSelected(undefined); setSource(undefined); setDraft(undefined) })
+            else if (view !== 'map') changeView('map')
+          }}><Icon name="agentPreset" size={16} />{view === 'map' && (selected || source) ? '返回图谱' : '知识图谱'}</CompactButton> : null}
           {library || isProject ? (
             <KnowledgeMenu
               items={
@@ -667,6 +674,14 @@ export function KnowledgeSpace({
               {error}
             </p>
           ) : null}
+          {view === 'map' && service ? <div hidden={!!selected || !!source} className={tw('h-full')}><KnowledgeMapView
+            request={request} scope={scope} library={!!library}
+            revision={(snapshot?.documents ?? []).map(doc => `${doc.id}:${doc.version}:${doc.state}`).join('|')}
+            onDocument={node => { if (node.documentId) open(node.documentId) }}
+            onSource={value => { void showSource(value) }}
+            onBack={() => changeView(mapReturn.current)}
+            onCodeGraph={isProject ? () => changeView('graph') : undefined}
+          /></div> : null}
           {!service ? (
             <Empty
               title="知识服务暂不可用"
@@ -705,7 +720,7 @@ export function KnowledgeSpace({
                   : undefined
               }
             />
-          ) : (
+          ) : view === 'map' && !selected && !source ? null : (
             <div className={tw('px-7 py-5 max-[700px]:px-4')}>
               {selected && source ? <nav aria-label="阅读标签" className={tw('mb-5 flex gap-2 border-b border-[var(--panel-border)] pb-2')}>
                 <CompactButton variant="tertiary" onPress={() => setSource(current => current ? { ...current, visible: false } : current)} aria-pressed={!source.visible}>{selected.title}</CompactButton>
@@ -760,7 +775,7 @@ export function KnowledgeSpace({
                     variant="tertiary"
                     onPress={() => setSource(undefined)}
                   >
-                    返回文档
+                    {view === 'map' && !selected ? '返回图谱' : '返回文档'}
                   </CompactButton>
                   <h2 className={tw('my-4 break-all text-sm font-medium')}>
                     {source.source.label}

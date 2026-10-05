@@ -74,6 +74,28 @@ export interface KnowledgeEdge {
   kind: 'contains' | 'imports' | 'calls'
   evidence: 'syntax' | 'semantic'
 }
+export interface KnowledgeMapNode {
+  id: string
+  label: string
+  kind: Exclude<KnowledgeKind, 'memory'> | 'file' | 'session'
+  documentId?: string
+  state?: KnowledgeState
+  source?: KnowledgeSource
+}
+export interface KnowledgeMapEdge {
+  id: string
+  source: string
+  target: string
+  kind: 'contains' | 'derived' | 'cites' | 'links'
+  citation?: KnowledgeSource
+}
+export interface KnowledgeMap {
+  nodes: KnowledgeMapNode[]
+  edges: KnowledgeMapEdge[]
+  totalNodes: number
+  totalEdges: number
+  truncated: boolean
+}
 export interface KnowledgeJob {
   id: string
   scope: string
@@ -156,6 +178,7 @@ export type KnowledgeRequest = {
   | { type: 'wiki' }
   | { type: 'wikiOptions'; options: WikiOptions }
   | { type: 'graph'; nodeId?: string }
+  | { type: 'knowledgeMap'; focusId?: string; query?: string }
   | { type: 'source'; source: KnowledgeSource }
   | {
       type: 'navigate'
@@ -175,6 +198,7 @@ export interface KnowledgeResponse {
   revisions?: KnowledgeDocument[]
   nodes?: KnowledgeNode[]
   edges?: KnowledgeEdge[]
+  map?: KnowledgeMap
   text?: string
   startLine?: number
   stale?: boolean
