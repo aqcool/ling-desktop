@@ -9,8 +9,9 @@ export const graphRelations = { contains: '包含', imports: '导入', calls: '�
 export function KnowledgeGraph<Node extends KnowledgeNode | KnowledgeMapNode>({ nodes, edges, onSelect, selectedId, fill = false, collapsedList = false, network = false, framed = true }: { nodes: Node[]; edges: (KnowledgeEdge | KnowledgeMapEdge)[]; onSelect: (node: Node) => void; selectedId?: string; fill?: boolean; collapsedList?: boolean; network?: boolean; framed?: boolean }) {
   const container = useRef<HTMLDivElement>(null), instance = useRef<cytoscape.Core | null>(null)
   const select = useRef(onSelect); select.current = onSelect
+  const currentNodes = useRef(nodes); currentNodes.current = nodes
   useEffect(() => {
-    if (!container.current || !nodes.length) return
+    if (!container.current) return
     const styles = (): cytoscape.StylesheetJson => {
       const theme = getComputedStyle(container.current!)
       const color = (name: string, fallback: string) => theme.getPropertyValue(name).trim() || fallback
@@ -41,14 +42,9 @@ export function KnowledgeGraph<Node extends KnowledgeNode | KnowledgeMapNode>({ 
         ] as cytoscape.StylesheetJson : []),
       ]
     }
-    const graph = cytoscape({ container: container.current, elements: [
-      // A deterministic spiral seeds the force layout; avoid reshuffling on every visit.
-      ...nodes.map((node, index) => ({ data: { id: node.id, label: node.label, kind: node.kind }, ...(network ? { position: { x: Math.cos(index * 2.4) * 70 * Math.sqrt(index), y: Math.sin(index * 2.4) * 70 * Math.sqrt(index) } } : {}) })),
-      ...edges.map(edge => ({ data: { id: edge.id, source: edge.source, target: edge.target, label: edge.kind === 'contains' ? '' : graphRelations[edge.kind], kind: edge.kind } })),
-    ], style: styles(), layout: { name: 'cose', animate: false, nodeDimensionsIncludeLabels: true, fit: true, padding: network ? 60 : 45, ...(network ? { randomize: false, componentSpacing: 100, idealEdgeLength: () => 100, gravity: 0.35 } : {}), nodeRepulsion: () => 12000 }, minZoom: 0.05, maxZoom: 1.8, wheelSensitivity: 0.2 })
+    const graph = cytoscape({ container: container.current, elements: [], style: styles(), layout: { name: 'preset' }, minZoom: 0.05, maxZoom: 1.8, wheelSensitivity: 0.2 })
     instance.current = graph
-    if (graph.zoom() > 1) { graph.zoom(1); graph.center() }
-    graph.on('tap', 'node', event => { const node = nodes.find(node => node.id === event.target.id()); if (node) select.current(node) })
+    graph.on('tap', 'node', event => { const node = currentNodes.current.find(node => node.id === event.target.id()); if (node) select.current(node) })
     graph.on('mouseover', 'node', event => { event.target.addClass('hovered'); if (container.current) container.current.style.cursor = 'pointer' })
     graph.on('mouseout', 'node', event => { event.target.removeClass('hovered'); if (container.current) container.current.style.cursor = '' })
     const observer = new ResizeObserver(() => {
@@ -59,6 +55,37 @@ export function KnowledgeGraph<Node extends KnowledgeNode | KnowledgeMapNode>({ 
     const themeObserver = new MutationObserver(() => { graph.style(styles()).update() })
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette', 'class', 'style'] })
     return () => { instance.current = null; themeObserver.disconnect(); observer.disconnect(); graph.destroy() }
+  }, [network])
+  useEffect(() => {
+    const graph = instance.current
+    if (!graph) return
+    const overlap = nodes.some(node => !graph.getElementById(node.id).empty())
+    const ids = new Set([...nodes.map(node => node.id), ...edges.map(edge => edge.id)])
+    graph.batch(() => {
+      graph.elements().filter(element => !ids.has(element.id())).remove()
+      for (const [index, node] of nodes.entries()) {
+        const data = { id: node.id, label: node.label, kind: node.kind }
+        const current = graph.getElementById(node.id)
+        if (!current.empty()) { current.data(data); continue }
+        const neighborId = edges.find(edge => edge.source === node.id || edge.target === node.id)
+        const neighbor = neighborId ? graph.getElementById(neighborId.source === node.id ? neighborId.target : neighborId.source) : undefined
+        const origin = neighbor && !neighbor.empty() ? neighbor.position() : { x: 0, y: 0 }
+        const radius = overlap ? 100 + (index % 4) * 24 : 70 * Math.sqrt(index)
+        graph.add({ data, position: { x: origin.x + Math.cos(index * 2.4) * radius, y: origin.y + Math.sin(index * 2.4) * radius } })
+      }
+      for (const edge of edges) {
+        if (graph.getElementById(edge.source).empty() || graph.getElementById(edge.target).empty()) continue
+        const data = { id: edge.id, source: edge.source, target: edge.target, label: edge.kind === 'contains' ? '' : graphRelations[edge.kind], kind: edge.kind }
+        const current = graph.getElementById(edge.id)
+        if (current.empty()) graph.add({ data })
+        else current.data(data)
+      }
+    })
+    // Existing nodes keep their positions and the user's camera. Layout only a new graph.
+    if (!overlap && nodes.length) {
+      graph.layout({ name: 'cose', animate: false, nodeDimensionsIncludeLabels: true, fit: true, padding: network ? 60 : 45, randomize: false, componentSpacing: 100, idealEdgeLength: () => 100, gravity: 0.35, nodeRepulsion: () => 12000 }).run()
+      if (graph.zoom() > 1) { graph.zoom(1); graph.center() }
+    }
   }, [nodes, edges, network])
   useEffect(() => {
     const graph = instance.current

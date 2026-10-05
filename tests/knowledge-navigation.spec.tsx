@@ -37,6 +37,8 @@ function fixture() {
       jobs: [], indexedFiles: 0, indexedAt: null,
       settings: { ...knowledgeDefaults, provider: 'test', model: 'test' },
     } } }
+    if (input.type === 'status') return { ok: true, value: { status: { state: 'ready', pages: 1, cards: 0, updatedAt: 1 } } }
+    if (input.type === 'search') return { ok: true, value: { hits: documents.filter(doc => doc.kind === (input.libraryId ? 'reference' : input.kind) && (input.libraryId ? doc.libraryId === input.libraryId : doc.scope === input.workspaceId) && `${doc.title} ${doc.body}`.includes(input.query)).map(doc => ({ id: doc.id, kind: doc.kind, title: doc.title, snippet: doc.body })) } }
     if (input.type === 'read') return { ok: true, value: { document: documents.find(doc => doc.id === input.id) } }
     return { ok: true, value: {} }
   })
@@ -173,15 +175,64 @@ describe('knowledge navigation and project boundaries', () => {
     expect(service.request).toHaveBeenCalledWith(expect.objectContaining({ type: 'retry', jobId: 'failed', workspaceId: 'a' }), expect.any(AbortSignal))
   })
 
-  it('filters a library directory by file title without replacing the current reader', async () => {
+  it('searches library bodies without replacing the current reader and locates a selected match', async () => {
     const service = fixture()
     const container = await mount(<KnowledgeSpace service={service} scope={{ workspaceId: null, libraryId: 'library' }} library={library} label="参考资料" onBack={vi.fn()} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
-    await click(button(container, '库内资料'))
+    expect(container.querySelector('article')?.textContent).toContain('正文 库内资料')
     const input = container.querySelector<HTMLInputElement>('input[aria-label="搜索当前知识库"]')!
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '不存在'); input.dispatchEvent(new Event('input', { bubbles: true })) })
-    expect(container.textContent).toContain('正文 库内资料')
-    expect(container.querySelector('aside')?.textContent).not.toContain('库内资料')
-    expect(service.request.mock.calls.some(([input]) => input.type === 'search')).toBe(false)
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '正文'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { await new Promise(done => setTimeout(done, 330)) })
+    expect(service.request).toHaveBeenCalledWith(expect.objectContaining({ type: 'search', workspaceId: null, libraryId: 'library', query: '正文' }), expect.any(AbortSignal))
+    const results = container.querySelector<HTMLElement>('[aria-label="正文搜索结果"]')!
+    expect(results.textContent).toContain('库内资料')
+    expect(results.querySelector('mark')?.textContent).toBe('正文')
+    expect(container.querySelector('article')?.textContent).toContain('正文 库内资料')
+    await click(results.querySelector('button')!)
+    expect(input.value).toBe('')
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'auto' })
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '正文'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { await new Promise(done => setTimeout(done, 330)) })
+    await click(container.querySelector<HTMLElement>('[aria-label="正文搜索结果"] button')!)
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'auto' })
+  })
+  it('restores the last library document and its scroll position after returning to the shelf', async () => {
+    const service = fixture()
+    const container = await mount(<KnowledgeCenter service={service} workspaces={workspaces} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
+    await click(container.querySelector<HTMLButtonElement>('button[aria-label="打开知识库：参考资料"]')!)
+    const pane = container.querySelector<HTMLDivElement>('[aria-label="知识阅读区域"]')!
+    pane.scrollTop = 480; await act(async () => pane.dispatchEvent(new Event('scroll', { bubbles: true })))
+    await click(button(container, '知识库'))
+    await click(container.querySelector<HTMLButtonElement>('button[aria-label="打开知识库：参考资料"]')!)
+    expect(container.querySelector('article')?.textContent).toContain('正文 库内资料')
+    expect(container.querySelector<HTMLDivElement>('[aria-label="知识阅读区域"]')?.scrollTop).toBe(480)
+  })
+  it('restores each project view independently', async () => {
+    const service = fixture()
+    const container = await mount(<KnowledgeSpace service={service} scope={{ workspaceId: 'a' }} label="项目 A" onBack={vi.fn()} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
+    await click(button(container, 'A Wiki'))
+    const pane = container.querySelector<HTMLDivElement>('[aria-label="知识阅读区域"]')!
+    pane.scrollTop = 260; await act(async () => pane.dispatchEvent(new Event('scroll', { bubbles: true })))
+    await projectView(container, '会话总结'); await click(button(container, 'A 总结'))
+    pane.scrollTop = 130; await act(async () => pane.dispatchEvent(new Event('scroll', { bubbles: true })))
+    await projectView(container, '返回 Wiki 页面')
+    expect(container.querySelector('article')?.textContent).toContain('正文 A Wiki')
+    expect(pane.scrollTop).toBe(260)
+    await projectView(container, '会话总结')
+    expect(container.querySelector('article')?.textContent).toContain('正文 A 总结')
+    expect(pane.scrollTop).toBe(130)
+  })
+  it('reopens a Repo Wiki card in Wiki while restoring that page instead of the last utility view', async () => {
+    const service = fixture()
+    const container = await mount(<KnowledgeCenter service={service} workspaces={workspaces} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
+    await click(button(container, 'Repo Wiki'))
+    await click(container.querySelector<HTMLButtonElement>('button[aria-label="打开 Repo Wiki：项目 A"]')!)
+    await click(button(container, 'A Wiki'))
+    await projectView(container, '会话总结'); await click(button(container, 'A 总结'))
+    await click(button(container, 'Repo Wiki'))
+    await click(container.querySelector<HTMLButtonElement>('button[aria-label="打开 Repo Wiki：项目 A"]')!)
+    expect(container.querySelector('article')?.textContent).toContain('正文 A Wiki')
+    expect(container.querySelector('article')?.textContent).not.toContain('正文 A 总结')
   })
 
   it('imports a batch directly, retries only failures and opens the saved document', async () => {

@@ -37,6 +37,17 @@ async function click(container: HTMLElement, text: string) {
   expect(button, text).toBeDefined(); await act(async () => button!.click())
 }
 describe('knowledge map reading workflow', () => {
+  it('returns to the document and reading position used before entering the map', async () => {
+    const doc: KnowledgeDocument = { id: 'wiki', scope: 'a', kind: 'wiki', title: '入口说明', body: '这是原文', sources: [source], state: 'active', version: 1, manual: false, updatedAt: 1 }
+    const service: LingKnowledgeService = { request: vi.fn<LingKnowledgeService['request']>(async input => ({ ok: true, value: input.type === 'snapshot' ? { snapshot: { documents: [doc], jobs: [], indexedFiles: 1, indexedAt: 1, settings: knowledgeDefaults } } : input.type === 'knowledgeMap' ? { map } : input.type === 'read' ? { document: doc } : {} })) }
+    const container = await mount(<KnowledgeSpace service={service} scope={{ workspaceId: 'a' }} label="项目 A" onBack={vi.fn()} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
+    await click(container, '入口说明')
+    const pane = container.querySelector<HTMLDivElement>('[aria-label="知识阅读区域"]')!
+    pane.scrollTop = 375; await act(async () => pane.dispatchEvent(new Event('scroll', { bubbles: true })))
+    await click(container, '知识图谱'); await settle(); await click(container, '返回阅读')
+    expect(container.querySelector('article')?.textContent).toContain('这是原文')
+    expect(pane.scrollTop).toBe(375)
+  })
   it('opens graph documents and returns with selection preserved in the same project', async () => {
     const document: KnowledgeDocument = { id: 'wiki', scope: 'a', kind: 'wiki', title: '入口说明', body: '这是原文', sources: [source], state: 'active', version: 1, manual: false, updatedAt: 1 }
     const service: LingKnowledgeService = { request: vi.fn<LingKnowledgeService['request']>(async input => ({ ok: true, value: input.type === 'snapshot' ? { snapshot: { documents: [document], jobs: [], indexedFiles: 1, indexedAt: 1, settings: knowledgeDefaults } } : input.type === 'knowledgeMap' ? { map } : input.type === 'read' ? { document } : {} })) }

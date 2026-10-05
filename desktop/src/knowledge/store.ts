@@ -39,6 +39,17 @@ export function searchTokens(text: string): string {
   return [...identifiers.map((word) => word.toLowerCase()), ...tokens].join(' ')
 }
 
+export function searchExcerpt(body: string, query: string): string {
+  const lower = body.toLocaleLowerCase(), phrase = query.trim().toLocaleLowerCase()
+  let match = lower.indexOf(phrase)
+  if (match < 0) {
+    const matches = phrase.split(/\s+/).filter(Boolean).map(term => lower.indexOf(term)).filter(index => index >= 0)
+    match = matches.length ? Math.min(...matches) : 0
+  }
+  const start = Math.max(0, match - 80), end = Math.min(body.length, start + 320)
+  return `${start ? '…' : ''}${body.slice(start, end)}${end < body.length ? '…' : ''}`
+}
+
 export interface IndexedFile {
   path: string
   hash: string
@@ -258,6 +269,16 @@ export class KnowledgeStore {
       .all(scope)
       .map((row) => this.decode(row))
   }
+  /** Same window as list(), without transferring or decoding document bodies. */
+  revisionRows(scope: string) {
+    return this.db.prepare('SELECT id,version,state,kind,libraryId FROM documents WHERE scope=? ORDER BY updatedAt DESC LIMIT 500').all(scope)
+  }
+  projectStatus(scope: string): import('ling-desktop/runtime').KnowledgeProjectStatus {
+    const counts = this.db.prepare("SELECT SUM(kind='wiki') AS pages,SUM(kind='card') AS cards,MAX(CASE WHEN kind='wiki' THEN updatedAt END) AS updatedAt FROM documents WHERE scope=? AND state!='archived'").get(scope)!
+    const jobs = this.jobs(scope).filter(job => job.kind === 'wiki')
+    const pages = Number(counts.pages ?? 0)
+    return { state: jobs.some(job => ['queued', 'running'].includes(job.status)) ? 'busy' : jobs[0]?.status === 'failed' ? 'error' : pages ? 'ready' : 'empty', pages, cards: Number(counts.cards ?? 0), ...(counts.updatedAt ? { updatedAt: Number(counts.updatedAt) } : {}) }
+  }
   versions(scope: string, id: string): KnowledgeDocument[] {
     if (!this.read(scope, id)) return []
     return this.db
@@ -428,7 +449,7 @@ export class KnowledgeStore {
               id: doc.id,
               kind: doc.kind,
               title: doc.title,
-              snippet: doc.body.slice(0, 320),
+              snippet: searchExcerpt(doc.body, query),
               source: doc.sources[0],
               state: doc.state,
             },

@@ -246,22 +246,50 @@ export class KnowledgeEngine {
       case 'deleteLibrary':
         this.store.deleteLibrary(scope.id, request.id, request.version)
         return {}
-      case 'snapshot':
+      case 'status':
+        return { status: this.store.projectStatus(scope.id) }
+      case 'wikiChanges': {
+        if (!scope.root) throw new Error('请先选择项目。')
+        const previous = this.store.files(scope.id)
+        const files = await (this.adapters.index ? this.adapters.index(scope, previous, signal ?? new AbortController().signal) : indexLocalWorkspace(scope.root, previous, signal ?? new AbortController().signal))
+        signal?.throwIfAborted()
+        const before = new Map(previous.map(file => [file.path, file.hash])), after = new Map(files.map(file => [file.path, file.hash]))
+        const changes: NonNullable<KnowledgeResponse['wikiChanges']>['files'] = []
+        for (const file of files) if (before.get(file.path) !== file.hash) changes.push({ path: file.path, change: before.has(file.path) ? 'changed' : 'added' })
+        for (const file of previous) if (!after.has(file.path)) changes.push({ path: file.path, change: 'removed' })
+        const language = this.wikiOptions(scope.id).language
+        const pages = this.store.list(scope.id).filter(doc => doc.kind === 'wiki' && !['archived', 'candidate'].includes(doc.state)).flatMap(doc => {
+          const paths = doc.sources.filter(source => source.kind === 'code' && source.path && after.get(source.path) !== source.hash).map(source => source.path!)
+          return paths.length || doc.state === 'stale' || this.store.meta<string>(`wiki-language:${doc.id}`, language) !== language ? [{ id: doc.id, title: doc.title, manual: doc.manual, paths: [...new Set(paths)] }] : []
+        })
+        return { wikiChanges: { checkedAt: Date.now(), files: changes.slice(0, 100), totalFiles: changes.length, pages } }
+      }
+      case 'snapshot': {
+        const libraries = this.store.accessibleLibraries(scope.id), jobs = this.store.jobs(scope.id).map(publicJob)
+        const settings = this.store.settings(), wikiOptions = this.wikiOptions(scope.id)
+        const indexedAt = this.store.meta<number | null>(`indexedAt:${scope.id}`, null)
+        const indexedFiles = this.store.fileCount(scope.id)
+        const navigation = this.adapters.navigationAvailable?.() ?? false
+        const revision = sha256(JSON.stringify([
+          this.store.revisionRows(scope.id).filter(row => !library || row.libraryId === library.id),
+          ...(library ? [] : libraries.map(item => [item, this.store.revisionRows(item.scope).filter(row => row.libraryId === item.id)])),
+          jobs, settings, wikiOptions, indexedAt, indexedFiles, navigation,
+        ]))
+        if (request.revision === revision) return { revision, unchanged: true }
         return {
+          revision,
           snapshot: {
             documents: visible(),
-            libraries: this.store.accessibleLibraries(scope.id),
-            wikiOptions: this.wikiOptions(scope.id),
-            settings: this.store.settings(),
-            navigation: this.adapters.navigationAvailable?.() ?? false,
-            jobs: this.store.jobs(scope.id).map(publicJob),
-            indexedFiles: this.store.fileCount(scope.id),
-            indexedAt: this.store.meta<number | null>(
-              `indexedAt:${scope.id}`,
-              null,
-            ),
+            libraries,
+            wikiOptions,
+            settings,
+            navigation,
+            jobs,
+            indexedFiles,
+            indexedAt,
           },
         }
+      }
       case 'wikiOptions':
         if (!scope.root) throw new Error('请先选择项目。')
         this.store.setMeta(`wiki-options:${scope.id}`, request.options)
@@ -866,6 +894,7 @@ export class KnowledgeEngine {
       ...pages!.filter((page) => !page.parent),
       ...pages!.filter((page) => page.parent),
     ]
+    let updated = 0, reused = 0, proposals = 0
     for (const [pageIndex, page] of ordered.entries()) {
       progress(`正在生成 ${pageIndex + 1}/${ordered.length} · ${page.title}`)
       signal.throwIfAborted()
@@ -898,8 +927,7 @@ export class KnowledgeEngine {
         ) ===
           JSON.stringify(sources.map((source) => [source.path, source.hash])) &&
         old.state !== 'stale'
-      )
-        continue
+      ) { reused++; continue }
       const evidence = wikiEvidence(members)
       const rawPage = await this.adapters.generate(
         settings,
@@ -932,6 +960,8 @@ export class KnowledgeEngine {
           position,
         })
         this.store.setMeta(`wiki-language:${id}`, options.language)
+        if (old?.manual || old?.state === 'archived') proposals++
+        else updated++
         const prefix = `card:${scope.id}:${page.key}:`
         const cardIds = new Set(
           pageResult.cards.map((card) => `${prefix}${card.key}`),
@@ -959,6 +989,6 @@ export class KnowledgeEngine {
           })
       })
     }
-    progress(`完成 · ${ordered.length} 个页面 · ${this.store.list(scope.id).filter(doc => doc.kind === 'card' && doc.state !== 'archived').length} 张知识卡片`)
+    progress(`生成完成 · 更新 ${updated} 个页面 · 复用 ${reused} 个页面${proposals ? ` · ${proposals} 个更新建议待确认` : ''}`)
   }
 }

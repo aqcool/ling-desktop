@@ -67,11 +67,11 @@ describe('bounded Wiki evidence', () => {
       }
       throw Error('timeout')
     }
-    expect(await run()).toMatchObject({ status: 'completed', message: '完成 · 1 个页面 · 1 张知识卡片' })
+    expect(await run()).toMatchObject({ status: 'completed', message: '生成完成 · 更新 1 个页面 · 复用 0 个页面' })
     expect(observed).toEqual(['正在规划目录 · 已索引 1601 个文件', '正在生成 1/1 · 项目概览'])
     expect(prompts.every(prompt => prompt.length < 68000)).toBe(true)
     expect(store.list('large')).toHaveLength(2)
-    expect((await run()).status).toBe('completed')
+    expect(await run()).toMatchObject({ status: 'completed', message: '生成完成 · 更新 0 个页面 · 复用 1 个页面' })
     expect(reads).toBe(2)
     expect(prompts).toHaveLength(2)
     files[files.length - 1] = file('main.ts', 'export const changed = true')

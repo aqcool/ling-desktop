@@ -85,7 +85,8 @@ const librarySchema = z
   .strict()
 export const knowledgeRequestSchema: z.ZodType<KnowledgeRequest> =
   z.discriminatedUnion('type', [
-    z.object({ ...scope, type: z.literal('snapshot') }).strict(),
+    z.object({ ...scope, type: z.literal('snapshot'), revision: z.string().max(128).optional() }).strict(),
+    z.object({ ...scope, type: z.literal('status') }).strict(),
     z.object({ ...scope, type: z.literal('catalog') }).strict(),
     z
       .object({
@@ -168,6 +169,7 @@ export const knowledgeRequestSchema: z.ZodType<KnowledgeRequest> =
       })
       .strict(),
     z.object({ ...scope, type: z.literal('wiki') }).strict(),
+    z.object({ ...scope, type: z.literal('wikiChanges') }).strict(),
     z
       .object({
         ...scope,
@@ -178,7 +180,7 @@ export const knowledgeRequestSchema: z.ZodType<KnowledgeRequest> =
     z
       .object({ ...scope, type: z.literal('graph'), nodeId: id.optional() })
       .strict(),
-    z.object({ ...scope, type: z.literal('knowledgeMap'), focusId: z.string().min(1).max(10000).optional(), query: z.string().trim().max(256).optional() }).strict(),
+    z.object({ ...scope, type: z.literal('knowledgeMap'), focusId: z.string().min(1).max(10000).optional(), query: z.string().trim().max(256).optional(), kinds: z.array(z.enum(['wiki', 'card', 'summary', 'reference', 'file', 'session'])).min(1).max(6).optional(), depth: z.union([z.literal(1), z.literal(2)]).optional() }).strict(),
     z
       .object({ ...scope, type: z.literal('source'), source: sourceSchema })
       .strict(),
@@ -242,6 +244,10 @@ const jobSchema = z.object({
 })
 const responseSchema: z.ZodType<KnowledgeResponse> = z
   .object({
+    revision: z.string().optional(),
+    unchanged: z.boolean().optional(),
+    status: z.object({ state: z.enum(['busy', 'error', 'ready', 'empty']), pages: z.number().int().nonnegative(), cards: z.number().int().nonnegative(), updatedAt: z.number().optional() }).strict().optional(),
+    wikiChanges: z.object({ checkedAt: z.number(), files: z.array(z.object({ path: z.string(), change: z.enum(['added', 'changed', 'removed']) }).strict()), totalFiles: z.number().int().nonnegative(), pages: z.array(z.object({ id: z.string(), title: z.string(), manual: z.boolean(), paths: z.array(z.string()) }).strict()) }).strict().optional(),
     libraries: z.array(librarySchema).optional(),
     library: librarySchema.optional(),
     snapshot: z

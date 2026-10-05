@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Modal } from '@heroui/react/modal'
 import type { LingModelSettings } from '../runtime/contract.js'
 import type {
@@ -26,6 +26,8 @@ import { KnowledgeImportDialog } from './KnowledgeImportDialog.js'
 import { WikiSetup } from './WikiSetup.js'
 import { CodeEditor } from './CodeEditor.js'
 import { tw } from './tailwind.js'
+import { knowledgeReadingSession, type KnowledgeView } from './knowledge-reading.js'
+import { KnowledgeSearchResults, HighlightText } from './KnowledgeSearchResults.js'
 const projectViews = [
   { id: 'wiki', label: 'Wiki 页面' },
   { id: 'card', label: '知识卡片' },
@@ -33,7 +35,7 @@ const projectViews = [
   { id: 'code', label: '代码查找' },
   { id: 'graph', label: '代码图谱' },
 ] as const
-type View = (typeof projectViews)[number]['id'] | 'reference' | 'memory' | 'map'
+type View = KnowledgeView
 export function KnowledgeSpace({
   service,
   scope,
@@ -86,8 +88,12 @@ export function KnowledgeSpace({
       : initialKind === 'summary' || initialKind === 'card'
         ? initialKind
         : 'wiki'
+  const readingSession = useMemo(() => knowledgeReadingSession(service, scope), [service, scope.workspaceId, scope.taskId, scope.libraryId])
   const [view, setView] = useState<View>(initialView)
-  const mapReturn = useRef<View>(initialView)
+  const mapReturn = useRef<View>(view)
+  const scrollPane = useRef<HTMLDivElement>(null), restored = useRef(false)
+  const [searching, setSearching] = useState(false), [matchQuery, setMatchQuery] = useState('')
+  const [searchVisit, setSearchVisit] = useState(0)
   const [selected, setSelected] = useState<KnowledgeDocument>(),
     [revisions, setRevisions] = useState<KnowledgeDocument[]>([]),
     [query, setQuery] = useState(''),
@@ -126,10 +132,14 @@ export function KnowledgeSpace({
       doc.state !== 'archived' &&
       (!library || doc.libraryId === library.id),
   )
-  const visibleDocuments = library || !['code', 'graph'].includes(view) ? documents.filter(doc => doc.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : documents
-  const outline = knowledgeOutline(visibleDocuments),
+  const codeSearch = view === 'code' || view === 'graph'
+  const outline = knowledgeOutline(documents),
     selectedId = selected?.id
-  const readDocument = async (id: string) => {
+  const rememberPlace = () => {
+    if (view === 'map') return
+    readingSession.places[view] = { documentId: selected?.id, configure, scrollTop: selected ? readingSession.positions[selected.id] ?? 0 : scrollPane.current?.scrollTop ?? 0 }
+  }
+  const readDocument = async (id: string, match = '') => {
     const serial = ++reading.current
     const value = await request({ type: 'read', ...scope, id })
     if (serial !== reading.current) return
@@ -139,9 +149,26 @@ export function KnowledgeSpace({
       setRevisions(value.revisions ?? [])
       setSource(undefined)
       setDraft(undefined)
+      setMatchQuery(match)
+      if (match) setSearchVisit(value => value + 1)
     }
   }
-  const open = (id: string) => navigate(() => { void readDocument(id) })
+  const open = (id: string, match = '') => navigate(() => { rememberPlace(); setQuery(''); setHits(undefined); void readDocument(id, match) })
+  useEffect(() => {
+    if (!snapshot || restored.current || initialDocumentId) return
+    restored.current = true
+    const place = readingSession.places[view]
+    const doc = documents.find(doc => doc.id === place?.documentId) ?? (library ? outline[0]?.document : undefined)
+    if (place?.configure) setConfigure(true)
+    else if (doc) void readDocument(doc.id)
+  }, [snapshot, initialDocumentId])
+  useLayoutEffect(() => {
+    if (scrollPane.current) scrollPane.current.scrollTop = selected && !configure && !source?.visible && !query.trim()
+      ? matchQuery ? 0 : readingSession.positions[selected.id] ?? 0
+      : 0
+  }, [selected?.id, view, configure, source?.visible])
+  const currentPlace = useRef(rememberPlace); currentPlace.current = rememberPlace
+  useEffect(() => () => { currentPlace.current(); reading.current++ }, [])
   useEffect(() => {
     if (!initialDocumentId) return
     changeView(initialView)
@@ -149,11 +176,15 @@ export function KnowledgeSpace({
     return () => { reading.current++ }
   }, [initialDocumentId, initialView])
   useEffect(() => {
-    if (!query.trim() || !['code', 'graph'].includes(view)) {
+    setHits(undefined)
+    if (!query.trim() || view === 'map') {
       setHits(undefined)
+      setSearching(false)
       return
     }
     let live = true
+    const controller = new AbortController()
+    setSearching(true)
     const timer = setTimeout(() => {
       void request({
         type: 'search',
@@ -161,16 +192,17 @@ export function KnowledgeSpace({
         query: query.trim(),
         ...(library
           ? { libraryId: library.id }
-          : { kind: 'code' as const }),
-      }).then((value) => {
-        if (live && value?.hits) setHits(value.hits)
+          : { kind: codeSearch ? 'code' as const : view as KnowledgeDocument['kind'] }),
+      }, false, controller.signal).then((value) => {
+        if (live) { setHits(value?.hits ?? []); setSearching(false) }
       })
     }, 300)
     return () => {
       live = false
+      controller.abort()
       clearTimeout(timer)
     }
-  }, [query, view, library?.id])
+  }, [query, view, request, snapshot])
   const showSource = async (value: KnowledgeSource) => {
     const serial = ++reading.current
     const result = await request({ type: 'source', ...scope, source: value })
@@ -190,15 +222,19 @@ export function KnowledgeSpace({
       void loadGraph(graphPath.at(-1))
   }, [view, graphPath.join('|'), snapshot?.indexedAt])
   const changeView = (id: View) => navigate(() => {
+    rememberPlace()
     if (id === 'map' && view !== 'map') mapReturn.current = view
     reading.current++
-    setConfigure(id === 'wiki' || id === 'card')
+    const place = readingSession.places[id]
+    setConfigure(place?.configure ?? (id === 'wiki' || id === 'card'))
     setView(id)
     setSelected(undefined)
     setSource(undefined)
     setDraft(undefined)
     setQuery('')
     setHits(undefined)
+    setMatchQuery('')
+    if (place?.documentId && !place.configure && snapshot?.documents.some(doc => doc.id === place.documentId && doc.state !== 'archived')) void readDocument(place.documentId)
   })
   const saveDocument = async (value: {
     title: string
@@ -464,7 +500,7 @@ export function KnowledgeSpace({
                   view === 'code' || view === 'graph'
                     ? '文件名、函数名…'
                     : library
-                      ? '搜索文件名'
+                      ? '搜索标题或正文'
                       : view === 'card'
                         ? '搜索知识卡片'
                         : view === 'summary'
@@ -556,6 +592,7 @@ export function KnowledgeSpace({
               className={tw('min-h-0 flex-1 overflow-auto')}
               aria-label="页面列表"
             >
+              {query.trim() && !codeSearch ? <KnowledgeSearchResults hits={hits} query={query} loading={searching} onOpen={hit => open(hit.id, query.trim())} /> : <>
               {isWiki ? <button type="button" aria-current={configure ? 'page' : undefined} onClick={() => navigate(() => { setConfigure(true); setSource(undefined); setQuery('') })} className={tw('mb-2 flex w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs hover:bg-[var(--surface-hover)]', configure && 'bg-[var(--surface-secondary)] font-medium')}><Icon name="agentPreset" size={15} />概览<span aria-hidden="true" className={tw('ml-auto text-caption', wikiRunning ? 'text-[var(--link)]' : 'text-[var(--text-tertiary)]')}>{wikiRunning ? '生成中' : wikiDocuments.length ? '已生成' : ''}</span></button> : null}
               {outline.map(({ document: doc, depth }) => (
                 <button
@@ -601,6 +638,7 @@ export function KnowledgeSpace({
                   }
                 </p>
               ) : null}
+              </>}
             </nav>
             {!isWiki && activeJobs.length ? (
               <details
@@ -664,6 +702,9 @@ export function KnowledgeSpace({
           </aside>
         ) : null}
         <div
+          ref={scrollPane}
+          aria-label="知识阅读区域"
+          onScroll={event => { if (selected && !configure && !source?.visible && !draft) readingSession.positions[selected.id] = event.currentTarget.scrollTop }}
           aria-busy={pending}
           className={tw('min-h-0 min-w-0 overflow-auto')}
         >
@@ -689,7 +730,7 @@ export function KnowledgeSpace({
               description="请重启应用后重新打开。"
             />
           ) : isWiki &&
-            (configure ||
+            ((configure && !query.trim()) ||
               (!wikiDocuments.length && !source && !draft && !hits)) ? (
             <WikiSetup
               models={models}
@@ -712,6 +753,7 @@ export function KnowledgeSpace({
                   reload,
                 )
               }}
+              onInspect={async () => (await request({ type: 'wikiChanges', ...scope }))?.wikiChanges}
               onGenerate={() => {
                 setConfigure(true)
                 void start('wiki')
@@ -729,11 +771,13 @@ export function KnowledgeSpace({
                 <CompactButton variant="tertiary" onPress={() => setSource(current => current ? { ...current, visible: true } : current)} aria-pressed={!!source.visible}>{source.source.label}</CompactButton>
                 <CompactButton variant="tertiary" isIconOnly aria-label="关闭来源" onPress={() => setSource(undefined)}><Icon name="close" size={14} /></CompactButton>
               </nav> : null}
-              {selected ? <div hidden={!!source?.visible || !!hits || !!draft}>
+              {selected ? <div hidden={!!source?.visible || (codeSearch && !!hits) || !!draft}>
                 {selected.kind === 'card' ? (() => { const parent = wikiDocuments.find(doc => selected.id.startsWith(`${doc.id.replace(/^wiki:/, 'card:')}:`)); return parent ? <CompactButton variant="tertiary" className={tw('mx-5 my-2 max-w-[calc(100%-2.5rem)] bg-transparent px-0 text-[var(--text-secondary)]')} onPress={() => navigate(() => { setView('wiki'); setQuery(''); void readDocument(parent.id) })}><span className={tw('truncate')}>所属页面：{parent.title}</span></CompactButton> : null })() : null}
                 <KnowledgeReader
                   key={selected.id}
                   document={selected}
+                  searchQuery={matchQuery}
+                  searchVisit={searchVisit}
                   revisions={revisions}
                   pending={pending}
                   onSave={saveDocument}
@@ -842,7 +886,7 @@ export function KnowledgeSpace({
                     </CompactButton>
                   </div>
                 </article>
-              ) : hits ? (
+              ) : codeSearch && hits ? (
                 <div className={tw('grid max-w-4xl gap-2')}>
                   <h1 className={tw('mb-3 mt-0 text-lg font-semibold')}>
                     搜索结果
@@ -871,14 +915,14 @@ export function KnowledgeSpace({
                           {knowledgeKinds[hit.kind]}
                         </span>
                         <strong className={tw('break-all text-sm font-medium')}>
-                          {hit.title}
+                          <HighlightText text={hit.title} query={query} />
                         </strong>
                         <span
                           className={tw(
                             'line-clamp-3 whitespace-pre-wrap break-words text-xs leading-6 text-[var(--text-secondary)]',
                           )}
                         >
-                          {hit.snippet}
+                          <HighlightText text={hit.snippet} query={query} />
                         </span>
                       </button>
                     ))

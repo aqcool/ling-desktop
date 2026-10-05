@@ -4,7 +4,7 @@ const nodeLimit = 200
 const edgeLimit = 500
 
 /** A read-only projection of recorded provenance; never infers a semantic relation. */
-export function knowledgeMap(documents: KnowledgeDocument[], options: { query?: string; focusId?: string; paths?: ReadonlySet<string> } = {}): KnowledgeMap {
+export function knowledgeMap(documents: KnowledgeDocument[], options: { query?: string; focusId?: string; paths?: ReadonlySet<string>; kinds?: KnowledgeMapNode['kind'][]; depth?: 1 | 2 } = {}): KnowledgeMap {
   const visible = documents.filter(doc => doc.kind !== 'memory' && doc.state !== 'archived')
   const nodes = new Map<string, KnowledgeMapNode>(), edges = new Map<string, KnowledgeMapEdge>()
   const documentNode = (id: string) => `document:${id}`
@@ -41,7 +41,8 @@ export function knowledgeMap(documents: KnowledgeDocument[], options: { query?: 
       connect(id, target, 'cites', source)
     }
   }
-  const allEdges = [...edges.values()]
+  if (options.kinds) for (const [id, node] of nodes) if (!options.kinds.includes(node.kind)) nodes.delete(id)
+  const allEdges = [...edges.values()].filter(edge => nodes.has(edge.source) && nodes.has(edge.target))
   const neighbors = new Map<string, Set<string>>()
   for (const edge of allEdges) {
     for (const [from, to] of [[edge.source, edge.target], [edge.target, edge.source]] as const) {
@@ -53,7 +54,14 @@ export function knowledgeMap(documents: KnowledgeDocument[], options: { query?: 
   if (options.focusId && !nodes.has(options.focusId)) throw Error('此知识节点已不存在，请返回全部关系。')
   const seeds = options.focusId ? [options.focusId] : query ? [...nodes.values()].filter(node => node.label.toLocaleLowerCase().includes(query)).map(node => node.id) : [...nodes.keys()]
   const wanted = new Set(seeds)
-  if (query || options.focusId) for (const id of seeds) for (const neighbor of neighbors.get(id) ?? []) wanted.add(neighbor)
+  if (query || options.focusId) {
+    let frontier = seeds
+    for (let depth = 0; depth < (options.depth ?? 1); depth++) {
+      const next: string[] = []
+      for (const id of frontier) for (const neighbor of neighbors.get(id) ?? []) if (!wanted.has(neighbor)) { wanted.add(neighbor); next.push(neighbor) }
+      frontier = next
+    }
+  }
   const included = new Set(seeds.slice(0, query || options.focusId ? nodeLimit : 80))
   // Place neighbors of each seed before unrelated nodes when bounding the overview.
   for (const id of [...included]) {
@@ -63,14 +71,14 @@ export function knowledgeMap(documents: KnowledgeDocument[], options: { query?: 
       included.add(neighbor)
     }
   }
-  for (const id of seeds) {
+  for (const id of query || options.focusId ? wanted : seeds) {
     if (included.size >= nodeLimit) break
     included.add(id)
   }
   const selectedEdges = allEdges.filter(edge => included.has(edge.source) && included.has(edge.target))
   return {
     nodes: [...included].map(id => nodes.get(id)!), edges: selectedEdges.slice(0, edgeLimit),
-    totalNodes: nodes.size, totalEdges: edges.size,
+    totalNodes: nodes.size, totalEdges: allEdges.length,
     truncated: wanted.size > included.size || selectedEdges.length > edgeLimit,
   }
 }

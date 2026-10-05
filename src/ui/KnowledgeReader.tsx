@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type {
   KnowledgeDocument,
   KnowledgeResponse,
@@ -28,8 +28,12 @@ export function KnowledgeReader({
   onLinkError,
   onExport,
   onDirtyChange,
+  searchQuery = '',
+  searchVisit = 0,
 }: {
   document: KnowledgeDocument
+  searchQuery?: string
+  searchVisit?: number
   onDirtyChange?: (dirty: boolean) => void
   revisions?: KnowledgeDocument[]
   pending: boolean
@@ -51,6 +55,7 @@ export function KnowledgeReader({
     [version, setVersion] = useState<KnowledgeDocument>()
   const [raw, setRaw] = useState(false), [directory, setDirectory] = useState(false)
   const directoryId = useId()
+  const article = useRef<HTMLElement>(null), highlightName = `knowledge-search-${useId().replace(/[^a-z0-9]/gi, '')}`
   const isDirty = editing && (title !== doc.title || body !== doc.body)
   useEffect(() => { onDirtyChange?.(isDirty) }, [isDirty, onDirtyChange])
   useEffect(() => () => onDirtyChange?.(false), [])
@@ -61,6 +66,28 @@ export function KnowledgeReader({
     [headings],
   )
   const bodyHasTitle = headings[0]?.level === 1 && !content.body.split('\n').slice(0, headings[0].line - 1).join('\n').trim()
+  useEffect(() => {
+    if (!searchQuery.trim() || !article.current || editing) return
+    const terms = searchQuery.trim().split(/\s+/).filter(Boolean).sort((a, b) => b.length - a.length)
+    const pattern = new RegExp(terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi')
+    const walker = window.document.createTreeWalker(article.current, NodeFilter.SHOW_TEXT), ranges: Range[] = []
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      if (!node.parentElement?.closest('[data-knowledge-body]')) continue
+      for (const match of (node.textContent ?? '').matchAll(pattern)) {
+        const range = window.document.createRange()
+        range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length)
+        ranges.push(range)
+        if (ranges.length >= 500) break
+      }
+      if (ranges.length >= 500) break
+    }
+    if (typeof Highlight !== 'undefined' && typeof CSS !== 'undefined' && CSS.highlights) {
+      CSS.highlights.set(highlightName, new Highlight(...ranges))
+    }
+    ranges[0]?.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'auto' })
+    return () => { if (typeof CSS !== 'undefined') CSS.highlights?.delete(highlightName) }
+  }, [searchQuery, searchVisit, content.body, editing, raw, highlightName])
   const exportDocument = () => {
     void onExport().then(value => { if (value?.text) downloadKnowledge(value.text, doc.title) })
   }
@@ -94,7 +121,8 @@ export function KnowledgeReader({
         </div>
       </header>
       <div className={tw('grid min-w-0 gap-8 px-8 py-7 @max-[500px]:px-5', directory && !raw && !editing ? 'grid-cols-1 @min-[640px]:grid-cols-[minmax(0,1fr)_160px]' : 'grid-cols-1')}>
-      <article className={tw('mx-auto w-full min-w-0 max-w-[780px]')}>
+      <article ref={article} className={tw('mx-auto w-full min-w-0 max-w-[780px]')}>
+        <style>{`::highlight(${highlightName}) { background-color: color-mix(in srgb, var(--link) 22%, transparent); color: var(--foreground); }`}</style>
         <header className={tw('mb-6')}>
           <div
             className={tw(
@@ -139,6 +167,7 @@ export function KnowledgeReader({
                   </CompactButton>
                 ) : null}
         </header>
+        <div data-knowledge-body>
         {editing ? (
           <textarea
             aria-label="文档正文"
@@ -163,6 +192,7 @@ export function KnowledgeReader({
             }}
           />
         )}
+        </div>
         {!editing ? (
           <footer
             className={tw(

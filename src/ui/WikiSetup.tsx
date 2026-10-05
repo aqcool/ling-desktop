@@ -1,4 +1,5 @@
-import type { KnowledgeJob, KnowledgeSettings, WikiOptions } from '../runtime/knowledge.js'
+import { useState } from 'react'
+import type { KnowledgeJob, KnowledgeSettings, WikiOptions, WikiChanges } from '../runtime/knowledge.js'
 import { wikiDefaults } from '../runtime/knowledge.js'
 import type { LingModelSettings } from '../runtime/contract.js'
 import { CompactButton, CompactSwitch, CompactSelect } from './SettingsControls.js'
@@ -23,6 +24,7 @@ export function WikiSetup({
   onGenerate,
   onSettings,
   onBack,
+  onInspect,
 }: {
   options?: WikiOptions
   settings?: KnowledgeSettings
@@ -42,7 +44,9 @@ export function WikiSetup({
   onGenerate: () => void
   onSettings: () => void
   onBack?: () => void
+  onInspect?: () => Promise<WikiChanges | undefined>
 }) {
+  const [changes, setChanges] = useState<WikiChanges>(), [checking, setChecking] = useState(false)
   const providers = models?.providers.filter(provider => provider.active) ?? []
   const provider = providers.find(provider => provider.providerId === settings?.provider)
   const ready = !!settings?.provider && !!settings?.model && (!models || !!provider?.models.some(model => model.id === settings.model && model.enabled !== false))
@@ -80,6 +84,16 @@ export function WikiSetup({
           </div>
           {job.message ? <p role={job.status === 'failed' ? 'alert' : undefined} className={tw('mb-0 mt-2 whitespace-pre-wrap break-words text-xs leading-6', job.status === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]')}>{job.message}</p> : null}
           {job.status === 'failed' || job.status === 'cancelled' ? <p className={tw('mb-0 mt-1 text-xs leading-5 text-[var(--text-secondary)]')}>已生成的页面保留在目录中，可以继续阅读。重试会复用未变更的页面。</p> : null}
+        </section> : null}
+        {job?.status === 'completed' && job.message ? <p role="status" className={tw('mb-5 mt-0 text-xs leading-6 text-[var(--text-secondary)]')}>{job.message}</p> : null}
+        {generated && onInspect ? <section aria-label="Wiki 来源变更" className={tw('mb-5 rounded-xl border border-[var(--panel-border)] px-4 py-3 text-xs')}>
+          <div className={tw('flex items-center justify-between gap-3')}><span className={tw('font-medium')}>更新范围</span><CompactButton variant="tertiary" isDisabled={pending || running || checking} onPress={() => { setChecking(true); void onInspect().then(value => setChanges(value)).finally(() => setChecking(false)) }}>{checking ? '正在检查…' : '检查来源'}</CompactButton></div>
+          {changes ? <details open className={tw('mt-2')}><summary className={tw('cursor-pointer leading-6 text-[var(--text-secondary)]')}>{changes.totalFiles} 个文件变化 · {changes.pages.length} 个页面需要核对</summary>
+            <time className={tw('mt-1 block text-caption text-[var(--text-tertiary)]')}>检查于 {new Date(changes.checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</time>
+            {changes.pages.length ? <ul className={tw('my-2 max-h-40 list-none space-y-2 overflow-auto p-0')}>{changes.pages.map(page => <li key={page.id}><span>{page.title}</span>{page.manual ? <span className={tw('ml-2 text-caption text-[var(--warning)]')}>手工编辑 · 更新需确认</span> : null}{page.paths.length ? <span className={tw('mt-0.5 block break-all text-caption text-[var(--text-tertiary)]')}>{page.paths.join('、')}</span> : null}</li>)}</ul> : null}
+            {changes.files.length ? <details className={tw('mt-2')}><summary className={tw('cursor-pointer text-[var(--text-secondary)]')}>查看文件变化{changes.files.length < changes.totalFiles ? '（前 100 项）' : ''}</summary><ul className={tw('my-2 max-h-40 list-none space-y-1 overflow-auto p-0')}>{changes.files.map(file => <li key={file.path} className={tw('break-all leading-5 text-[var(--text-secondary)]')}>{{ added: '新增', changed: '修改', removed: '删除或排除' }[file.change]} · {file.path}</li>)}</ul></details> : null}
+            <p className={tw('mb-0 mt-2 leading-5 text-[var(--text-tertiary)]')}>更新时会重新核对源码；新增文件可能调整目录。手工页面保留原文，更新建议需确认。</p>
+          </details> : <p className={tw('mb-0 mt-1 leading-5 text-[var(--text-tertiary)]')}>核对源码变化及受影响页面，保留手工编辑。</p>}
         </section> : null}
         <details key={generated ? 'generated' : 'empty'} open={generated ? undefined : true} className={tw('mb-5 rounded-xl border border-[var(--panel-border)]')}>
           <summary className={tw('cursor-pointer px-4 py-3 text-xs font-medium')}>生成与更新设置<span className={tw('ml-3 font-normal text-[var(--text-tertiary)]')}>{options.language === 'en' ? 'English' : '简体中文'}</span></summary>

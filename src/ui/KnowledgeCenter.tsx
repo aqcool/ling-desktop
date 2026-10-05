@@ -15,6 +15,7 @@ import { LibraryDialog, KnowledgeDeleteDialog } from './KnowledgeDialogs.js'
 import { KnowledgeMenu } from './KnowledgeMenu.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
+import { pollKnowledge } from './knowledge-polling.js'
 type Project = { workspaceId: string | null; taskId?: string; label: string }
 type ProjectStatus = { state: 'ready' | 'empty' | 'busy' | 'error'; pages: number; cards: number; updatedAt?: number }
 export function KnowledgeCenter({
@@ -84,37 +85,21 @@ export function KnowledgeCenter({
   const life = useRef(0)
   const initialRead = useRef<AbortController | undefined>(undefined)
   useEffect(() => {
-    const controller = new AbortController(),
-      epoch = ++life.current
-    if (!service) return
-    let loading = false
-    const load = async () => {
-      if (loading || controller.signal.aborted) return
-      loading = true
+    if (!service || library || project || tab !== 'libraries') return
+    const epoch = ++life.current
+    return pollKnowledge(async signal => {
       try {
-        const value = await service.request(
-          { type: 'catalog', workspaceId: null },
-          controller.signal,
-        )
-        if (controller.signal.aborted || epoch !== life.current) return
-        if (value.ok) {
-          setLibraries(value.value.libraries ?? [])
-        } else setError(value.message ?? '知识库无法读取。')
+        const value = await service.request({ type: 'catalog', workspaceId: null }, signal)
+        if (signal.aborted || epoch !== life.current) return false
+        if (value.ok) setLibraries(value.value.libraries ?? [])
+        else setError(value.message ?? '知识库无法读取。')
       } catch (error) {
-        if (!controller.signal.aborted && epoch === life.current)
+        if (!signal.aborted && epoch === life.current)
           setError(error instanceof Error ? error.message : '读取失败。')
-      } finally { loading = false }
-    }
-    void load()
-    const timer = setInterval(() => {
-      if (!document.hidden) void load()
-    }, 3000)
-    return () => {
-      controller.abort()
-      life.current++
-      clearInterval(timer)
-    }
-  }, [service, refresh])
+      }
+      return false
+    }, 60000)
+  }, [service, refresh, tab, library?.id, project?.workspaceId, project?.taskId])
   useEffect(() => {
     if (!service || !initialDocumentId) return
     const controller = new AbortController()
@@ -181,66 +166,21 @@ export function KnowledgeCenter({
     label: p.label,
   }))
   useEffect(() => {
-    if (!service || tab !== 'wiki') return
-    const controller = new AbortController()
-    let loading = false
-    const load = async () => {
-      if (loading || controller.signal.aborted) return
-      loading = true
-      try {
-      const values = await Promise.all(
-      projects.map(async (item) => {
+    if (!service || tab !== 'wiki' || project || library) return
+    return pollKnowledge(async signal => {
+      const values = await Promise.all(projects.map(async item => {
         const key = item.taskId ?? item.workspaceId!
         try {
-          const result = await service.request(
-            {
-              type: 'snapshot',
-              workspaceId: item.workspaceId,
-              ...(item.taskId ? { taskId: item.taskId } : {}),
-            },
-            controller.signal,
-          )
-          if (!result.ok || !result.value.snapshot)
-            return [key, { state: 'error', pages: 0, cards: 0 }] as const
-          const snapshot = result.value.snapshot
-          const documents = snapshot.documents.filter(doc => doc.state !== 'archived')
-          const pages = documents.filter(doc => doc.kind === 'wiki')
-          const cards = documents.filter(doc => doc.kind === 'card')
-          return [
-            key,
-            { state: snapshot.jobs.some(
-              (job) =>
-                job.kind === 'wiki' &&
-                ['queued', 'running'].includes(job.status),
-            )
-              ? 'busy'
-              : snapshot.jobs.find(job => job.kind === 'wiki')?.status === 'failed'
-                ? 'error'
-                : snapshot.documents.some(
-                    (doc) => doc.kind === 'wiki' && doc.state !== 'archived',
-                  )
-                ? 'ready'
-                : 'empty', pages: pages.length, cards: cards.length,
-              updatedAt: pages.length ? Math.max(...pages.map(doc => doc.updatedAt)) : undefined },
-          ] as const
+          const result = await service.request({ type: 'status', workspaceId: item.workspaceId, ...(item.taskId ? { taskId: item.taskId } : {}) }, signal)
+          return [key, result.ok && result.value.status ? result.value.status : { state: 'error' as const, pages: 0, cards: 0 }] as const
         } catch {
           return [key, { state: 'error', pages: 0, cards: 0 }] as const
         }
-      }),
-    )
-      if (!controller.signal.aborted) setStatuses(Object.fromEntries(values))
-      } finally { loading = false }
-    }
-    void load()
-    const timer = setInterval(() => { if (!document.hidden) void load() }, 3000)
-    return () => { controller.abort(); clearInterval(timer) }
-  }, [
-    service,
-    tab,
-    refresh,
-    workspaces.map((w) => w.workspaceId).join('|'),
-    remoteTaskId,
-  ])
+      }))
+      if (!signal.aborted) setStatuses(Object.fromEntries(values))
+      return values.some(([, status]) => status.state === 'busy')
+    })
+  }, [service, tab, refresh, project?.workspaceId, project?.taskId, library?.id, workspaces.map(w => w.workspaceId).join('|'), remoteTaskId])
   const ownerScope = (item: KnowledgeLibrary) => ({
     workspaceId: item.workspaceId,
     ...(item.taskId ? { taskId: item.taskId } : {}),

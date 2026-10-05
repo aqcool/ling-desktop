@@ -121,6 +121,18 @@ export interface KnowledgeHit {
   source?: KnowledgeSource
   state?: KnowledgeState
 }
+export interface KnowledgeProjectStatus {
+  state: 'busy' | 'error' | 'ready' | 'empty'
+  pages: number
+  cards: number
+  updatedAt?: number
+}
+export interface WikiChanges {
+  checkedAt: number
+  files: { path: string; change: 'added' | 'changed' | 'removed' }[]
+  totalFiles: number
+  pages: { id: string; title: string; manual: boolean; paths: string[] }[]
+}
 export interface KnowledgeSnapshot {
   documents: KnowledgeDocument[]
   libraries?: KnowledgeLibrary[]
@@ -136,7 +148,8 @@ export type KnowledgeRequest = {
   taskId?: string
   libraryId?: string
 } & (
-  | { type: 'snapshot' }
+  | { type: 'snapshot'; revision?: string }
+  | { type: 'status' }
   | { type: 'catalog' }
   | {
       type: 'saveLibrary'
@@ -176,9 +189,10 @@ export type KnowledgeRequest = {
   | { type: 'index' }
   | { type: 'summarize'; sessionId: string }
   | { type: 'wiki' }
+  | { type: 'wikiChanges' }
   | { type: 'wikiOptions'; options: WikiOptions }
   | { type: 'graph'; nodeId?: string }
-  | { type: 'knowledgeMap'; focusId?: string; query?: string }
+  | { type: 'knowledgeMap'; focusId?: string; query?: string; kinds?: KnowledgeMapNode['kind'][]; depth?: 1 | 2 }
   | { type: 'source'; source: KnowledgeSource }
   | {
       type: 'navigate'
@@ -190,6 +204,10 @@ export type KnowledgeRequest = {
   | { type: 'export'; id?: string; kind?: KnowledgeKind; libraryId?: string }
 )
 export interface KnowledgeResponse {
+  revision?: string
+  unchanged?: boolean
+  status?: KnowledgeProjectStatus
+  wikiChanges?: WikiChanges
   libraries?: KnowledgeLibrary[]
   library?: KnowledgeLibrary
   snapshot?: KnowledgeSnapshot

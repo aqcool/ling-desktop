@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { KnowledgeMap, KnowledgeMapNode, KnowledgeRequest, KnowledgeResponse, KnowledgeSource } from '../runtime/knowledge.js'
 import type { KnowledgeScopeInput } from './useKnowledge.js'
 import { KnowledgeGraph, graphRelations } from './KnowledgeGraph.js'
-import { CompactButton, CompactInput } from './SettingsControls.js'
+import { CompactButton, CompactInput, CompactSelect } from './SettingsControls.js'
 import { knowledgeStates } from './knowledge-view.js'
 import { Icon, type IconName } from './Icon.js'
 import { tw } from './tailwind.js'
@@ -20,14 +20,16 @@ export function KnowledgeMapView({ request, scope, revision, library = false, on
   onCodeGraph?: () => void
 }) {
   const [map, setMap] = useState<KnowledgeMap>(), [query, setQuery] = useState(''), [focusId, setFocusId] = useState<string>(), [selectedId, setSelectedId] = useState<string>(), [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState('all'), [depth, setDepth] = useState<1 | 2>(1)
+  useEffect(() => { setMap(undefined); setQuery(''); setFocusId(undefined); setSelectedId(undefined); setFilter('all'); setDepth(1) }, [scope.workspaceId, scope.taskId, scope.libraryId])
   useEffect(() => {
     let live = true
     setLoading(true)
-    const timer = setTimeout(() => { void request({ type: 'knowledgeMap', ...scope, ...(query.trim() ? { query: query.trim() } : {}), ...(focusId ? { focusId } : {}) }).then(value => {
+    const timer = setTimeout(() => { void request({ type: 'knowledgeMap', ...scope, ...(query.trim() ? { query: query.trim() } : {}), ...(focusId ? { focusId, ...(depth === 2 ? { depth } : {}) } : {}), ...(filter === 'all' ? {} : { kinds: filter === 'pages' ? ['wiki', 'summary', 'reference'] : filter === 'card' ? ['card'] : ['file', 'session'] }) }).then(value => {
       if (live) { setMap(value?.map); setLoading(false) }
     }) }, query ? 250 : 0)
     return () => { live = false; clearTimeout(timer) }
-  }, [request, scope.workspaceId, scope.taskId, scope.libraryId, revision, query, focusId])
+  }, [request, scope.workspaceId, scope.taskId, scope.libraryId, revision, query, focusId, filter, depth])
   const selected = map?.nodes.find(node => node.id === selectedId)
   const relations = selected ? map?.edges.filter(edge => edge.source === selected.id || edge.target === selected.id) ?? [] : []
   return <section aria-label="知识图谱" aria-busy={loading} className={tw('flex h-full min-h-[480px] flex-col gap-4 px-6 py-5 max-[700px]:px-4')}>
@@ -36,8 +38,9 @@ export function KnowledgeMapView({ request, scope, revision, library = false, on
       <div className={tw('flex items-center gap-1')}><CompactButton variant="tertiary" onPress={onBack}><Icon name="arrowLeft" size={14} />返回阅读</CompactButton>{onCodeGraph ? <CompactButton variant="tertiary" onPress={onCodeGraph}><Icon name="code" size={14} />代码关系</CompactButton> : null}</div>
     </header>
     <div className={tw('flex shrink-0 flex-wrap items-center justify-between gap-3')}>
-      <div className={tw('relative w-72 max-w-full')}><Icon name="search" size={14} className={tw('pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-[var(--text-tertiary)]')} /><CompactInput aria-label="搜索知识节点" placeholder="搜索标题、文件或会话…" value={query} maxLength={256} onChange={(event: import('react').ChangeEvent<HTMLInputElement>) => { setFocusId(undefined); setQuery(event.target.value) }} className={tw('w-full pl-8')} /></div>
-      <div className={tw('flex items-center gap-3 text-caption tabular-nums text-[var(--text-tertiary)]')}>{map ? <span>{map.nodes.length}{map.nodes.length !== map.totalNodes ? ` / ${map.totalNodes}` : ''} 节点 · {map.edges.length} 条关系</span> : null}{focusId || query ? <CompactButton variant="tertiary" onPress={() => { setFocusId(undefined); setQuery(''); setSelectedId(undefined) }}>全部关系</CompactButton> : null}</div>
+      <div className={tw('flex max-w-full flex-wrap items-center gap-2')}><div className={tw('relative w-72 max-w-full')}><Icon name="search" size={14} className={tw('pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-[var(--text-tertiary)]')} /><CompactInput aria-label="搜索知识节点" placeholder="搜索标题、文件或会话…" value={query} maxLength={256} onChange={(event: import('react').ChangeEvent<HTMLInputElement>) => { setFocusId(undefined); setQuery(event.target.value) }} className={tw('w-full pl-8')} /></div>
+      <CompactSelect label="图谱节点类型" value={filter} options={[{ value: 'all', label: '全部类型' }, { value: 'pages', label: library ? '资料' : '页面与总结' }, ...(!library ? [{ value: 'card', label: '知识卡片' }, { value: 'sources', label: '引用来源' }] : [])]} onChange={value => { setFilter(value); setFocusId(undefined); setSelectedId(undefined); setDepth(1) }} className={tw('w-36')} /></div>
+      <div className={tw('flex items-center gap-3 text-caption tabular-nums text-[var(--text-tertiary)]')}>{map ? <span>{map.nodes.length}{map.nodes.length !== map.totalNodes ? ` / ${map.totalNodes}` : ''} 节点 · {map.edges.length} 条关系</span> : null}{focusId || query ? <CompactButton variant="tertiary" onPress={() => { setFocusId(undefined); setQuery(''); setSelectedId(undefined); setDepth(1) }}>全部关系</CompactButton> : null}</div>
     </div>
     {map?.truncated ? <p role="status" className={tw('m-0 shrink-0 text-xs leading-5 text-[var(--text-secondary)]')}>当前展示部分关系，搜索或选择节点后聚焦查看。</p> : null}
     <div className={tw('grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_260px] overflow-hidden rounded-xl border border-[var(--panel-border)] max-[900px]:grid-cols-1 max-[900px]:overflow-auto')}>
@@ -50,7 +53,8 @@ export function KnowledgeMapView({ request, scope, revision, library = false, on
           <h2 className={tw('mb-4 mt-2 text-sm font-semibold leading-6 [overflow-wrap:anywhere]')}>{selected.label}</h2>
           <div className={tw('mb-5 flex flex-wrap gap-1')}>
             {selected.documentId ? <CompactButton variant="secondary" onPress={() => onDocument(selected)}>打开内容<Icon name="arrowRight" size={13} /></CompactButton> : selected.source ? <CompactButton variant="secondary" onPress={() => onSource(selected.source!)}>{selected.kind === 'file' ? '查看源码' : '查看会话来源'}<Icon name="arrowRight" size={13} /></CompactButton> : null}
-            <CompactButton variant="tertiary" onPress={() => { setQuery(''); setFocusId(selected.id) }}><Icon name="target" size={13} />聚焦关系</CompactButton>
+            <CompactButton variant="tertiary" onPress={() => { setQuery(''); setFocusId(selected.id); setDepth(1) }}><Icon name="target" size={13} />聚焦关系</CompactButton>
+            {focusId && depth === 1 ? <CompactButton variant="tertiary" onPress={() => setDepth(2)}>展开一层<Icon name="plus" size={13} /></CompactButton> : null}
           </div>
           <h3 className={tw('m-0 text-xs font-medium')}>关联内容（{relations.length}）</h3>
           {relations.length ? <ul className={tw('mt-2 list-none space-y-1 p-0')}>{relations.map(edge => {

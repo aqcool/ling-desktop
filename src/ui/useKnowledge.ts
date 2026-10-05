@@ -4,6 +4,7 @@ import type {
   KnowledgeSnapshot,
   LingKnowledgeService,
 } from '../runtime/knowledge.js'
+import { pollKnowledge } from './knowledge-polling.js'
 export type KnowledgeScopeInput = {
   workspaceId: string | null
   taskId?: string
@@ -18,6 +19,8 @@ export function useKnowledge(
     [pending, setPending] = useState(0),
     [refresh, setRefresh] = useState(0)
   const mounted = useRef(false)
+  const revision = useRef<string | undefined>(undefined)
+  const active = useRef(false)
   const generation = useRef(0),
     controllers = useRef(new Set<AbortController>())
   const workspaceId = scope.workspaceId,
@@ -27,6 +30,8 @@ export function useKnowledge(
     mounted.current = true
     generation.current++
     setSnapshot(undefined)
+    revision.current = undefined
+    active.current = false
     setError('')
     setPending(0)
     return () => {
@@ -37,11 +42,14 @@ export function useKnowledge(
     }
   }, [service, workspaceId, taskId, libraryId])
   const request = useCallback(
-    async (input: KnowledgeRequest, throwOnError = false) => {
+    async (input: KnowledgeRequest, throwOnError = false, signal?: AbortSignal) => {
       if (!service || !mounted.current) return
       const epoch = generation.current,
         controller = new AbortController()
       controllers.current.add(controller)
+      const abort = () => controller.abort()
+      if (signal?.aborted) controller.abort()
+      signal?.addEventListener('abort', abort, { once: true })
       setPending((n) => n + 1)
       setError('')
       try {
@@ -65,6 +73,7 @@ export function useKnowledge(
           if (throwOnError) throw error
         }
       } finally {
+        signal?.removeEventListener('abort', abort)
         controllers.current.delete(controller)
         if (epoch === generation.current) setPending((n) => Math.max(0, n - 1))
       }
@@ -73,38 +82,34 @@ export function useKnowledge(
   )
   useEffect(() => {
     if (!service) return
-    const controller = new AbortController(),
-      epoch = generation.current
-    let loading = false
-    const load = async () => {
-      if (loading || controller.signal.aborted) return
-      loading = true
+    const epoch = generation.current
+    return pollKnowledge(async signal => {
       try {
         const result = await service.request(
           {
             type: 'snapshot',
+            ...(revision.current ? { revision: revision.current } : {}),
             workspaceId,
             ...(taskId ? { taskId } : {}),
             ...(libraryId ? { libraryId } : {}),
           },
-          controller.signal,
+          signal,
         )
-        if (controller.signal.aborted || epoch !== generation.current) return
-        if (result.ok) setSnapshot(result.value.snapshot)
+        if (signal.aborted || epoch !== generation.current) return false
+        if (result.ok) {
+          revision.current = result.value.revision
+          if (result.value.snapshot) {
+            active.current = result.value.snapshot.jobs.some(job => ['queued', 'running'].includes(job.status))
+            setSnapshot(result.value.snapshot)
+          }
+        }
         else setError(result.message ?? '无法读取项目知识。')
       } catch (error) {
-        if (!controller.signal.aborted && epoch === generation.current)
+        if (!signal.aborted && epoch === generation.current)
           setError(error instanceof Error ? error.message : '读取失败。')
-      } finally { loading = false }
-    }
-    void load()
-    const timer = setInterval(() => {
-      if (!document.hidden) void load()
-    }, 3000)
-    return () => {
-      controller.abort()
-      clearInterval(timer)
-    }
+      }
+      return active.current
+    })
   }, [service, workspaceId, taskId, libraryId, refresh])
   return {
     snapshot,

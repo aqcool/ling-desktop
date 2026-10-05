@@ -27,6 +27,19 @@ function engineFixture() {
   return { store, adapters, engine: new KnowledgeEngine(store, adapters) }
 }
 describe('knowledge maps and live ignore rules', () => {
+  it('filters types before bounding and expands only one additional hop with valid edges', () => {
+    const docs = [doc('wiki:a:root'), doc('wiki:a:child', 'wiki', { parentId: 'wiki:a:root' }), doc('card:a:child:fact', 'card', { sources: [code] })]
+    const immediate = knowledgeMap(docs, { focusId: 'document:wiki:a:root' })
+    expect(immediate.nodes.map(node => node.kind).sort()).toEqual(['wiki', 'wiki'])
+    const expanded = knowledgeMap(docs, { focusId: 'document:wiki:a:root', depth: 2 })
+    expect(expanded.nodes.map(node => node.kind).sort()).toEqual(['card', 'wiki', 'wiki'])
+    const filtered = knowledgeMap(docs, { kinds: ['card'] })
+    expect(filtered.nodes.map(node => node.kind)).toEqual(['card'])
+    expect(filtered.edges).toEqual([])
+    expect(filtered.totalEdges).toBe(0)
+    expect(knowledgeRequestSchema.safeParse({ type: 'knowledgeMap', workspaceId: 'a', kinds: ['file'], depth: 2 }).success).toBe(true)
+    expect(knowledgeRequestSchema.safeParse({ type: 'knowledgeMap', workspaceId: 'a', kinds: [], depth: 3 }).success).toBe(false)
+  })
   it('projects recorded hierarchy, card ownership, links and provenance without adding memory or archived content', () => {
     const map = knowledgeMap([
       doc('wiki:a:overview', 'wiki', { body: '[入口](wiki:entry)', sources: [code] }),
