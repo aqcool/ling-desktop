@@ -176,6 +176,7 @@ export interface KnowledgeResponse {
   nodes?: KnowledgeNode[]
   edges?: KnowledgeEdge[]
   text?: string
+  startLine?: number
   stale?: boolean
   job?: KnowledgeJob
 }

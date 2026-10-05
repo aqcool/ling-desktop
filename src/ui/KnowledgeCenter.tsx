@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import type { LingWorkspaceSummary } from '../runtime/contract.js'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { LingModelSettings, LingWorkspaceSummary } from '../runtime/contract.js'
 import type {
   KnowledgeDocument,
   KnowledgeLibrary,
@@ -26,8 +26,16 @@ export function KnowledgeCenter({
   initialProject = false,
   onOpenTask,
   onSettings,
+  models,
+  navigation,
+  headerActions,
+  headerInset = false,
 }: {
   service?: LingKnowledgeService
+  models?: LingModelSettings
+  navigation?: ReactNode
+  headerActions?: ReactNode
+  headerInset?: boolean
   workspaceId?: string
   workspaces: readonly LingWorkspaceSummary[]
   taskId?: string
@@ -78,7 +86,10 @@ export function KnowledgeCenter({
     const controller = new AbortController(),
       epoch = ++life.current
     if (!service) return
+    let loading = false
     const load = async () => {
+      if (loading || controller.signal.aborted) return
+      loading = true
       try {
         const value = await service.request(
           { type: 'catalog', workspaceId: null },
@@ -91,7 +102,7 @@ export function KnowledgeCenter({
       } catch (error) {
         if (!controller.signal.aborted && epoch === life.current)
           setError(error instanceof Error ? error.message : '读取失败。')
-      }
+      } finally { loading = false }
     }
     void load()
     const timer = setInterval(() => {
@@ -171,7 +182,12 @@ export function KnowledgeCenter({
   useEffect(() => {
     if (!service || tab !== 'wiki') return
     const controller = new AbortController()
-    void Promise.all(
+    let loading = false
+    const load = async () => {
+      if (loading || controller.signal.aborted) return
+      loading = true
+      try {
+      const values = await Promise.all(
       projects.map(async (item) => {
         const key = item.taskId ?? item.workspaceId!
         try {
@@ -194,7 +210,9 @@ export function KnowledgeCenter({
                 ['queued', 'running'].includes(job.status),
             )
               ? 'busy'
-              : snapshot.documents.some(
+              : snapshot.jobs.find(job => job.kind === 'wiki')?.status === 'failed'
+                ? 'error'
+                : snapshot.documents.some(
                     (doc) => doc.kind === 'wiki' && doc.state !== 'archived',
                   )
                 ? 'ready'
@@ -204,10 +222,13 @@ export function KnowledgeCenter({
           return [key, 'error'] as const
         }
       }),
-    ).then((values) => {
+    )
       if (!controller.signal.aborted) setStatuses(Object.fromEntries(values))
-    })
-    return () => controller.abort()
+      } finally { loading = false }
+    }
+    void load()
+    const timer = setInterval(() => { if (!document.hidden) void load() }, 3000)
+    return () => { controller.abort(); clearInterval(timer) }
   }, [
     service,
     tab,
@@ -332,6 +353,10 @@ export function KnowledgeCenter({
             `${project?.workspaceId ?? ''}:${project?.taskId ?? ''}`
           }
           service={service}
+          models={models}
+          navigation={navigation}
+          headerActions={headerActions}
+          headerInset={headerInset}
           scope={
             library
               ? libraryScope
@@ -417,10 +442,11 @@ export function KnowledgeCenter({
     >
       <header
         className={tw(
-          'flex min-h-14 flex-wrap items-center justify-between gap-3 px-6 py-2 max-[700px]:px-4',
+          'flex h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 select-none [-webkit-app-region:drag]', headerInset && 'min-[701px]:pl-20',
         )}
       >
-        <nav aria-label="知识中心视图" className={tw('flex gap-6')}>
+        <nav aria-label="知识中心视图" className={tw('flex items-center gap-5 [-webkit-app-region:no-drag]')}>
+          {navigation}
           {(
             [
               { id: 'libraries', label: '知识库' },
@@ -448,7 +474,8 @@ export function KnowledgeCenter({
             </button>
           ))}
         </nav>
-        <div className={tw('flex items-center gap-2')}>
+        <div className={tw('flex items-center gap-2 [-webkit-app-region:no-drag]')}>
+          {headerActions}
           <CompactButton
             variant="tertiary"
             isIconOnly

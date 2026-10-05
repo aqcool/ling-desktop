@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Modal } from '@heroui/react/modal'
+import type { LingModelSettings } from '../runtime/contract.js'
 import type {
   KnowledgeDocument,
   KnowledgeHit,
@@ -19,8 +21,9 @@ import {
 } from './knowledge-view.js'
 import { Icon } from './Icon.js'
 import { KnowledgeMenu } from './KnowledgeMenu.js'
-import { KnowledgeImportDialog } from './KnowledgeDialogs.js'
+import { KnowledgeImportDialog } from './KnowledgeImportDialog.js'
 import { WikiSetup } from './WikiSetup.js'
+import { CodeEditor } from './CodeEditor.js'
 import { tw } from './tailwind.js'
 const projectViews = [
   { id: 'wiki', label: 'Wiki 页面' },
@@ -46,8 +49,16 @@ export function KnowledgeSpace({
   onEditLibrary,
   onDeleteLibrary,
   onScopeLibrary,
+  models,
+  navigation,
+  headerActions,
+  headerInset = false,
 }: {
   service?: LingKnowledgeService
+  models?: LingModelSettings
+  navigation?: ReactNode
+  headerActions?: ReactNode
+  headerInset?: boolean
   scope: KnowledgeScopeInput
   label: string
   library?: KnowledgeLibrary
@@ -80,12 +91,14 @@ export function KnowledgeSpace({
     [query, setQuery] = useState(''),
     [hits, setHits] = useState<KnowledgeHit[]>(),
     [sidebar, setSidebar] = useState(true),
-    [configure, setConfigure] = useState(false),
+    [configure, setConfigure] = useState(true),
     [importing, setImporting] = useState(false)
   const [source, setSource] = useState<{
       source: KnowledgeSource
       text: string
+      startLine?: number
       stale?: boolean
+      visible?: boolean
     }>(),
     [graph, setGraph] = useState<{
       nodes: import('../runtime/knowledge.js').KnowledgeNode[]
@@ -97,19 +110,24 @@ export function KnowledgeSpace({
       body: string
       sources: KnowledgeSource[]
     }>(),
-    fileInput = useRef<HTMLInputElement>(null),
     reading = useRef(0),
-    openingInitial = useRef(!!initialDocumentId),
-    autoOpened = useRef<string | undefined>(undefined)
+    dirty = useRef(false),
+    leaveAction = useRef<(() => void) | undefined>(undefined)
+  const [leaving, setLeaving] = useState(false)
+  const navigate = (action: () => void) => {
+    if (dirty.current || (draft && (draft.title.trim() || draft.body.trim()))) { leaveAction.current = action; setLeaving(true) }
+    else action()
+  }
   const documents = (snapshot?.documents ?? []).filter(
     (doc) =>
       doc.kind === view &&
       doc.state !== 'archived' &&
       (!library || doc.libraryId === library.id),
   )
-  const outline = knowledgeOutline(documents),
+  const visibleDocuments = library || !['code', 'graph'].includes(view) ? documents.filter(doc => doc.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : documents
+  const outline = knowledgeOutline(visibleDocuments),
     selectedId = selected?.id
-  const open = async (id: string) => {
+  const readDocument = async (id: string) => {
     const serial = ++reading.current
     const value = await request({ type: 'read', ...scope, id })
     if (serial !== reading.current) return
@@ -121,18 +139,15 @@ export function KnowledgeSpace({
       setDraft(undefined)
     }
   }
+  const open = (id: string) => navigate(() => { void readDocument(id) })
   useEffect(() => {
     if (!initialDocumentId) return
     changeView(initialView)
-    openingInitial.current = true
-    let live = true
-    void open(initialDocumentId).finally(() => {
-      if (live) openingInitial.current = false
-    })
-    return () => { live = false }
+    void readDocument(initialDocumentId)
+    return () => { reading.current++ }
   }, [initialDocumentId, initialView])
   useEffect(() => {
-    if (!query.trim()) {
+    if (!query.trim() || !['code', 'graph'].includes(view)) {
       setHits(undefined)
       return
     }
@@ -158,7 +173,7 @@ export function KnowledgeSpace({
     const serial = ++reading.current
     const result = await request({ type: 'source', ...scope, source: value })
     if (serial === reading.current && result?.text !== undefined)
-      setSource({ source: value, text: result.text, stale: result.stale })
+      setSource({ source: value, text: result.text, startLine: result.startLine, stale: result.stale, visible: true })
   }
   const loadGraph = async (nodeId?: string) => {
     const value = await request({
@@ -172,35 +187,16 @@ export function KnowledgeSpace({
     if (view === 'graph' && snapshot?.indexedAt)
       void loadGraph(graphPath.at(-1))
   }, [view, graphPath.join('|'), snapshot?.indexedAt])
-  const changeView = (id: View) => {
+  const changeView = (id: View) => navigate(() => {
     reading.current++
-    openingInitial.current = false
-    autoOpened.current = undefined
-    setConfigure(false)
+    setConfigure(id === 'wiki' || id === 'card')
     setView(id)
     setSelected(undefined)
     setSource(undefined)
     setDraft(undefined)
     setQuery('')
     setHits(undefined)
-  }
-  useEffect(() => {
-    const first = outline[0]?.document
-    if (
-      view !== 'wiki' ||
-      openingInitial.current ||
-      selected ||
-      source ||
-      draft ||
-      query ||
-      pending ||
-      !first ||
-      autoOpened.current === first.id
-    )
-      return
-    autoOpened.current = first.id
-    void open(first.id)
-  }, [view, snapshot, pending, initialDocumentId])
+  })
   const saveDocument = async (value: {
     title: string
     body: string
@@ -251,30 +247,20 @@ export function KnowledgeSpace({
       reload()
     }
   }
-  const importText = async (file: File) => {
-    if (!/\.(md|markdown|txt)$/i.test(file.name) || file.size > 512000) {
-      report('请选择 512 KB 以内的 Markdown 或文本文件。')
-      return
-    }
-    try {
-      const body = await file.text()
-      if (!body.trim() || body.length > 128000) {
-        report('资料为空或超过 128,000 字符。')
-        return
-      }
-      setImporting(false)
-      report('')
-      setSelected(undefined)
-      setSource(undefined)
-      setQuery('')
-      setDraft({
-        title: file.name.replace(/\.(md|markdown|txt)$/i, ''),
-        body,
-        sources: [{ kind: 'manual', label: `导入文件：${file.name}` }],
-      })
-    } catch {
-      report('文件无法读取，请重新选择。')
-    }
+  const importText = async (file: File): Promise<string> => {
+    if (!library) throw new Error('请先选择知识库。')
+    if (!/\.(md|markdown|txt)$/i.test(file.name) || file.size > 512000)
+      throw new Error('请选择 512 KB 以内的 Markdown 或 TXT 文件。')
+    const body = await file.text()
+    if (!body.trim() || body.length > 128000 || body.includes('\0'))
+      throw new Error('资料为空、不是文本或超过 128,000 字符。')
+    const value = await request({ type: 'save', ...scope, document: {
+      kind: 'reference', libraryId: library.id, title: file.name.slice(0, 200), body,
+      sources: [{ kind: 'manual', label: `导入文件：${file.name}` }], state: 'active',
+    } }, true)
+    if (!value?.document) throw new Error('资料未能保存，请重试。')
+    reload()
+    return value.document.id
   }
   const start = async (type: 'wiki' | 'index' | 'summarize') => {
     const value = await request(
@@ -315,9 +301,9 @@ export function KnowledgeSpace({
   )
   const modelReady = !!snapshot?.settings.provider && !!snapshot?.settings.model
   const hasDirectory = library
-    ? !!(documents.length || draft || selected)
+    ? !!documents.length
     : isWiki
-      ? !!(documents.length || selected || source || activeJobs.length)
+      ? !!(wikiDocuments.length || (snapshot?.documents.some(doc => doc.kind === 'card' && doc.state !== 'archived')))
       : view === 'summary'
         ? !!(documents.length || currentTaskId || activeJobs.length)
         : true
@@ -334,13 +320,15 @@ export function KnowledgeSpace({
     >
       <header
         className={tw(
-          'flex min-h-14 items-center justify-between gap-3 px-5 py-2 max-[700px]:px-4',
+          'flex h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 select-none [-webkit-app-region:drag]',
+          headerInset && 'min-[701px]:pl-20',
         )}
       >
-        <div className={tw('flex min-w-0 items-center gap-2')}>
+        <div className={tw('flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]')}>
+          {navigation}
           <CompactButton
             variant="tertiary"
-            onPress={onBack}
+            onPress={() => navigate(onBack)}
             className={tw('px-1 text-sm')}
           >
             {memoryOnly
@@ -354,8 +342,9 @@ export function KnowledgeSpace({
             {label}
           </strong>
         </div>
-        <div className={tw('flex shrink-0 items-center gap-2')}>
-          {library || isWiki ? (
+        <div className={tw('flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]')}>
+          {headerActions}
+          {library || isProject ? (
             <KnowledgeMenu
               items={
                 library
@@ -392,26 +381,28 @@ export function KnowledgeSpace({
                       },
                     ]
                   : [
+                      ...projectViews.filter(item => item.id !== 'wiki' && item.id !== 'card').map(item => ({ id: item.id, label: item.label, action: () => changeView(item.id) })),
+                      ...(isWiki ? [] : [{ id: 'wiki', label: '返回 Wiki 页面', action: () => changeView('wiki') }]),
                       {
                         id: 'setup',
-                        label: '生成设置',
-                        action: () => setConfigure(true),
+                        label: '概览与生成',
+                        action: () => changeView('wiki'),
                       },
                       {
                         id: 'export',
-                        label: view === 'card' ? '导出知识卡片' : '导出 Wiki',
+                        label: view === 'card' ? '导出知识卡片' : view === 'summary' ? '导出会话总结' : '导出 Wiki',
                         action: () => {
                           void request({
                             type: 'export',
                             ...scope,
-                            kind: view === 'card' ? 'card' : 'wiki',
+                            kind: view === 'card' ? 'card' : view === 'summary' ? 'summary' : 'wiki',
                           }).then((value) => {
                             if (value?.text)
                               downloadKnowledge(value.text, `${label}-${view === 'card' ? 'cards' : 'wiki'}`)
                           })
                         },
                       },
-                    ]
+                    ].filter(item => item.id !== 'export' || isWiki || view === 'summary')
               }
             />
           ) : null}
@@ -428,32 +419,11 @@ export function KnowledgeSpace({
           ) : null}
         </div>
       </header>
-      {isProject ? (
-        <nav
-          aria-label="项目知识视图"
-          className={tw('flex shrink-0 flex-wrap gap-x-5 gap-y-1 border-b border-[var(--panel-border)] px-5 max-[700px]:px-4')}
-        >
-          {projectViews.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              aria-current={view === item.id ? 'page' : undefined}
-              onClick={() => { if (view !== item.id) changeView(item.id) }}
-              className={tw(
-                'border-0 border-b-2 border-solid border-transparent bg-transparent px-0 py-2.5 text-xs text-[var(--text-secondary)] hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
-                view === item.id && 'border-b-[var(--action)] font-medium text-[var(--foreground)]',
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-      ) : null}
       <div
         className={tw(
           'grid min-h-0 flex-1',
           sidebar && hasDirectory
-            ? 'grid-cols-[260px_minmax(0,1fr)] max-[980px]:grid-cols-[210px_minmax(0,1fr)] max-[700px]:grid-cols-1 max-[700px]:grid-rows-[auto_minmax(0,1fr)]'
+            ? 'grid-cols-[280px_minmax(0,1fr)] max-[980px]:grid-cols-[220px_minmax(0,1fr)] max-[700px]:grid-cols-1 max-[700px]:grid-rows-[auto_minmax(0,1fr)]'
             : 'grid-cols-1',
         )}
       >
@@ -464,6 +434,9 @@ export function KnowledgeSpace({
               'flex min-h-0 flex-col gap-3 overflow-hidden border-r border-[var(--panel-border)] px-4 py-3 max-[700px]:max-h-48 max-[700px]:border-r-0 max-[700px]:border-b',
             )}
           >
+            {isWiki ? <nav aria-label="项目知识视图" className={tw('flex shrink-0 gap-1 rounded-lg bg-[var(--surface-secondary)] p-0.5')}>
+              {projectViews.slice(0, 2).map(item => <CompactButton key={item.id} variant="tertiary" aria-current={view === item.id ? 'page' : undefined} className={tw('min-w-0 flex-1', view === item.id && 'bg-[var(--surface)] shadow-sm')} onPress={() => { if (view !== item.id) changeView(item.id) }}>{item.label}</CompactButton>)}
+            </nav> : <span className={tw('text-xs font-medium text-[var(--text-secondary)]')}>{directoryLabel}</span>}
             <div className={tw('flex items-center gap-2')}>
               <CompactInput
                 aria-label={
@@ -485,7 +458,7 @@ export function KnowledgeSpace({
                   view === 'code' || view === 'graph'
                     ? '文件名、函数名…'
                     : library
-                      ? '搜索知识'
+                      ? '搜索文件名'
                       : view === 'card'
                         ? '搜索知识卡片'
                         : view === 'summary'
@@ -523,7 +496,7 @@ export function KnowledgeSpace({
                     {
                       id: 'text',
                       label: '编写文档',
-                      action: () => {
+                      action: () => navigate(() => {
                         setSelected(undefined)
                         setSource(undefined)
                         setDraft({
@@ -531,7 +504,7 @@ export function KnowledgeSpace({
                           body: '',
                           sources: [{ kind: 'manual', label: '手工资料' }],
                         })
-                      },
+                      }),
                     },
                   ]}
                 />
@@ -576,12 +549,13 @@ export function KnowledgeSpace({
               className={tw('min-h-0 flex-1 overflow-auto')}
               aria-label="页面列表"
             >
+              {isWiki ? <button type="button" aria-current={configure ? 'page' : undefined} onClick={() => navigate(() => { setConfigure(true); setSource(undefined); setQuery('') })} className={tw('mb-2 flex w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs hover:bg-[var(--surface-hover)]', configure && 'bg-[var(--surface-secondary)] font-medium')}><Icon name="book" size={15} />概览</button> : null}
               {outline.map(({ document: doc, depth }) => (
                 <button
                   key={doc.id}
                   type="button"
                   title={doc.title}
-                  aria-current={selectedId === doc.id ? 'page' : undefined}
+                  aria-current={!configure && selectedId === doc.id ? 'page' : undefined}
                   onClick={() => {
                     setQuery('')
                     setHits(undefined)
@@ -590,7 +564,7 @@ export function KnowledgeSpace({
                   style={{ paddingLeft: 8 + depth * 12 }}
                   className={tw(
                     'mb-0.5 grid w-full gap-1 rounded-md border-0 bg-transparent py-2 pr-2 text-left text-xs leading-5 hover:bg-[var(--surface-hover)]',
-                    selectedId === doc.id && 'bg-[var(--surface-selected)]',
+                    !configure && selectedId === doc.id && 'bg-[var(--surface-selected)]',
                   )}
                 >
                   <span className={tw('truncate')}>{doc.title}</span>
@@ -620,7 +594,7 @@ export function KnowledgeSpace({
                 </p>
               ) : null}
             </nav>
-            {activeJobs.length ? (
+            {!isWiki && activeJobs.length ? (
               <details
                 className={tw('text-xs leading-5 text-[var(--text-secondary)]')}
                 open={activeJobs.some(
@@ -681,18 +655,6 @@ export function KnowledgeSpace({
             ) : null}
           </aside>
         ) : null}
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".md,.markdown,.txt"
-          aria-label="添加 Markdown 或文本文件"
-          className={tw('hidden')}
-          onChange={(event: import('react').ChangeEvent<HTMLInputElement>) => {
-            const file = event.target.files?.[0]
-            if (file) void importText(file)
-            event.target.value = ''
-          }}
-        />
         <div
           aria-busy={pending}
           className={tw('min-h-0 min-w-0 overflow-auto')}
@@ -700,7 +662,7 @@ export function KnowledgeSpace({
           {error ? (
             <p
               role="alert"
-              className={tw('mb-4 mt-0 text-xs leading-6 text-[var(--danger)]')}
+              className={tw('mx-6 my-3 text-xs leading-6 text-[var(--danger)]')}
             >
               {error}
             </p>
@@ -714,6 +676,13 @@ export function KnowledgeSpace({
             (configure ||
               (!wikiDocuments.length && !source && !draft && !hits)) ? (
             <WikiSetup
+              models={models}
+              job={snapshot?.jobs.find(job => job.kind === 'wiki' && ['queued', 'running'].includes(job.status)) ?? snapshot?.jobs.find(job => job.kind === 'wiki')}
+              pageCount={wikiDocuments.length}
+              cardCount={snapshot?.documents.filter(doc => doc.kind === 'card' && doc.state !== 'archived').length}
+              indexedFiles={snapshot?.indexedFiles}
+              onModelChange={settings => { void request({ type: 'settings', ...scope, settings }).then(reload) }}
+              onJobAction={(type, jobId) => { void request({ type, ...scope, jobId }).then(reload) }}
               options={snapshot?.wikiOptions}
               settings={snapshot?.settings}
               pending={pending}
@@ -727,18 +696,65 @@ export function KnowledgeSpace({
                 )
               }}
               onGenerate={() => {
-                setConfigure(false)
+                setConfigure(true)
                 void start('wiki')
               }}
               onBack={
                 configure && wikiDocuments.length
-                  ? () => setConfigure(false)
+                  ? () => { const first = outline[0]?.document; if (selected) setConfigure(false); else if (first) open(first.id) }
                   : undefined
               }
             />
           ) : (
-            <div className={tw('px-8 py-6 max-[700px]:px-4')}>
-              {source ? (
+            <div className={tw('px-7 py-5 max-[700px]:px-4')}>
+              {selected && source ? <nav aria-label="阅读标签" className={tw('mb-5 flex gap-2 border-b border-[var(--panel-border)] pb-2')}>
+                <CompactButton variant="tertiary" onPress={() => setSource(current => current ? { ...current, visible: false } : current)} aria-pressed={!source.visible}>{selected.title}</CompactButton>
+                <CompactButton variant="tertiary" onPress={() => setSource(current => current ? { ...current, visible: true } : current)} aria-pressed={!!source.visible}>{source.source.label}</CompactButton>
+                <CompactButton variant="tertiary" isIconOnly aria-label="关闭来源" onPress={() => setSource(undefined)}><Icon name="close" size={14} /></CompactButton>
+              </nav> : null}
+              {selected ? <div hidden={!!source?.visible || !!hits || !!draft}>
+                {selected.kind === 'card' ? (() => { const parent = wikiDocuments.find(doc => selected.id.startsWith(`${doc.id.replace(/^wiki:/, 'card:')}:`)); return parent ? <CompactButton variant="tertiary" className={tw('mb-4 px-0 text-[var(--text-secondary)]')} onPress={() => navigate(() => { setView('wiki'); setQuery(''); void readDocument(parent.id) })}>所属页面：{parent.title}</CompactButton> : null })() : null}
+                <KnowledgeReader
+                  key={selected.id}
+                  document={selected}
+                  revisions={revisions}
+                  pending={pending}
+                  onSave={saveDocument}
+                  onDirtyChange={value => { dirty.current = value }}
+                  onArchive={() => {
+                    void request({
+                      type: 'remove',
+                      ...scope,
+                      id: selected.id,
+                      version: selected.version,
+                    }).then((value) => {
+                      if (value) {
+                        setSelected(undefined)
+                        reload()
+                      }
+                    })
+                  }}
+                  onSource={(source) => {
+                    void showSource(source)
+                  }}
+                  onWiki={(key) => {
+                    const doc = snapshot?.documents.find(
+                      (item) =>
+                        item.kind === 'wiki' &&
+                        item.id.endsWith(`:${key}`) &&
+                        item.state !== 'archived',
+                    )
+                    if (doc) void open(doc.id)
+                    else report('链接页面尚未生成。')
+                  }}
+                  onLinkError={report}
+                  onOpenTask={onOpenTask}
+                  onExport={() =>
+                    request({ type: 'export', ...scope, id: selected.id })
+                  }
+                />
+              </div> : null}
+              {source?.visible ? (
                 <article className={tw('max-w-4xl')}>
                   <CompactButton
                     variant="tertiary"
@@ -758,64 +774,7 @@ export function KnowledgeSpace({
                       打开原会话
                     </CompactButton>
                   ) : null}
-                  {source.source.kind === 'code' ? (
-                    <div className={tw('mb-3 flex flex-wrap gap-1')}>
-                      <CompactButton
-                        variant="tertiary"
-                        onPress={() => {
-                          const path = source.source.path
-                          setSource(undefined)
-                          setSelected(undefined)
-                          changeView('graph')
-                          setGraphPath(path ? [`file:${path}`] : [])
-                        }}
-                      >
-                        查看文件关系
-                      </CompactButton>
-                      {snapshot?.navigation && !scope.taskId
-                        ? [
-                            { operation: 'goToDefinition', label: '查找定义' },
-                            { operation: 'findReferences', label: '查找引用' },
-                            {
-                              operation: 'goToImplementation',
-                              label: '查找实现',
-                            },
-                          ].map((item) => (
-                            <CompactButton
-                              key={item.operation}
-                              variant="tertiary"
-                              isDisabled={pending || source.stale}
-                              onPress={() => {
-                                void request({
-                                  type: 'navigate',
-                                  ...scope,
-                                  source: source.source,
-                                  operation: item.operation as
-                                    | 'goToDefinition'
-                                    | 'findReferences'
-                                    | 'goToImplementation',
-                                }).then((value) => {
-                                  if (value?.hits) {
-                                    setHits(value.hits)
-                                    setSource(undefined)
-                                    setSelected(undefined)
-                                  }
-                                })
-                              }}
-                            >
-                              {item.label}
-                            </CompactButton>
-                          ))
-                        : null}
-                    </div>
-                  ) : null}
-                  <pre
-                    className={tw(
-                      'overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-secondary)] p-4 font-mono text-xs leading-6',
-                    )}
-                  >
-                    {source.text}
-                  </pre>
+                  {source.source.kind === 'code' ? <div className={tw('h-[60vh] min-h-64 overflow-hidden rounded-lg border border-[var(--panel-border)]')}><CodeEditor readOnly wrap value={source.text} startLine={source.startLine} path={source.source.path ?? source.source.label} /></div> : <pre className={tw('overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-secondary)] p-4 font-mono text-xs leading-6')}>{source.text}</pre>}
                 </article>
               ) : draft ? (
                 <article className={tw('grid max-w-3xl gap-4')}>
@@ -913,46 +872,7 @@ export function KnowledgeSpace({
                     />
                   )}
                 </div>
-              ) : selected ? (
-                <KnowledgeReader
-                  key={selected.id}
-                  document={selected}
-                  revisions={revisions}
-                  pending={pending}
-                  onSave={saveDocument}
-                  onArchive={() => {
-                    void request({
-                      type: 'remove',
-                      ...scope,
-                      id: selected.id,
-                      version: selected.version,
-                    }).then((value) => {
-                      if (value) {
-                        setSelected(undefined)
-                        reload()
-                      }
-                    })
-                  }}
-                  onSource={(source) => {
-                    void showSource(source)
-                  }}
-                  onWiki={(key) => {
-                    const doc = snapshot?.documents.find(
-                      (item) =>
-                        item.kind === 'wiki' &&
-                        item.id.endsWith(`:${key}`) &&
-                        item.state !== 'archived',
-                    )
-                    if (doc) void open(doc.id)
-                    else report('链接页面尚未生成。')
-                  }}
-                  onLinkError={report}
-                  onOpenTask={onOpenTask}
-                  onExport={() =>
-                    request({ type: 'export', ...scope, id: selected.id })
-                  }
-                />
-              ) : view === 'graph' ? (
+              ) : selected ? null : view === 'graph' ? (
                 <div className={tw('grid gap-3')}>
                   <h1 className={tw('m-0 text-lg font-semibold')}>代码图谱</h1>
                   <p
@@ -1119,28 +1039,8 @@ export function KnowledgeSpace({
           )}
         </div>
       </div>
-      {importing ? (
-        <KnowledgeImportDialog
-          busy={pending}
-          error={error}
-          onClose={() => {
-            setImporting(false)
-            report('')
-          }}
-          onChoose={() => fileInput.current?.click()}
-          onWrite={() => {
-            setImporting(false)
-            report('')
-            setSelected(undefined)
-            setSource(undefined)
-            setDraft({
-              title: '',
-              body: '',
-              sources: [{ kind: 'manual', label: '手工资料' }],
-            })
-          }}
-        />
-      ) : null}
+      {importing ? <KnowledgeImportDialog onImport={importText} onClose={() => { setImporting(false); report('') }} onDone={id => { setImporting(false); report(''); setQuery(''); setHits(undefined); open(id) }} /> : null}
+      {leaving ? <Modal.Backdrop isOpen onOpenChange={(open: boolean) => { if (!open) setLeaving(false) }}><Modal.Container size="sm"><Modal.Dialog><Modal.Header><Modal.Heading>有未保存的修改</Modal.Heading></Modal.Header><Modal.Body><p className={tw('m-0 text-sm leading-6')}>离开会丢失当前修改。可以返回保存后再继续。</p></Modal.Body><Modal.Footer><CompactButton variant="tertiary" onPress={() => setLeaving(false)}>继续编辑</CompactButton><CompactButton variant="danger" onPress={() => { dirty.current = false; setDraft(undefined); setLeaving(false); leaveAction.current?.(); leaveAction.current = undefined }}>放弃修改并离开</CompactButton></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop> : null}
     </section>
   )
 }

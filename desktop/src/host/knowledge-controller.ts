@@ -352,7 +352,7 @@ export class LingKnowledgeController extends TypertRemoteService {
   private async source(
     scope: KnowledgeScope,
     source: KnowledgeSource,
-  ): Promise<{ text: string; stale: boolean }> {
+  ): Promise<{ text: string; startLine?: number; stale: boolean }> {
     if (source.kind === 'manual') return { text: source.label, stale: false }
     if (source.kind === 'code') {
       if (!scope.root || !source.path) throw new Error('代码来源不属于此范围。')
@@ -365,8 +365,8 @@ export class LingKnowledgeController extends TypertRemoteService {
       return {
         text: lines
           .slice(start, Math.min(start + 100, source.endLine ?? start + 40))
-          .map((line, i) => `${start + i + 1}  ${line}`)
           .join('\n'),
+        startLine: start + 1,
         stale: !!source.hash && sha256(body) !== source.hash,
       }
     }
@@ -423,8 +423,10 @@ export class LingKnowledgeController extends TypertRemoteService {
       if (chunk.type === 'text-delta') text += chunk.text
       if (text.length > 60000) throw new Error('整理结果超过本次预算。')
       if (chunk.type === 'finish') {
+        if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')
+          throw new Error(`知识整理失败（${chunk.reason.failure.code}）：${chunk.reason.failure.message}`)
         if (chunk.reason.kind !== 'stop')
-          throw new Error(`知识整理未完成：${chunk.reason.kind}`)
+          throw new Error(chunk.reason.kind === 'max-tokens' ? '生成结果达到模型输出上限，请换用输出预算更大的模型后重试。' : `知识整理未完成：${chunk.reason.kind}`)
         finished = true
       }
     }

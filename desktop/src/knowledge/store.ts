@@ -549,4 +549,9 @@ export class KnowledgeStore {
         id,
       )
   }
+  progress(id: string, message: string) {
+    this.db.prepare("UPDATE jobs SET message=?,updatedAt=? WHERE id=? AND status='running'")
+      .run(message, Date.now(), id)
+  }
+
 }

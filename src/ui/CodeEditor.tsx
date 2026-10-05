@@ -19,6 +19,8 @@ export interface CodeEditorSelection {
 export interface CodeEditorProps {
   readonly value: string
   readonly path: string
+  /** Original first line when displaying a source excerpt. */
+  readonly startLine?: number
   readonly onChange?: (value: string) => void
   readonly readOnly?: boolean
   readonly wrap?: boolean
@@ -123,7 +125,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         'Go to line': '跳转到行', go: '跳转', 'current match': '当前匹配', 'on line': '所在行',
         'replaced match on line $': '第 $ 行已替换', 'replaced $ matches': '已替换 $ 处匹配',
       }),
-      lineNumbers(), highlightSpecialChars(), history(), drawSelection(), dropCursor(),
+      lineNumbers({ formatNumber: line => String(line + (current.current.startLine ?? 1) - 1) }), highlightSpecialChars(), history(), drawSelection(), dropCursor(),
       indentOnInput(), bracketMatching(), closeBrackets(), foldGutter(), highlightActiveLine(), highlightActiveLineGutter(),
       search({ top: true }), highlightSelectionMatches(),
       indentUnit.of(current.current.value.match(/^([ \t]+)\S/m)?.[1]?.slice(0, 8) ?? (/\.py$/i.test(current.current.path) ? '    ' : '  ')),
@@ -160,7 +162,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       if (!disposed) view.dispatch({ effects: language.reconfigure(support) })
     }).catch(() => { /* Plain text remains editable if a language chunk cannot load. */ })
     return () => { disposed = true; instance.current = null; view.destroy() }
-  }, [props.path])
+  }, [props.path, props.startLine])
 
   useLayoutEffect(() => {
     const editor = instance.current

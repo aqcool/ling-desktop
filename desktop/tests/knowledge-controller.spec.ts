@@ -1,5 +1,5 @@
 import * as cordis from '@deepseek-ai/cordis'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import TypertGatewayService from '@deepseek-ai/dsh-api-gateway'
@@ -19,7 +19,7 @@ afterEach(async () => {
   for (const dispose of disposers.splice(0).reverse()) await dispose()
   vi.unstubAllEnvs()
 })
-async function fixture(gateway = false) {
+async function fixture(gateway = false, root = '/project') {
   const home = await mkdtemp(join(tmpdir(), 'ling-knowledge-controller-'))
   disposers.push(() => rm(home, { recursive: true, force: true }))
   vi.stubEnv('DSH_HOME', home)
@@ -79,12 +79,12 @@ async function fixture(gateway = false) {
   ctx.provide('workspaceRegistry', {
     get: (id: string) =>
       id === 'a'
-        ? { id, path: '/project', title: 'same' }
+        ? { id, path: root, title: 'same' }
         : id === 'b'
           ? { id, path: '/other', title: 'same' }
           : undefined,
     list: () => [
-      { id: 'a', path: '/project', title: 'same' },
+      { id: 'a', path: root, title: 'same' },
       { id: 'b', path: '/other', title: 'same' },
     ],
   } as never)
@@ -124,6 +124,24 @@ async function fixture(gateway = false) {
   return { controller, generate, bindings, ctx }
 }
 describe('knowledge host scope and session evidence', () => {
+  it('preserves the provider failure details in a retryable knowledge job', async () => {
+    const { controller, ctx } = await fixture()
+    ctx.get('llm')!.stream = vi.fn(async function* () {
+      yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'connection closed' } } }
+    }) as never
+    await controller.request({ type: 'settings', workspaceId: null, settings: { ...controller.engine.store.settings(), provider: 'test', model: 'test' } })
+    const result = await controller.request({ type: 'summarize', workspaceId: 'a', sessionId: 'fork' })
+    await vi.waitFor(() => expect(controller.engine.store.job(result.job!.scope, result.job!.id)?.status).toBe('failed'))
+    expect(controller.engine.store.job(result.job!.scope, result.job!.id)?.message).toBe('知识整理失败（TRANSPORT）：connection closed')
+  })
+  it('returns raw code excerpts with their original first line', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ling-knowledge-source-'))
+    disposers.push(() => rm(root, { recursive: true, force: true }))
+    await writeFile(join(root, 'example.ts'), 'const first = 1\nconst second = 2\nexport { second }\n')
+    const { controller } = await fixture(false, root)
+    const result = await controller.request({ type: 'source', workspaceId: 'a', source: { kind: 'code', label: 'example.ts:2', path: 'example.ts', line: 2, endLine: 3 } })
+    expect(result).toMatchObject({ text: 'const second = 2\nexport { second }', startLine: 2, stale: false })
+  })
   it('enforces Wiki reference settings on the actual Agent tools while leaving user reading available', async () => {
     const { controller } = await fixture()
     const document = (

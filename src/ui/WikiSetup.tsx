@@ -1,6 +1,7 @@
-import type { KnowledgeSettings, WikiOptions } from '../runtime/knowledge.js'
+import type { KnowledgeJob, KnowledgeSettings, WikiOptions } from '../runtime/knowledge.js'
 import { wikiDefaults } from '../runtime/knowledge.js'
-import { CompactButton, CompactSwitch } from './SettingsControls.js'
+import type { LingModelSettings } from '../runtime/contract.js'
+import { CompactButton, CompactSwitch, CompactSelect } from './SettingsControls.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
 export function WikiSetup({
@@ -10,6 +11,13 @@ export function WikiSetup({
   running,
   generated,
   cards,
+  job,
+  pageCount = 0,
+  cardCount = 0,
+  indexedFiles = 0,
+  models,
+  onModelChange,
+  onJobAction,
   onChange,
   onGenerate,
   onSettings,
@@ -21,12 +29,21 @@ export function WikiSetup({
   running: boolean
   generated: boolean
   cards: boolean
+  job?: KnowledgeJob
+  pageCount?: number
+  cardCount?: number
+  indexedFiles?: number
+  models?: LingModelSettings
+  onModelChange?: (settings: KnowledgeSettings) => void
+  onJobAction?: (type: 'retry' | 'cancel', id: string) => void
   onChange: (options: WikiOptions) => void
   onGenerate: () => void
   onSettings: () => void
   onBack?: () => void
 }) {
-  const ready = !!settings?.provider && !!settings?.model
+  const providers = models?.providers.filter(provider => provider.active) ?? []
+  const provider = providers.find(provider => provider.providerId === settings?.provider)
+  const ready = !!settings?.provider && !!settings?.model && (!models || !!provider?.models.some(model => model.id === settings.model && model.enabled !== false))
   return (
     <div className={tw('flex min-h-full flex-col')}>
       {!cards ? (
@@ -41,25 +58,31 @@ export function WikiSetup({
       ) : null}
       <div
         className={tw(
-          'mx-auto flex w-full max-w-[450px] flex-1 flex-col justify-center px-6 py-10 max-[700px]:py-6',
+          'mx-auto flex w-full max-w-[640px] flex-1 flex-col px-6 py-10 max-[700px]:py-6',
         )}
       >
         <div
-          className={tw('mb-7 flex flex-col items-center gap-4 text-center')}
+          className={tw('mb-6 flex flex-col items-start gap-3')}
         >
           <div
             className={tw(
-              'flex size-16 items-center justify-center rounded-2xl border border-[var(--panel-border)] bg-[var(--surface)] text-[var(--text-secondary)]',
+              'flex size-10 items-center justify-center rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-[var(--text-secondary)]',
             )}
           >
-            <Icon name={cards ? 'agentPreset' : 'book'} size={30} />
+            <Icon name={cards ? 'agentPreset' : 'book'} size={22} />
           </div>
-          <h1 className={tw('m-0 text-xl font-semibold')}>
-            {generated ? '更新' : '生成'}
-            {!cards ? ' ' : ''}
-            {cards ? '知识卡片' : 'Repo Wiki'}
-          </h1>
+          <h1 className={tw('m-0 text-xl font-semibold')}>概览</h1>
+          <p className={tw('m-0 text-xs leading-6 text-[var(--text-secondary)]')}>查看生成状态，选择模型与更新策略。</p>
         </div>
+        {job ? <section aria-label="Wiki 生成状态" aria-live="polite" className={tw('mb-5 rounded-xl border border-[var(--panel-border)] p-4')}>
+          <div className={tw('flex items-center justify-between gap-3')}>
+            <strong className={tw('text-sm font-medium')}>{{ queued: '等待生成', running: '正在生成', completed: '生成完成', failed: '生成失败', cancelled: '已取消' }[job.status]}</strong>
+            {job.status === 'running' || job.status === 'queued' ? <CompactButton variant="tertiary" isDisabled={pending} onPress={() => onJobAction?.('cancel', job.id)}>取消生成</CompactButton> : job.status === 'failed' || job.status === 'cancelled' ? <CompactButton variant="secondary" isDisabled={pending || !ready} onPress={() => onJobAction?.('retry', job.id)}>重试生成</CompactButton> : null}
+          </div>
+          {job.message ? <p role={job.status === 'failed' ? 'alert' : undefined} className={tw('mb-0 mt-2 whitespace-pre-wrap break-words text-xs leading-6', job.status === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]')}>{job.message}</p> : null}
+          {job.status === 'failed' || job.status === 'cancelled' ? <p className={tw('mb-0 mt-1 text-xs leading-5 text-[var(--text-secondary)]')}>已生成的页面保留在目录中，可以继续阅读。重试会复用未变更的页面。</p> : null}
+        </section> : null}
+        {generated || indexedFiles ? <p className={tw('mb-5 mt-0 text-xs leading-6 text-[var(--text-secondary)]')}>{pageCount} 个 Wiki 页面 · {cardCount} 张知识卡片 · 已索引 {indexedFiles} 个文件</p> : null}
         <section
           aria-label="Wiki 生成配置"
           className={tw(
@@ -146,26 +169,13 @@ export function WikiSetup({
             />
           </div>
         </section>
-        {!ready ? (
-          <div
-            className={tw(
-              'my-3 flex items-center justify-between gap-3 text-xs leading-6 text-[var(--text-secondary)]',
-            )}
-          >
-            <span>先选择用于生成的模型。</span>
-            <CompactButton variant="tertiary" onPress={onSettings}>
-              配置整理模型
-            </CompactButton>
+        {settings && providers.length ? <div className={tw('my-4 grid gap-2')}>
+          <span className={tw('text-xs text-[var(--text-secondary)]')}>生成模型</span>
+          <div className={tw('flex flex-wrap gap-2')}>
+            <CompactSelect label="Wiki 模型提供商" value={settings.provider} disabled={pending || running} options={providers.map(item => ({ value: item.providerId, label: item.displayName }))} onChange={value => onModelChange?.({ ...settings, provider: value, model: providers.find(item => item.providerId === value)?.models.find(item => item.enabled !== false)?.id ?? '' })} />
+            <CompactSelect label="Wiki 生成模型" value={settings.model} disabled={pending || running} options={(provider?.models ?? []).filter(item => item.enabled !== false).map(item => ({ value: item.id, label: item.name }))} onChange={value => onModelChange?.({ ...settings, model: value })} className={tw('w-56')} />
           </div>
-        ) : (
-          <p
-            className={tw(
-              'my-3 text-center text-xs leading-6 text-[var(--text-tertiary)]',
-            )}
-          >
-            使用已连接的模型生成，结果保存在本机。
-          </p>
-        )}
+        </div> : !ready ? <div className={tw('my-3 flex items-center justify-between gap-3 text-xs leading-6 text-[var(--text-secondary)]')}><span>尚未连接可用的生成模型。</span><CompactButton variant="tertiary" onPress={onSettings}>配置模型</CompactButton></div> : <p className={tw('my-3 text-xs leading-6 text-[var(--text-tertiary)]')}>生成模型：{settings?.model}</p>}
         <CompactButton
           isDisabled={pending || running || !ready}
           onPress={onGenerate}
@@ -174,8 +184,8 @@ export function WikiSetup({
           {running
             ? '正在生成…'
             : generated
-              ? '更新 Wiki 与知识卡片'
-              : '生成 Wiki 与知识卡片'}
+              ? '更新 Repo Wiki'
+              : '生成 Repo Wiki'}
         </CompactButton>
         {onBack ? (
           <CompactButton

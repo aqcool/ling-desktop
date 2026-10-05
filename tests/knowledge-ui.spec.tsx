@@ -43,12 +43,9 @@ describe('knowledge presentation boundary', () => {
       />,
     )
     expect(html).toContain('当前 SSH 项目')
-    expect(html).toContain('Wiki 页面')
-    expect(html).toContain('知识卡片')
-    expect(html).toContain('aria-label="项目知识视图"')
-    expect(html).toContain('会话总结')
-    expect(html).toContain('代码查找')
-    expect(html).toContain('代码图谱')
+    expect(html).toContain('概览')
+    expect(html).toContain('生成 Repo Wiki')
+    expect(html).not.toContain('aria-label="项目知识视图"')
     expect(html).not.toContain('项目工具')
     expect(html).not.toContain('记忆与模型设置')
     expect(html).not.toContain('aria-label="Wiki 目录"')
@@ -89,7 +86,7 @@ describe('knowledge presentation boundary', () => {
       '简体中文',
       '自动更新 Wiki',
       'Wiki 智能体引用',
-      '配置整理模型',
+      '配置模型',
     ])
       expect(html).toContain(label)
     expect(html).toContain('disabled')

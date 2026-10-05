@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   KnowledgeDocument,
   KnowledgeResponse,
@@ -25,8 +25,10 @@ export function KnowledgeReader({
   onOpenTask,
   onLinkError,
   onExport,
+  onDirtyChange,
 }: {
   document: KnowledgeDocument
+  onDirtyChange?: (dirty: boolean) => void
   revisions?: KnowledgeDocument[]
   pending: boolean
   onSave: (value: {
@@ -45,6 +47,10 @@ export function KnowledgeReader({
     [title, setTitle] = useState(doc.title),
     [body, setBody] = useState(doc.body),
     [version, setVersion] = useState<KnowledgeDocument>()
+  const [raw, setRaw] = useState(false)
+  const isDirty = editing && (title !== doc.title || body !== doc.body)
+  useEffect(() => { onDirtyChange?.(isDirty) }, [isDirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [])
   const content = version ?? doc,
     headings = useMemo(() => knowledgeHeadings(content.body), [content.body])
   const headingIds = useMemo(
@@ -114,6 +120,8 @@ export function KnowledgeReader({
               </>
             ) : (
               <>
+                <CompactButton variant="tertiary" aria-pressed={!raw} onPress={() => setRaw(false)}>预览</CompactButton>
+                <CompactButton variant="tertiary" aria-pressed={raw} onPress={() => setRaw(true)}>源文</CompactButton>
                 <CompactButton
                   variant="tertiary"
                   isDisabled={pending}
@@ -173,7 +181,7 @@ export function KnowledgeReader({
               'min-h-96 w-full resize-y rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] p-3 font-mono text-xs leading-6 outline-none focus:border-[var(--focus)]',
             )}
           />
-        ) : (
+        ) : raw ? <pre className={tw('m-0 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-secondary)] p-4 font-mono text-xs leading-6')}>{content.body}</pre> : (
           <Markdown
             source={content.body}
             headingIds={headingIds}

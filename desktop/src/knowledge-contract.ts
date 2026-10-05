@@ -309,6 +309,7 @@ const responseSchema: z.ZodType<KnowledgeResponse> = z
       )
       .optional(),
     text: z.string().optional(),
+    startLine: z.number().int().positive().optional(),
     stale: z.boolean().optional(),
     job: jobSchema.optional(),
   })

@@ -38,6 +38,14 @@ function key(view: EditorView, key: string, keyCode: number, ctrlKey = false): v
 }
 
 describe('CodeMirror editor integration', () => {
+  it('shows original source line numbers without inserting them into the document', () => {
+    const view = render({ path: 'excerpt.ts', value: 'const answer = 42\nexport { answer }', readOnly: true, startLine: 27 })
+    expect(view.state.sliceDoc()).toBe('const answer = 42\nexport { answer }')
+    expect(container.querySelector('.cm-lineNumbers')?.textContent).toContain('27')
+    expect(container.querySelector('.cm-lineNumbers')?.textContent).toContain('28')
+    render({ path: 'excerpt.ts', value: 'const answer = 42\nexport { answer }', readOnly: true, startLine: 50 })
+    expect(container.querySelector('.cm-lineNumbers')?.textContent).toContain('50')
+  })
   it('formats JSON as one undoable edit, retains parsing/folding and never implicitly saves', async () => {
     const ref = createRef<CodeEditorHandle>(), onChange = vi.fn(), onSave = vi.fn()
     const original = '{"id":9007199254740993123,"items":[{"name":"灵创"}]}'

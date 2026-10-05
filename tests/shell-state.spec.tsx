@@ -90,7 +90,8 @@ describe('shell state boundaries', () => {
     expect(view.container.querySelector('section[aria-label="知识中心主页面"]')).not.toBeNull()
     expect(view.container.querySelector('aside[aria-label="工作面"]')).toBeNull()
     expect(view.container.querySelector('aside[aria-label="项目知识"]')).toBeNull()
-    expect(view.container.querySelector('.workspace-header')?.textContent).not.toContain('返回任务')
+    expect(view.container.querySelector('section[aria-label="知识中心主页面"] > header')?.textContent).not.toContain('返回任务')
+    expect(view.container.querySelector('.workspace-header')).toBeNull()
     expect(monitor()).toBeNull()
   })
 
