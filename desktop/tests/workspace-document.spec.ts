@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LingWorkspaceDocumentsController } from '../src/host/workspace-document-controller.ts'
-import { WORKSPACE_DOCUMENT_MAX_BYTES, type EditableWorkspaceText, type SavedWorkspaceText, type WorkspaceDirectory } from '../src/workspace-document-contract.ts'
+import { WORKSPACE_DOCUMENT_MAX_BYTES, WORKSPACE_OFFICE_MAX_BYTES, WORKSPACE_PREVIEW_MAX_BYTES, type WorkspaceOfficePreview, type WorkspaceBinaryPreview, type EditableWorkspaceText, type SavedWorkspaceText, type WorkspaceDirectory } from '../src/workspace-document-contract.ts'
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => { for (const dispose of cleanup.splice(0).reverse()) await dispose() })
@@ -37,6 +37,60 @@ async function fixture() {
 }
 
 describe('LING local workspace editor over the composed filesystem', () => {
+  it.each(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif', 'pdf'])('previews complete %s bytes in a draft workspace without creating a session', async extension => {
+    const { ctx, workspace, request } = await fixture()
+    const bytes = Buffer.from([0, 0xff, 0x80, 0x42])
+    const path = `预览.${extension}`
+    await writeFile(join(workspace, path), bytes)
+    let created = 0
+    ctx.on('session/created', () => { created += 1 })
+    expect(await request<WorkspaceBinaryPreview>('readBinary', { workspaceId: 'workspace-fixture', path })).toEqual({ data: bytes.toString('base64'), bytes: bytes.length })
+    expect(created).toBe(0)
+  })
+  it('confines binary previews, rejects changed/oversized sources and preserves cancellation', async () => {
+    const { ctx, workspace, home, request } = await fixture()
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9])
+    const scope = { workspaceId: 'workspace-fixture', path: 'photo.JPG' }
+    await writeFile(join(workspace, 'photo.JPG'), bytes)
+    await writeFile(join(home, 'outside.jpg'), bytes)
+    await symlink(join(home, 'outside.jpg'), join(workspace, 'link.jpg'))
+    await expect(request('readBinary', { ...scope, path: '../outside.jpg' })).rejects.toMatchObject({ code: 'ling-document/readonly' })
+    await expect(request('readBinary', { ...scope, path: 'link.jpg' })).rejects.toMatchObject({ code: 'ling-document/readonly' })
+    await expect(request('readBinary', { ...scope, path: 'program.exe' })).rejects.toThrow()
+    await expect(request('readBinary', { ...scope, taskId: 'editor-task' })).rejects.toThrow()
+    const aborted = new AbortController(); aborted.abort()
+    await expect(request('readBinary', scope, aborted.signal)).rejects.toMatchObject({ code: 'gateway/cancelled' })
+    const fs = ctx.fs as SandboxedFileSystem
+    fs.internals.inspectReadBytesAfterStat = async () => { fs.internals.inspectReadBytesAfterStat = undefined; await writeFile(join(workspace, 'photo.JPG'), 'changed') }
+    await expect(request('readBinary', scope)).rejects.toMatchObject({ code: 'ling-document/conflict' })
+    await writeFile(join(workspace, 'photo.JPG'), Buffer.alloc(WORKSPACE_PREVIEW_MAX_BYTES + 1))
+    await expect(request('readBinary', scope)).rejects.toMatchObject({ code: 'ling-document/too-large' })
+  })
+  it('reads bounded Office bytes in draft and task scopes without granting a save token or creating a task', async () => {
+    const { ctx, workspace, home, request } = await fixture()
+    const bytes = Buffer.from([0x50, 0x4b, 0, 0xff, 0x80])
+    await writeFile(join(workspace, 'report.xlsx'), bytes)
+    let created = 0
+    ctx.on('session/created', () => { created += 1 })
+    const scope = { workspaceId: 'workspace-fixture', path: 'report.xlsx' }
+    const result = await request<WorkspaceOfficePreview>('readOffice', scope)
+    expect(result).toEqual({ data: bytes.toString('base64'), bytes: bytes.length })
+    expect(result).not.toHaveProperty('version')
+    expect(created).toBe(0)
+    expect(await request('readOffice', { taskId: 'editor-task', path: 'report.xlsx' })).toEqual(result)
+    await writeFile(join(home, 'outside.xlsx'), bytes)
+    await symlink(join(home, 'outside.xlsx'), join(workspace, 'link.xlsx'))
+    await expect(request('readOffice', { ...scope, path: '../outside.xlsx' })).rejects.toMatchObject({ code: 'ling-document/readonly' })
+    await expect(request('readOffice', { ...scope, path: 'link.xlsx' })).rejects.toMatchObject({ code: 'ling-document/readonly' })
+    await expect(request('readOffice', { ...scope, path: 'report.exe' })).rejects.toThrow()
+    const aborted = new AbortController(); aborted.abort()
+    await expect(request('readOffice', scope, aborted.signal)).rejects.toMatchObject({ code: 'gateway/cancelled' })
+    const fs = ctx.fs as SandboxedFileSystem
+    fs.internals.inspectReadBytesAfterStat = async () => { fs.internals.inspectReadBytesAfterStat = undefined; await writeFile(join(workspace, 'report.xlsx'), 'changed') }
+    await expect(request('readOffice', scope)).rejects.toMatchObject({ code: 'ling-document/conflict' })
+    await writeFile(join(workspace, 'report.xlsx'), Buffer.alloc(WORKSPACE_OFFICE_MAX_BYTES + 1))
+    await expect(request('readOffice', scope)).rejects.toMatchObject({ code: 'ling-document/too-large' })
+  })
   it('reads all lines with original BOM/CRLF and saves exactly the complete text through a real Remote', async () => {
     const { ctx, workspace, read, save } = await fixture()
     const path = join(workspace, 'long.ts')

@@ -14,7 +14,8 @@ import {
 import { Icon } from './Icon.js'
 import { FileIcon } from './FileIcon.js'
 import { Markdown } from './Markdown.js'
-import { CodeEditor, type CodeEditorSelection } from './CodeEditor.js'
+import { CodeEditor, type CodeEditorHandle, type CodeEditorSelection } from './CodeEditor.js'
+import { OfficePreview } from './OfficePreview.js'
 import { Menu, MenuItem } from './Menu.js'
 import type { WorkspaceContextReference } from './attachments.js'
 import { tw } from './tailwind.js'
@@ -59,6 +60,7 @@ export function ordered(entries: readonly LingWorkspaceEntry[]): readonly LingWo
 }
 
 export function DocumentBody({ document }: { readonly document: LingWorkspaceDocument }) {
+  if (document.kind === 'office') return <OfficePreview document={document} />
   const truncation = document.truncated
     ? <p className={tw("file-browser__state flex [min-height:2.4rem] items-center gap-2 m-0 py-1.5 px-1.5 [color:var(--text-secondary)] text-xs")}>文件较大，此处只读取了前 {String(document.lines ?? 0)} 行。</p>
     : null
@@ -219,6 +221,7 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
   const [codeContextRequest, setCodeContextRequest] = useState<{ x: number; y: number; nonce: number }>()
   const [markdownPreview, setMarkdownPreview] = useState(false)
   const [wrap, setWrap] = useState(false)
+  const editorRef = useRef<CodeEditorHandle>(null)
   const dirty = document?.text !== undefined && draft !== document.text
   const editable = Boolean(saveDocument && document?.version && !document.truncated && document.text !== undefined)
   const buffers = () => {
@@ -313,6 +316,7 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
         {openedFile && onAddContext ? <MenuItem icon="plus" onPress={() => { onAddContext({ kind: 'file', path: openedFile }) }}>添加文件到对话</MenuItem> : null}
         {openedFile ? <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(openedFile) }}>复制相对路径</MenuItem> : null}
         {document?.text !== undefined ? <><MenuItem checked={wrap} onPress={() => { setWrap(current => !current) }}>自动换行</MenuItem><MenuItem disabled={dirty || saving} icon="refresh" onPress={() => { setDocumentRevision(current => current + 1) }}>重新读取文件</MenuItem></> : null}
+        {editable && openedFile && /\.json$/iu.test(openedFile) ? <MenuItem disabled={saving} icon="code" onPress={() => { setDocumentMessage(undefined); editorRef.current?.formatJson() }}>格式化 JSON</MenuItem> : null}
         {dirty ? <MenuItem onPress={() => { change(document?.text ?? ''); setDocumentMessage(undefined) }}>还原未保存的修改</MenuItem> : null}
         <MenuItem icon="refresh" onPress={() => { setRevision(current => current + 1); if (!dirty) setDocumentRevision(current => current + 1) }}>刷新文件树</MenuItem>
       </Menu>
@@ -327,8 +331,8 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
           {documentLoading ? <p className={tw('flex items-center gap-2 px-4 py-3 text-xs text-[var(--text-tertiary)]')}><Spinner size="sm" />正在读取文件</p> : null}
           {!documentLoading && document ? document.text !== undefined && !markdownPreview ? <>
             {document.truncated ? <p className={tw('m-0 shrink-0 px-3 py-2 text-xs text-[var(--text-tertiary)]')}>文件较大，只预览前 {document.lines ?? 0} 行，无法编辑。</p> : null}
-            <CodeEditor path={openedFile} value={draft} readOnly={!editable} onChange={editable ? change : undefined} onSelectionChange={setSelection} onSave={() => { void save() }} onAddSelection={onAddContext ? addSelection : undefined} onContextMenu={onAddContext ? (range, x, y) => { setSelection(range); setCodeContextRequest({ x, y, nonce: Date.now() }) } : undefined} wrap={wrap} />
-          </> : <div className={tw('workspace-files__document min-h-0 flex-1 overflow-auto', document.kind !== 'markdown' && 'p-3')}><DocumentBody document={document.text === undefined ? document : { ...document, text: draft }} /></div> : null}
+            <CodeEditor ref={editorRef} path={openedFile} value={draft} readOnly={!editable} onChange={editable ? change : undefined} onSelectionChange={setSelection} onSave={() => { void save() }} onFormatError={setDocumentMessage} onAddSelection={onAddContext ? addSelection : undefined} onContextMenu={onAddContext ? (range, x, y) => { setSelection(range); setCodeContextRequest({ x, y, nonce: Date.now() }) } : undefined} wrap={wrap} />
+          </> : <div className={tw('workspace-files__document min-h-0 flex-1 overflow-auto', !['markdown', 'office'].includes(document.kind) && 'p-3')}><DocumentBody document={document.text === undefined ? document : { ...document, text: draft }} /></div> : null}
         </>}
       </section>
       {treeVisible ? <><div aria-label="调整编辑器与文件树宽度" aria-orientation="vertical" aria-valuemin={22} aria-valuemax={60} aria-valuenow={Math.round(treeWidth)} className={tw('workspace-files__divider relative z-1 bg-[var(--separator)] cursor-col-resize touch-none after:absolute after:inset-y-0 after:-inset-x-1 after:content-[""] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => {

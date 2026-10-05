@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, createRef, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { undo, undoDepth } from '@codemirror/commands'
-import { syntaxTree } from '@codemirror/language'
+import { foldCode, foldedRanges, syntaxTree } from '@codemirror/language'
 import { searchPanelOpen } from '@codemirror/search'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CodeEditor, codeEditorSelection, codeLanguageLabel, type CodeEditorProps } from '../src/ui/CodeEditor.js'
+import { CodeEditor, codeEditorSelection, codeLanguageLabel, type CodeEditorHandle } from '../src/ui/CodeEditor.js'
 
 let root: Root | undefined
 let container: HTMLDivElement
@@ -27,7 +27,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function render(props: CodeEditorProps): EditorView {
+function render(props: ComponentProps<typeof CodeEditor>): EditorView {
   act(() => root!.render(<CodeEditor {...props} />))
   const view = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-content')!)
   expect(view).not.toBeNull()
@@ -38,6 +38,42 @@ function key(view: EditorView, key: string, keyCode: number, ctrlKey = false): v
 }
 
 describe('CodeMirror editor integration', () => {
+  it('formats JSON as one undoable edit, retains parsing/folding and never implicitly saves', async () => {
+    const ref = createRef<CodeEditorHandle>(), onChange = vi.fn(), onSave = vi.fn()
+    const original = '{"id":9007199254740993123,"items":[{"name":"灵创"}]}'
+    const props = { path: 'sample.json', value: original, ref, onChange, onSave }
+    const view = render(props)
+    await vi.waitFor(() => expect(syntaxTree(view.state).toString()).toContain('Property'))
+    act(() => { expect(ref.current?.formatJson()).toBe(true) })
+    const formatted = view.state.sliceDoc()
+    expect(formatted).toContain('  "id": 9007199254740993123,\n')
+    expect(undoDepth(view.state)).toBe(1)
+    expect(onChange).toHaveBeenLastCalledWith(formatted)
+    render({ ...props, value: formatted })
+    await vi.waitFor(() => expect(syntaxTree(view.state).toString()).toContain('Property'))
+    act(() => { view.dispatch({ selection: { anchor: 0 } }); foldCode(view) })
+    expect(foldedRanges(view.state).size).toBe(1)
+    act(() => { undo(view) })
+    expect(view.state.sliceDoc()).toBe(original)
+    expect(onSave).not.toHaveBeenCalled()
+    render({ ...props, value: '{\n  "changed": true\n}' })
+    await vi.waitFor(() => expect(syntaxTree(view.state).toString()).toContain('Property'))
+  })
+  it('formats from the keyboard and leaves invalid or read-only JSON intact', () => {
+    const ref = createRef<CodeEditorHandle>(), onChange = vi.fn(), onFormatError = vi.fn()
+    const view = render({ path: 'sample.json', value: '{"x":1}', ref, onChange, onFormatError })
+    act(() => { view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', keyCode: 70, shiftKey: true, altKey: true, bubbles: true, cancelable: true })) })
+    expect(view.state.sliceDoc()).toBe('{\n  "x": 1\n}')
+    render({ path: 'sample.json', value: '{"x":}', ref, onChange, onFormatError })
+    onChange.mockClear()
+    act(() => { expect(ref.current?.formatJson()).toBe(false) })
+    expect(onFormatError).toHaveBeenCalledWith('JSON 格式有误，未修改内容。')
+    expect(view.state.sliceDoc()).toBe('{"x":}')
+    expect(onChange).not.toHaveBeenCalled()
+    render({ path: 'sample.json', value: '{"x":1}', ref, readOnly: true, onChange })
+    act(() => { expect(ref.current?.formatJson()).toBe(false) })
+    expect(view.state.sliceDoc()).toBe('{"x":1}')
+  })
   it('edits a real document, indents with Tab, undoes changes, saves and opens search', () => {
     const onChange = vi.fn(), onSave = vi.fn()
     const view = render({ path: 'unknown.txt', value: 'first\nsecond', onChange, onSave })

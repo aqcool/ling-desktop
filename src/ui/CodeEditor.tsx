@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, indentUnit, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
@@ -8,6 +8,7 @@ import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { drawSelection, dropCursor, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 import { tw } from './tailwind.js'
+import { formatJson } from './json-format.js'
 
 export interface CodeEditorSelection {
   readonly text: string
@@ -25,7 +26,10 @@ export interface CodeEditorProps {
   readonly onSave?: () => void
   readonly onAddSelection?: (selection: CodeEditorSelection) => void
   readonly onContextMenu?: (selection: CodeEditorSelection, x: number, y: number) => void
+  readonly onFormatError?: (message: string) => void
 }
+
+export interface CodeEditorHandle { formatJson(): boolean }
 
 /** Ranges are normalized by CodeMirror; exclude the next line when selection ends at its start. */
 export function codeEditorSelection(state: EditorState): CodeEditorSelection | null {
@@ -45,6 +49,7 @@ export function codeLanguageLabel(path: string): string { return languageForPath
 
 const highlighting = HighlightStyle.define([
   { tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.tagName], color: 'var(--info)' },
+  { tag: tags.propertyName, color: 'var(--info)' },
   { tag: [tags.string, tags.regexp, tags.special(tags.string)], color: 'var(--success)' },
   { tag: [tags.number, tags.bool, tags.null, tags.attributeName], color: 'var(--warning)' },
   { tag: [tags.typeName, tags.className, tags.namespace], color: 'var(--focus)' },
@@ -80,12 +85,23 @@ const editorTheme = EditorView.theme({
 })
 
 /** A single CodeMirror view owns the document; callback changes never recreate it mid-edit. */
-export function CodeEditor(props: CodeEditorProps) {
+export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor(props, ref) {
   const host = useRef<HTMLDivElement>(null)
   const current = useRef(props)
   current.current = props
   const instance = useRef<{ view: EditorView; createState: (value: string) => EditorState; editable: Compartment; wrapping: Compartment } | null>(null)
   const readOnly = props.readOnly === true || !props.onChange
+  const format = (): boolean => {
+    const view = instance.current?.view
+    if (!view || view.state.readOnly || !/\.json$/iu.test(current.current.path)) return false
+    try {
+      const text = view.state.sliceDoc()
+      const formatted = formatJson(text)
+      if (formatted !== text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: formatted }, userEvent: 'input.format', scrollIntoView: true })
+      return true
+    } catch (error) { current.current.onFormatError?.(error instanceof Error ? error.message : 'JSON 格式化失败，未修改内容。'); return false }
+  }
+  useImperativeHandle(ref, () => ({ formatJson: format }))
 
   useLayoutEffect(() => {
     if (!host.current) return
@@ -114,6 +130,7 @@ export function CodeEditor(props: CodeEditorProps) {
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: view => { if (view.state.readOnly || !current.current.onSave) return false; current.current.onSave(); return true } },
         { key: 'Mod-Enter', run: view => { const selected = codeEditorSelection(view.state); if (!selected || !current.current.onAddSelection) return false; current.current.onAddSelection(selected); return true } },
+        { key: 'Shift-Alt-f', run: () => format() },
         ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab,
       ]),
       EditorView.updateListener.of(update => {
@@ -169,4 +186,4 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [props.wrap])
 
   return <div ref={host} className={tw('code-editor h-full min-h-0 min-w-0 flex-1 overflow-hidden')} />
-}
+})

@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "@xterm/xterm/css/xterm.css";
+@import "@univerjs/preset-sheets-core/lib/index.css";
+@import "@univerjs/preset-docs-core/lib/index.css";
+@import "@univerjs/preset-docs-drawing/lib/index.css";
+@import "@univerjs/slides-ui/lib/index.css";
 
 @import "./theme/generated.css";
 @import "./theme/packs/index.css";
@@ -50,6 +54,12 @@ body {
   line-height: var(--line-body);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Univer stays inside the existing file pane; only preview navigation is shown. */
+[data-office-kind='slides'] [data-u-comp='left-sidebar'] > aside { width: 112px; }
+[data-office-kind='slides'] [data-u-comp='left-sidebar'] header { display: none; }
+[data-office-kind='slides'] [data-u-comp='left-sidebar'] .univer-h-32 { height: auto; aspect-ratio: var(--office-slide-ratio, 16 / 9); flex: 1; }
+[data-office-kind='slides'] [data-u-comp='left-sidebar'] .univer-px-4 { padding-inline: 8px; }
 
 /* Covers portaled HeroUI dialogs, custom search overlays and future glass surfaces. */
 html[data-glass='false'] *, html[data-glass='false'] *::before, html[data-glass='false'] *::after {

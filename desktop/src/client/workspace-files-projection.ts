@@ -25,8 +25,14 @@ const IMAGE_MEDIA_TYPES: Readonly<Record<string, string>> = {
   bmp: 'image/bmp',
   ico: 'image/x-icon',
   svg: 'image/svg+xml',
+  avif: 'image/avif',
 }
 const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+const OPEN_OFFICE_MEDIA_TYPES: Readonly<Record<string, string>> = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd'])
 const CODE_EXTENSIONS = new Set([
   'c', 'cc', 'clj', 'cljs', 'cmake', 'cpp', 'cs', 'css', 'cxx', 'dart', 'dockerfile', 'ex', 'exs',
@@ -42,7 +48,7 @@ const UNVIEWABLE_BINARY_EXTENSIONS = new Set([
   'odt', 'ods', 'odp', 'pages', 'numbers',
   'exe', 'dll', 'so', 'dylib', 'bin', 'o', 'class', 'pyc', 'wasm',
   'ttf', 'otf', 'woff', 'woff2', 'eot', 'dmg', 'iso', 'img', 'sqlite', 'db',
-  'psd', 'ai', 'sketch', 'tiff', 'tif', 'heic', 'heif', 'avif',
+  'psd', 'ai', 'sketch', 'tiff', 'tif', 'heic', 'heif',
 ])
 const OFFICE_FAILURE_COPY: Readonly<Record<OfficeToPdfErrorCode, { readonly message: string; readonly retryable: boolean }>> = {
   'input-too-large': { message: '文档过大，无法转换预览。', retryable: false },
@@ -101,7 +107,20 @@ export function createDshWorkspaceFilesProjection(remote: ClientRemote, editor?:
       },
       async readDraftDocument(workspaceId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>> {
         const suffix = documentSuffix(path)
-        if (IMAGE_MEDIA_TYPES[suffix] || suffix === 'pdf' || OFFICE_EXTENSIONS.has(suffix) || UNVIEWABLE_BINARY_EXTENSIONS.has(suffix)) {
+        if (OPEN_OFFICE_MEDIA_TYPES[suffix]) {
+          try {
+            const result = await editor.readOffice({ workspaceId, path }, signal)
+            return result.ok ? { ok: true, value: { path, kind: 'office', mediaType: OPEN_OFFICE_MEDIA_TYPES[suffix]!, data: result.value.data, bytes: result.value.bytes } } : remoteFailure(result.error)
+          } catch { return rejected('runtime-unavailable', '文档预览暂时不可用。', true) }
+        }
+        const mediaType = IMAGE_MEDIA_TYPES[suffix] ?? (suffix === 'pdf' ? 'application/pdf' : undefined)
+        if (mediaType) {
+          try {
+            const result = await editor.readBinary({ workspaceId, path }, signal)
+            return result.ok ? { ok: true, value: { path, kind: suffix === 'pdf' ? 'pdf' : 'image', mediaType, data: result.value.data, bytes: result.value.bytes } } : remoteFailure(result.error)
+          } catch { return rejected('runtime-unavailable', '文档预览暂时不可用。', true) }
+        }
+        if (OFFICE_EXTENSIONS.has(suffix) || UNVIEWABLE_BINARY_EXTENSIONS.has(suffix)) {
           return { ok: true, value: { path, kind: 'unsupported', mediaType: 'application/octet-stream' } }
         }
         try {
@@ -147,6 +166,13 @@ export function createDshWorkspaceFilesProjection(remote: ClientRemote, editor?:
     async readDocument(taskId: string, path: string, signal?: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>> {
       const suffix = documentSuffix(path)
       try {
+        if (OPEN_OFFICE_MEDIA_TYPES[suffix]) {
+          const result = editor
+            ? await editor.readOffice({ taskId, path }, signal)
+            : await remote.workspaceFiles.readAll(brandString<SessionId>(taskId), path, signal)
+          if (!result.ok) return remoteFailure(result.error)
+          return { ok: true, value: { path, kind: 'office', mediaType: OPEN_OFFICE_MEDIA_TYPES[suffix]!, data: result.value.data, ...(result.value.bytes === undefined ? {} : { bytes: result.value.bytes }) } }
+        }
         if (OFFICE_EXTENSIONS.has(suffix)) {
           const result = await remote.officeToPdf.render(brandString<SessionId>(taskId), path, 'foreground', signal)
           if (!result.ok) {

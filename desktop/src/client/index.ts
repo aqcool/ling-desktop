@@ -192,6 +192,8 @@ export function apply(ctx: Context): void {
   const files = createDshWorkspaceFilesProjection(ctx.remote, documentsMount === undefined ? undefined : {
     async list(request, signal) { return (await documentService()).list(request, signal) },
     async read(request, signal) { return (await documentService()).read(request, signal) },
+    async readOffice(request, signal) { return (await documentService()).readOffice(request, signal) },
+    async readBinary(request, signal) { return (await documentService()).readBinary(request, signal) },
     async save(request, signal) { return (await documentService()).save(request, signal) },
   })
   const replyMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_REPLY_REMOTE) : undefined

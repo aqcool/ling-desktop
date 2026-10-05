@@ -3,6 +3,7 @@ import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { EditorSelection } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
+import { undo } from '@codemirror/commands'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LingReadResult, LingWorkspaceDirectory, LingWorkspaceDocument } from '../src/runtime/contract.js'
 import { FileBrowser } from '../src/ui/FileBrowser.js'
@@ -87,6 +88,40 @@ function deferred<Value>() {
 }
 
 describe('workspace file editor integration', () => {
+  it('previews image bytes directly in the existing workbench without the text editor', async () => {
+    const state = fixture()
+    state.loadDirectory.mockResolvedValue({ ok: true, value: { ...state.directory, entries: [...state.directory.entries, { kind: 'file', name: 'photo.jpg', path: 'photo.jpg' }] } })
+    state.documents['photo.jpg'] = { path: 'photo.jpg', kind: 'image', mediaType: 'image/jpeg', data: '/9j/2Q==', bytes: 4 }
+    const { container } = await mount(state.props)
+    await click(container, '打开文件 photo.jpg')
+    expect(container.querySelector<HTMLImageElement>('img.document-preview__image')?.getAttribute('src')).toBe('data:image/jpeg;base64,/9j/2Q==')
+    expect(container.textContent).not.toContain('此文件类型暂不支持预览')
+    expect(container.querySelector('.cm-content')).toBeNull()
+    expect(state.saveDocument).not.toHaveBeenCalled()
+  })
+  it('formats JSON through the file menu, keeps it unsaved and reports invalid JSON without damaging the buffer', async () => {
+    const state = fixture()
+    state.loadDirectory.mockResolvedValue({ ok: true, value: { ...state.directory, entries: [...state.directory.entries, { kind: 'file', name: 'sample.json', path: 'sample.json' }] } })
+    const original = '{"id":9007199254740993123,"active":true}'
+    state.documents['sample.json'] = { path: 'sample.json', kind: 'code', mediaType: 'text/plain', text: original, version: 'json-v1' }
+    const { container } = await mount(state.props)
+    await click(container, '打开文件 sample.json')
+    await click(container, '更多文件操作')
+    await clickMenuItem('格式化 JSON')
+    const view = editor(container)
+    expect(view.state.sliceDoc()).toBe('{\n  "id": 9007199254740993123,\n  "active": true\n}')
+    expect(container.querySelector('[aria-label="有未保存的修改"]')).not.toBeNull()
+    expect(state.saveDocument).not.toHaveBeenCalled()
+    await act(async () => { undo(view) })
+    expect(view.state.sliceDoc()).toBe(original)
+    expect(container.querySelector('[aria-label="有未保存的修改"]')).toBeNull()
+    await replace(view, '{"broken":}')
+    await click(container, '更多文件操作')
+    await clickMenuItem('格式化 JSON')
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('JSON 格式有误，未修改内容。')
+    expect(view.state.sliceDoc()).toBe('{"broken":}')
+    expect(state.saveDocument).not.toHaveBeenCalled()
+  })
   it('loads the directory and selected file asynchronously into the full-height editable CodeMirror surface', async () => {
     const state = fixture()
     const directory = deferred<LingReadResult<LingWorkspaceDirectory>>()

@@ -22,3 +22,15 @@ diff --git a/lib/types/profile-context.d.ts b/lib/types/profile-context.d.ts
      readonly name: string;
      /** Packaged applications supply their bundled runtime instead of a PATH executable. */
      readonly packageManager?: ProfilePnpmInvocation;
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -881,7 +881,7 @@
+ 	/* v8 ignore next */
+ 	for (const searchPath of createRequire(anchor).resolve.paths(packageName) ?? []) {
+ 		const candidate = join(searchPath, packageName);
+-		if (existsSync(join(candidate, "package.json")) && !exclude(candidate, packageName)) return candidate;
++		if (existsSync(join(candidate, "package.json")) && !exclude(candidate, packageName)) return realModuleDirectory(candidate);
+ 	}
+ }
+ /**

@@ -12,6 +12,19 @@ function projection(list: unknown, read: unknown, readAll: unknown = vi.fn(), re
 }
 
 describe('DSH workspace files projection', () => {
+  it.each(['docx', 'xlsx', 'pptx'])('uses native %s previews for both draft and task scopes without invoking conversion or text editing', async suffix => {
+    const readOffice = vi.fn(async () => answer({ data: 'UEs=', bytes: 2 }))
+    const read = vi.fn(), render = vi.fn()
+    const editor = { readOffice, read } as unknown as LingWorkspaceDocumentsRemote
+    const files = createDshWorkspaceFilesProjection({ officeToPdf: { render } } as never, editor)
+    const signal = new AbortController().signal
+    const path = `report.${suffix}`
+    expect(await files.readDraftDocument!('workspace', path, signal)).toMatchObject({ ok: true, value: { path, kind: 'office', data: 'UEs=', bytes: 2 } })
+    expect(readOffice).toHaveBeenCalledWith({ workspaceId: 'workspace', path }, signal)
+    expect(await files.readDocument('task', path, signal)).toMatchObject({ ok: true, value: { path, kind: 'office', data: 'UEs=' } })
+    expect(readOffice).toHaveBeenCalledWith({ taskId: 'task', path }, signal)
+    expect(read).not.toHaveBeenCalled(); expect(render).not.toHaveBeenCalled()
+  })
   it('uses the complete versioned Host document for editing and forwards guarded saves', async () => {
     const text = Array.from({ length: 900 }, (_, index) => `line ${index}`).join('\r\n')
     const read = vi.fn()
@@ -34,16 +47,32 @@ describe('DSH workspace files projection', () => {
   })
 
   it('projects explicit conflicts and draft scopes without a task Remote or binary editing', async () => {
-    const editor = { list: vi.fn(async () => answer({ path: '', entries: [], truncated: false })), read: vi.fn(async () => answer({ text: 'draft', bytes: 5, version: 'a'.repeat(64) })), save: vi.fn(async () => ({ ok: false, error: { code: 'ling-document/conflict', message: 'changed' } })) } as unknown as LingWorkspaceDocumentsRemote
+    const editor = { list: vi.fn(async () => answer({ path: '', entries: [], truncated: false })), read: vi.fn(async () => answer({ text: 'draft', bytes: 5, version: 'a'.repeat(64) })), readBinary: vi.fn(async () => answer({ data: 'AA==', bytes: 1 })), save: vi.fn(async () => ({ ok: false, error: { code: 'ling-document/conflict', message: 'changed' } })) } as unknown as LingWorkspaceDocumentsRemote
     const files = createDshWorkspaceFilesProjection({} as never, editor)
     await expect(files.listDraftDirectory!('workspace', '')).resolves.toEqual(answer({ path: '', entries: [], truncated: false }))
     expect(editor.list).toHaveBeenCalledWith({ workspaceId: 'workspace', path: '' }, undefined)
     await expect(files.readDraftDocument!('workspace', 'draft.ts')).resolves.toMatchObject({ ok: true, value: { kind: 'code', text: 'draft', version: 'a'.repeat(64) } })
     await expect(files.saveDraftDocument!('workspace', 'draft.ts', 'edit', 'a'.repeat(64))).resolves.toEqual({ ok: false, reason: 'document-conflict', message: 'changed', retryable: false })
     expect(editor.save).toHaveBeenCalledWith({ workspaceId: 'workspace', path: 'draft.ts', text: 'edit', version: 'a'.repeat(64) }, undefined)
-    await expect(files.readDraftDocument!('workspace', 'picture.png')).resolves.toEqual(answer({ path: 'picture.png', kind: 'unsupported', mediaType: 'application/octet-stream' }))
+    await expect(files.readDraftDocument!('workspace', 'picture.png')).resolves.toEqual(answer({ path: 'picture.png', kind: 'image', mediaType: 'image/png', data: 'AA==', bytes: 1 }))
     expect(editor.read).toHaveBeenCalledOnce()
     expect(createDshWorkspaceFilesProjection({} as never).saveDocument).toBeUndefined()
+  })
+
+  it.each([['photo.JPG', 'image', 'image/jpeg'], ['drawing.svg', 'image', 'image/svg+xml'], ['photo.avif', 'image', 'image/avif'], ['report.pdf', 'pdf', 'application/pdf']])('reads draft %s through the bounded binary Remote instead of a task or UTF-8 reader', async (path, kind, mediaType) => {
+    const readBinary = vi.fn(async () => answer({ data: 'AA==', bytes: 1 })), read = vi.fn()
+    const files = createDshWorkspaceFilesProjection({} as never, { readBinary, read } as unknown as LingWorkspaceDocumentsRemote)
+    const signal = new AbortController().signal
+    expect(await files.readDraftDocument!('workspace', path!, signal)).toEqual(answer({ path, kind, mediaType, data: 'AA==', bytes: 1 }))
+    expect(readBinary).toHaveBeenCalledWith({ workspaceId: 'workspace', path }, signal)
+    expect(read).not.toHaveBeenCalled()
+  })
+  it('keeps draft binary read failures visible and refuses unrelated binary containers', async () => {
+    const readBinary = vi.fn(async () => ({ ok: false as const, error: { code: 'ling-document/too-large', message: '文件超过 16 MB，无法完整读取。' } }))
+    const files = createDshWorkspaceFilesProjection({} as never, { readBinary } as unknown as LingWorkspaceDocumentsRemote)
+    expect(await files.readDraftDocument!('workspace', 'large.png')).toMatchObject({ ok: false, reason: 'invalid-command', retryable: false, message: '文件超过 16 MB，无法完整读取。' })
+    expect(await files.readDraftDocument!('workspace', 'archive.zip')).toMatchObject({ ok: true, value: { kind: 'unsupported' } })
+    expect(readBinary).toHaveBeenCalledOnce()
   })
 
   it('asks the host for the root as "." and reports workspace-relative entry paths', async () => {
@@ -187,7 +216,7 @@ describe('DSH workspace files projection', () => {
 
   it('converts Office documents to a PDF preview and keeps the missing-font notice', async () => {
     const render = vi.fn(async () => answer({
-      absolutePath: '/tmp/demo/report.docx',
+      absolutePath: '/tmp/demo/report.doc',
       version: 'v1',
       offset: 0,
       data: 'UERG',
@@ -197,10 +226,10 @@ describe('DSH workspace files projection', () => {
     }))
     const files = projection(vi.fn(), vi.fn(), vi.fn(), render)
 
-    await expect(files.readDocument('session-1', 'report.docx')).resolves.toEqual({
+    await expect(files.readDocument('session-1', 'report.doc')).resolves.toEqual({
       ok: true,
       value: {
-        path: 'report.docx',
+        path: 'report.doc',
         kind: 'pdf',
         mediaType: 'application/pdf',
         data: 'UERG',
@@ -209,7 +238,7 @@ describe('DSH workspace files projection', () => {
         bytes: 12_345,
       },
     })
-    expect(render).toHaveBeenCalledWith('session-1', 'report.docx', 'foreground', undefined)
+    expect(render).toHaveBeenCalledWith('session-1', 'report.doc', 'foreground', undefined)
   })
 
   it('maps Office conversion failures to product copy', async () => {
@@ -223,7 +252,7 @@ describe('DSH workspace files projection', () => {
     }))
     const files = projection(vi.fn(), vi.fn(), vi.fn(), render)
 
-    await expect(files.readDocument('session-1', 'broken.docx')).resolves.toEqual({
+    await expect(files.readDocument('session-1', 'broken.doc')).resolves.toEqual({
       ok: false,
       reason: 'invalid-command',
       message: '暂不支持这种文档格式的预览。',

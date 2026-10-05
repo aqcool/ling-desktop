@@ -514,7 +514,7 @@ export interface LingWorkspaceDirectory {
   readonly truncated: boolean
 }
 
-export type LingWorkspaceDocumentKind = 'markdown' | 'code' | 'text' | 'image' | 'pdf' | 'unsupported'
+export type LingWorkspaceDocumentKind = 'markdown' | 'code' | 'text' | 'image' | 'pdf' | 'office' | 'unsupported'
 
 export interface LingWorkspaceDocument {
   readonly path: string
@@ -524,7 +524,7 @@ export interface LingWorkspaceDocument {
   readonly lines?: number
   readonly truncated?: boolean
   readonly version?: string
-  /** Base64 payload for image and PDF previews. */
+  /** Base64 payload for image, PDF and read-only Office previews. */
   readonly data?: string
   readonly bytes?: number
   /** The preview PDF was converted from an Office document. */
