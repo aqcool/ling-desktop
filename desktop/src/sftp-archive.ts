@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join, posix } from 'node:path'
 import { Transform, type Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { crc32 } from 'node:zlib'
 import { Unpack } from 'tar'
 import yauzl, { type Entry, type ZipFile } from 'yauzl'
 
@@ -67,12 +68,15 @@ export async function extractArchive(file: string, name: string, destination: st
               if (!directory) {
                 const input = await new Promise<import('node:stream').Readable>((yes, no) => zip.openReadStream(entry, (error, stream) => error ? no(error) : yes(stream!)))
                 let written = 0
+                let checksum = 0
                 await pipeline(input, new Transform({ transform(chunk: Buffer, _encoding, done) {
                   written += chunk.length
+                  checksum = crc32(chunk, checksum)
                   if (written > entry.uncompressedSize) done(new Error('解压大小与清单不一致。'))
                   else done(null, chunk)
                 } }), createWriteStream(target, { flags: 'wx', mode: 0o600 }), { signal })
                 if (written !== entry.uncompressedSize) throw new Error('解压文件不完整。')
+                if (checksum !== entry.crc32) throw new Error('压缩包校验失败，文件可能已损坏。')
               }
             }
             zip.readEntry()

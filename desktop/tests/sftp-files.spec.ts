@@ -101,6 +101,11 @@ describe('native SFTP file operations', () => {
     const failed = await settled(value, await send({ type: 'extract', path: '/home/tester/bad.zip', destination: '/home/tester/bad' }))
     expect(failed.status).toBe('failed')
     expect(await lstat(join(value.home, 'bad')).catch(() => undefined)).toBeUndefined()
+    const corrupt = zipEntry('broken.txt', 'payload'); const dataStart = 30 + Buffer.byteLength('broken.txt')
+    corrupt[dataStart] = corrupt[dataStart]! ^ 1
+    await writeFile(join(value.home, 'broken.zip'), corrupt)
+    expect((await settled(value, await send({ type: 'extract', path: '/home/tester/broken.zip', destination: '/home/tester/broken' }))).error).toContain('校验失败')
+    expect(await lstat(join(value.home, 'broken')).catch(() => undefined)).toBeUndefined()
     expect((await readdir(value.home)).filter(name => name.startsWith('.ling-'))).toEqual([])
     expect(value.execs).toBe(0)
   }, 45000)
