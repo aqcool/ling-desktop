@@ -35,6 +35,7 @@ export function WorkspaceSection({
   viewState,
   onViewStateChange,
   onEditGroup,
+  onEditWorkspace,
   onNewTaskInWorkspace,
   onCreateGroup,
   workspaceAppearance,
@@ -47,6 +48,7 @@ export function WorkspaceSection({
   readonly viewState: TaskViewState
   readonly onViewStateChange: (next: TaskViewState) => void
   readonly onEditGroup: (id: string) => void
+  readonly onEditWorkspace: (id: string) => void
   readonly onNewTaskInWorkspace: (workspaceId: string) => void
   readonly onCreateGroup: () => void
   readonly workspaceAppearance: Readonly<Record<string, Pick<WorkspaceDraft, 'color' | 'marker'>>>
@@ -149,12 +151,12 @@ export function WorkspaceSection({
   }
   const workspaceRow = (workspace: LingWorkspaceSummary) => (
     <WorkspaceRow
-      appearance={workspaceAppearance[workspace.locationLabel ?? '']}
+      appearance={workspaceAppearance[workspace.workspaceId] ?? workspaceAppearance[workspace.locationLabel ?? '']}
       archived={false}
       collapsed={viewState.collapsedIds.includes(workspace.workspaceId)}
       key={workspace.workspaceId}
       onArchive={() => { toggleArchivedWorkspace(workspace.workspaceId) }}
-      onEdit={() => { onOpenDialog({ kind: 'rename-workspace', id: workspace.workspaceId, initial: workspace.label }) }}
+      onEdit={() => { onEditWorkspace(workspace.workspaceId) }}
       onNewTask={() => { onNewTaskInWorkspace(workspace.workspaceId) }}
       onPin={() => { togglePinned(workspace.workspaceId) }}
       onRemove={() => { onOpenDialog({ kind: 'delete-workspace', id: workspace.workspaceId, initial: workspace.label }) }}

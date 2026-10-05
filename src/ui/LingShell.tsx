@@ -35,7 +35,7 @@ import { TaskSearch } from './TaskSearch.js'
 import { TaskViewMenu } from './TaskViewMenu.js'
 import { TerminalPanel } from './TerminalPanel.js'
 import { TokenUsagePopover } from './TokenUsagePopover.js'
-import { WorkspaceCreateDialog } from './WorkspaceCreateDialog.js'
+import { WorkspaceCreateDialog, WorkspaceEditDialog } from './WorkspaceCreateDialog.js'
 import { WorkspaceModeMenu } from './WorkspaceModeMenu.js'
 import { WorkspaceActionOutput, WorkspaceToolsToolbar, useWorkspaceTools } from './WorkspaceTools.js'
 import { toComposerQuote, workspaceContextScope, type WorkspaceContextReference } from './attachments.js'
@@ -147,6 +147,8 @@ export function LingShell(props: LingShellProps) {
     setDialog,
     creatingWorkspace,
     setCreatingWorkspace,
+    editingWorkspace,
+    setEditingWorkspaceId,
     creatingGroup,
     setCreatingGroup,
     editingGroupId,
@@ -156,6 +158,7 @@ export function LingShell(props: LingShellProps) {
     workspaceAppearance,
     beginAddWorkspace,
     createWorkspace,
+    saveWorkspace,
     saveGroup,
     allCollapsed,
     toggleAll,
@@ -227,7 +230,7 @@ export function LingShell(props: LingShellProps) {
     workspaceAvailableHeight,
     displayedWorkbenchWidth,
     workbenchBounds,
-  } = useShellLayout({ shortcutBlocked: Boolean(dialog) })
+  } = useShellLayout({ shortcutBlocked: Boolean(dialog || creatingWorkspace || editingWorkspace || creatingGroup || editingGroupId) })
   const { notesFloating, setNotesFloating, notesOrigin, notesError, requestNotes, handleNoteAction } = useShellNotes(props)
   const [knowledgeTarget, setKnowledgeTarget] = useState<{ workspaceId?: string; remoteTaskId?: string; documentId?: string }>()
   const [terminalOpen, setTerminalOpen] = useState(false)
@@ -412,6 +415,7 @@ export function LingShell(props: LingShellProps) {
                 viewState={taskViewState}
                 onViewStateChange={setTaskViewState}
                 onEditGroup={setEditingGroupId}
+                onEditWorkspace={setEditingWorkspaceId}
                 onCreateGroup={() => { setCreatingGroup(true) }}
                 onNewTaskInWorkspace={props.onNewTaskInWorkspace}
                 workspaceAppearance={workspaceAppearance}
@@ -906,6 +910,7 @@ export function LingShell(props: LingShellProps) {
       {notesFloating ? <aside aria-label="独立速记浮窗" className={tw('fixed right-5 top-16 z-30 flex h-[min(760px,calc(100vh_-_5rem))] w-[min(420px,calc(100vw_-_2rem))] overflow-hidden rounded-2xl border border-[var(--panel-border)] shadow-[var(--overlay-shadow)]')}><QuickNotes initialOrigin={notesOrigin} onAction={handleNoteAction} onClose={() => setNotesFloating(false)} /></aside> : null}
 
       {creatingWorkspace ? <WorkspaceCreateDialog onCancel={() => { setCreatingWorkspace(false) }} onChooseDirectory={props.onPickDirectory} onConfirm={createWorkspace} /> : null}
+      {editingWorkspace ? <WorkspaceEditDialog key={editingWorkspace.workspaceId} initial={editingWorkspace} onCancel={() => { setEditingWorkspaceId(undefined) }} onConfirm={draft => saveWorkspace(editingWorkspace.workspaceId, draft)} /> : null}
       {creatingGroup || editingGroupId ? <TaskGroupDialog initial={taskViewState.groups.find(group => group.id === editingGroupId)} onCancel={() => { setCreatingGroup(false); setEditingGroupId(undefined) }} onConfirm={saveGroup} /> : null}
 
       {dialog ? (

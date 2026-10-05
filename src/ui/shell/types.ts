@@ -70,7 +70,7 @@ export interface WorkbenchTab {
   readonly label: string
 }
 export interface DialogState {
-  readonly kind: 'rename-task' | 'add-workspace' | 'rename-workspace' | 'delete-workspace'
+  readonly kind: 'rename-task' | 'add-workspace' | 'delete-workspace'
   readonly id?: string
   readonly initial?: string
 }
