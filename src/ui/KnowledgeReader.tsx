@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import type {
   KnowledgeDocument,
   KnowledgeResponse,
@@ -6,6 +6,8 @@ import type {
 } from '../runtime/knowledge.js'
 import { Markdown } from './Markdown.js'
 import { CompactButton, CompactInput } from './SettingsControls.js'
+import { Icon } from './Icon.js'
+import { KnowledgeMenu } from './KnowledgeMenu.js'
 import {
   downloadKnowledge,
   knowledgeCodeLink,
@@ -47,7 +49,8 @@ export function KnowledgeReader({
     [title, setTitle] = useState(doc.title),
     [body, setBody] = useState(doc.body),
     [version, setVersion] = useState<KnowledgeDocument>()
-  const [raw, setRaw] = useState(false)
+  const [raw, setRaw] = useState(false), [directory, setDirectory] = useState(false)
+  const directoryId = useId()
   const isDirty = editing && (title !== doc.title || body !== doc.body)
   useEffect(() => { onDirtyChange?.(isDirty) }, [isDirty, onDirtyChange])
   useEffect(() => () => onDirtyChange?.(false), [])
@@ -57,23 +60,50 @@ export function KnowledgeReader({
     () => headings.map((item) => ({ id: item.id, line: item.line })),
     [headings],
   )
+  const bodyHasTitle = headings[0]?.level === 1 && !content.body.split('\n').slice(0, headings[0].line - 1).join('\n').trim()
+  const exportDocument = () => {
+    void onExport().then(value => { if (value?.text) downloadKnowledge(value.text, doc.title) })
+  }
+  const copyDocument = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(content.body)
+    } catch { onLinkError?.('无法复制文档，请检查剪贴板权限。') }
+  }
   return (
-    <div
-      className={tw(
-        'grid min-w-0 grid-cols-[minmax(0,1fr)_160px] gap-10 max-[1100px]:grid-cols-1',
-      )}
-    >
-      <article className={tw('min-w-0')}>
-        <header className={tw('mb-7')}>
+    <div className={tw('@container min-w-0')}>
+      <header aria-label="文档工具栏" className={tw('sticky top-0 z-10 flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-[var(--panel-border)] bg-[var(--surface)] px-5 py-1.5')}>
+        <span className={tw('flex min-w-0 flex-1 items-center gap-2 text-sm font-medium')}><Icon name={doc.kind === 'wiki' ? 'book' : doc.kind === 'card' ? 'grid' : 'file'} size={16} className={tw('shrink-0 text-[var(--text-secondary)]')} /><span className={tw('truncate')}>{content.title}</span></span>
+        <div className={tw('flex items-center gap-1')}>
+          {editing ? <>
+            <CompactButton isDisabled={pending || !title.trim() || !body.trim()} onPress={() => {
+              void onSave({ title, body }).then(value => { if (value?.document) { setEditing(false); setVersion(undefined) } })
+            }}>保存</CompactButton>
+            <CompactButton variant="tertiary" isDisabled={pending} onPress={() => setEditing(false)}>取消</CompactButton>
+          </> : <>
+            <div role="group" aria-label="文档视角" className={tw('mr-1 flex gap-0.5 rounded-lg bg-[var(--surface-secondary)] p-0.5')}>
+              <CompactButton variant="tertiary" isIconOnly aria-label="预览" title="预览" aria-pressed={!raw} onPress={() => setRaw(false)} className={tw(!raw ? 'bg-[var(--surface)] shadow-sm' : 'bg-transparent')}><Icon name="eye" size={16} /></CompactButton>
+              <CompactButton variant="tertiary" isIconOnly aria-label="源文" title="Markdown 源文" aria-pressed={raw} onPress={() => setRaw(true)} className={tw(raw ? 'bg-[var(--surface)] shadow-sm' : 'bg-transparent')}><Icon name="code" size={16} /></CompactButton>
+            </div>
+            <CompactButton variant="tertiary" isIconOnly className={tw('bg-transparent')} aria-label="编辑" title="编辑文档" isDisabled={pending} onPress={() => { setTitle(content.title); setBody(content.body); setEditing(true) }}><Icon name="edit" size={16} /></CompactButton>
+            <CompactButton variant="tertiary" isIconOnly className={tw('bg-transparent')} aria-label="复制 Markdown" title="复制 Markdown" onPress={() => { void copyDocument() }}><Icon name="copy" size={16} /></CompactButton>
+            <CompactButton variant="tertiary" isIconOnly className={tw('bg-transparent')} aria-label="导出文档" title="导出文档" isDisabled={pending} onPress={exportDocument}><Icon name="download" size={16} /></CompactButton>
+            {headings.length ? <CompactButton variant="tertiary" isIconOnly className={tw(directory && !raw ? 'bg-[var(--surface-selected)]' : 'bg-transparent')} aria-label={directory ? '隐藏页内目录' : '显示页内目录'} title={directory ? '隐藏页内目录' : '显示页内目录'} aria-expanded={directory && !raw} aria-controls={directoryId} isDisabled={raw} onPress={() => setDirectory(value => !value)}><Icon name="listCheck" size={16} /></CompactButton> : null}
+            <KnowledgeMenu label="文档更多操作" disabled={pending} items={[{ id: 'archive', label: '归档', action: onArchive }]} />
+          </>}
+        </div>
+      </header>
+      <div className={tw('grid min-w-0 gap-8 px-8 py-7 @max-[500px]:px-5', directory && !raw && !editing ? 'grid-cols-1 @min-[640px]:grid-cols-[minmax(0,1fr)_160px]' : 'grid-cols-1')}>
+      <article className={tw('mx-auto w-full min-w-0 max-w-[780px]')}>
+        <header className={tw('mb-6')}>
           <div
             className={tw(
-              'mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]',
+              'mb-5 flex flex-wrap items-center gap-3 text-caption text-[var(--text-tertiary)]',
             )}
           >
-            <span>
-              {knowledgeKinds[doc.kind]} · {knowledgeStates[doc.state]}
-            </span>
-            <time>{new Date(doc.updatedAt).toLocaleDateString()}</time>
+            <span>{knowledgeKinds[doc.kind]}</span>
+            <time dateTime={new Date(content.updatedAt).toISOString()}>最近更新：{new Date(content.updatedAt).toLocaleString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
+            {doc.state !== 'active' ? <span className={tw(doc.state === 'stale' && 'text-[var(--warning)]')}>{knowledgeStates[doc.state]}</span> : null}
           </div>
           {editing ? (
             <CompactInput
@@ -85,7 +115,7 @@ export function KnowledgeReader({
               ) => setTitle(event.target.value)}
               className={tw('w-full')}
             />
-          ) : (
+          ) : !bodyHasTitle && !raw ? (
             <h1
               className={tw(
                 'm-0 text-xl font-semibold leading-8 [overflow-wrap:anywhere]',
@@ -93,47 +123,8 @@ export function KnowledgeReader({
             >
               {content.title}
             </h1>
-          )}
-          <div className={tw('mt-3 flex flex-wrap gap-1.5')}>
-            {editing ? (
-              <>
-                <CompactButton
-                  isDisabled={pending || !title.trim() || !body.trim()}
-                  onPress={() => {
-                    void onSave({ title, body }).then((value) => {
-                      if (value?.document) {
-                        setEditing(false)
-                        setVersion(undefined)
-                      }
-                    })
-                  }}
-                >
-                  保存
-                </CompactButton>
-                <CompactButton
-                  variant="tertiary"
-                  isDisabled={pending}
-                  onPress={() => setEditing(false)}
-                >
-                  取消
-                </CompactButton>
-              </>
-            ) : (
-              <>
-                <CompactButton variant="tertiary" aria-pressed={!raw} onPress={() => setRaw(false)}>预览</CompactButton>
-                <CompactButton variant="tertiary" aria-pressed={raw} onPress={() => setRaw(true)}>源文</CompactButton>
-                <CompactButton
-                  variant="tertiary"
-                  isDisabled={pending}
-                  onPress={() => {
-                    setTitle(content.title)
-                    setBody(content.body)
-                    setEditing(true)
-                  }}
-                >
-                  编辑
-                </CompactButton>
-                {doc.state === 'candidate' ? (
+          ) : null}
+                {!editing && doc.state === 'candidate' ? (
                   <CompactButton
                     isDisabled={pending}
                     onPress={() => {
@@ -142,32 +133,11 @@ export function KnowledgeReader({
                         body: doc.body,
                         state: 'active',
                       })
-                    }}
+                    }} className={tw('mt-3')}
                   >
                     确认保存
                   </CompactButton>
                 ) : null}
-                <CompactButton
-                  variant="tertiary"
-                  isDisabled={pending}
-                  onPress={() => {
-                    void onExport().then((value) => {
-                      if (value?.text) downloadKnowledge(value.text, doc.title)
-                    })
-                  }}
-                >
-                  导出文档
-                </CompactButton>
-                <CompactButton
-                  variant="tertiary"
-                  isDisabled={pending}
-                  onPress={onArchive}
-                >
-                  归档
-                </CompactButton>
-              </>
-            )}
-          </div>
         </header>
         {editing ? (
           <textarea
@@ -276,11 +246,13 @@ export function KnowledgeReader({
           </footer>
         ) : null}
       </article>
-      {!editing && headings.length ? (
+      {headings.length ? (
         <nav
+          id={directoryId}
           aria-label="本文目录"
+          hidden={!directory || raw || editing}
           className={tw(
-            'sticky top-0 max-h-[calc(100vh-220px)] self-start overflow-auto max-[1100px]:hidden',
+            'order-first max-h-56 self-start overflow-auto border-b border-[var(--panel-border)] pb-4 @min-[640px]:sticky @min-[640px]:top-20 @min-[640px]:order-last @min-[640px]:max-h-[calc(100vh-220px)] @min-[640px]:border-b-0 @min-[640px]:border-l @min-[640px]:pl-4',
           )}
         >
           <h2
@@ -311,6 +283,7 @@ export function KnowledgeReader({
           </div>
         </nav>
       ) : null}
+      </div>
     </div>
   )
 }

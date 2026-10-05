@@ -130,6 +130,12 @@ const paths = {
 
 export type IconName = keyof typeof paths
 
+/** The same outline artwork for canvas nodes, whose icons cannot inherit CSS. */
+export function iconDataUri(name: IconName, color: string): string {
+  const stroke = color.replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[value]!)
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${paths[name].map(path => `<path d="${path}"/>`).join('')}</svg>`)}`
+}
+
 export function Icon({ name, size = 18, className, active = false, themeArtwork = true }: { readonly name: IconName; readonly size?: number; readonly className?: string; readonly active?: boolean; readonly themeArtwork?: boolean }) {
   const indicator = name in panelIndicators ? panelIndicators[name as keyof typeof panelIndicators] : undefined
   return (

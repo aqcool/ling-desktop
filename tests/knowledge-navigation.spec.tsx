@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KnowledgeCenter } from '../src/ui/KnowledgeCenter.js'
 import { KnowledgeSpace } from '../src/ui/KnowledgeSpace.js'
+import { KnowledgeReader } from '../src/ui/KnowledgeReader.js'
 import { knowledgeDefaults, type KnowledgeDocument, type KnowledgeLibrary, type KnowledgeRequest, type LingKnowledgeService } from '../src/runtime/knowledge.js'
 
 const roots = new Set<Root>()
@@ -50,7 +51,7 @@ async function mount(element: ReactNode) {
   return container
 }
 function button(container: HTMLElement, label: string) {
-  const found = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent?.trim() === label)
+  const found = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(item => item.getAttribute('aria-label') === label || item.textContent?.trim() === label)
   expect(found, label).toBeDefined()
   return found!
 }
@@ -65,6 +66,26 @@ async function projectView(container: HTMLElement, label: string) {
   await click(item!)
 }
 describe('knowledge navigation and project boundaries', () => {
+  it('opens the article directory on demand and preserves it when switching between source and preview', async () => {
+    const doc = { ...documents[0]!, title: '页面文件名', body: '# 页面正文标题\n\n## 入口\n正文\n\n## 使用方式\n运行方法。' }
+    const container = await mount(<KnowledgeReader document={doc} pending={false} onSave={async () => undefined} onArchive={vi.fn()} onSource={vi.fn()} onWiki={vi.fn()} onOpenTask={vi.fn()} onExport={async () => undefined} />)
+    const directory = container.querySelector<HTMLElement>('nav[aria-label="本文目录"]')!
+    expect(directory.hidden).toBe(true)
+    expect(container.querySelectorAll('h1')).toHaveLength(1)
+    expect(container.querySelector('h1')?.textContent).toBe('页面正文标题')
+    await click(button(container, '显示页内目录'))
+    expect(directory.hidden).toBe(false)
+    await click(button(directory, '入口'))
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+    await click(button(container, '源文'))
+    expect(directory.hidden).toBe(true)
+    expect(container.querySelector('pre')?.textContent).toBe(doc.body)
+    await click(button(container, '预览'))
+    expect(directory.hidden).toBe(false)
+    await click(button(container, '隐藏页内目录'))
+    expect(directory.hidden).toBe(true)
+  })
+
   it('keeps project operations in the selected project while returning to the Wiki shelf', async () => {
     const service = fixture(), onSettings = vi.fn(), onOpenTask = vi.fn()
     const container = await mount(<KnowledgeCenter service={service} workspaces={workspaces} workspaceId="b" taskId="session-b" onSettings={onSettings} onOpenTask={onOpenTask} />)

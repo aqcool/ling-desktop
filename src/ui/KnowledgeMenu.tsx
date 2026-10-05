@@ -6,19 +6,25 @@ export function KnowledgeMenu({
   label = '更多操作',
   text,
   items,
+  className,
+  disabled = false,
 }: {
   label?: string
   text?: string
+  className?: string
+  disabled?: boolean
   items: { id: string; label: string; action: () => void; danger?: boolean }[]
 }) {
   return (
     <Dropdown>
       <Dropdown.Trigger
         aria-label={label}
+        isDisabled={disabled}
         className={tw(
           text
             ? 'flex h-8 min-w-0 items-center justify-center gap-2 rounded-lg border-0 bg-[var(--surface-secondary)] px-3 text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
             : 'flex size-8 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
+          className,
         )}
       >
         <Icon name={text ? 'plus' : 'more'} size={text ? 14 : 17} />

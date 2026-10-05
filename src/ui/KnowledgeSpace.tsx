@@ -332,7 +332,7 @@ export function KnowledgeSpace({
           <CompactButton
             variant="tertiary"
             onPress={() => navigate(onBack)}
-            className={tw('px-1 text-sm')}
+            className={tw('bg-transparent px-1 text-sm')}
           >
             {memoryOnly
               ? '返回记忆设置'
@@ -350,7 +350,7 @@ export function KnowledgeSpace({
           {library || isProject ? <CompactButton variant="tertiary" aria-pressed={view === 'map'} aria-label={view === 'map' && (selected || source) ? '返回图谱' : '知识图谱'} onPress={() => {
             if (view === 'map' && (selected || source)) navigate(() => { reading.current++; setSelected(undefined); setSource(undefined); setDraft(undefined) })
             else if (view !== 'map') changeView('map')
-          }}><Icon name="agentPreset" size={16} />{view === 'map' && (selected || source) ? '返回图谱' : '知识图谱'}</CompactButton> : null}
+          }} isIconOnly className={tw(view === 'map' ? 'bg-[var(--surface-selected)]' : 'bg-transparent')} title={view === 'map' && (selected || source) ? '返回图谱' : '知识图谱'}><Icon name="agentPreset" size={17} /></CompactButton> : null}
           {library || isProject ? (
             <KnowledgeMenu
               items={
@@ -417,6 +417,7 @@ export function KnowledgeSpace({
             <CompactButton
               variant="tertiary"
               isIconOnly
+              className={tw('bg-transparent')}
               aria-label={sidebar ? '隐藏目录' : '显示目录'}
               aria-pressed={sidebar}
               onPress={() => setSidebar((value) => !value)}
@@ -430,7 +431,7 @@ export function KnowledgeSpace({
         className={tw(
           'grid min-h-0 flex-1',
           sidebar && hasDirectory
-            ? 'grid-cols-[280px_minmax(0,1fr)] max-[980px]:grid-cols-[220px_minmax(0,1fr)] max-[700px]:grid-cols-1 max-[700px]:grid-rows-[auto_minmax(0,1fr)]'
+            ? 'grid-cols-[260px_minmax(0,1fr)] max-[980px]:grid-cols-[220px_minmax(0,1fr)] max-[700px]:grid-cols-1 max-[700px]:grid-rows-[auto_minmax(0,1fr)]'
             : 'grid-cols-1',
         )}
       >
@@ -438,12 +439,10 @@ export function KnowledgeSpace({
           <aside
             aria-label={directoryLabel}
             className={tw(
-              'flex min-h-0 flex-col gap-3 overflow-hidden border-r border-[var(--panel-border)] px-4 py-3 max-[700px]:max-h-48 max-[700px]:border-r-0 max-[700px]:border-b',
+              'flex min-h-0 flex-col gap-2.5 overflow-hidden border-r border-[var(--panel-border)] px-3 py-3 max-[700px]:max-h-48 max-[700px]:border-r-0 max-[700px]:border-b',
             )}
           >
-            {isWiki ? <nav aria-label="项目知识视图" className={tw('flex shrink-0 gap-1 rounded-lg bg-[var(--surface-secondary)] p-0.5')}>
-              {projectViews.slice(0, 2).map(item => <CompactButton key={item.id} variant="tertiary" aria-current={view === item.id ? 'page' : undefined} className={tw('min-w-0 flex-1', view === item.id && 'bg-[var(--surface)] shadow-sm')} onPress={() => { if (view !== item.id) changeView(item.id) }}>{item.label}</CompactButton>)}
-            </nav> : <span className={tw('text-xs font-medium text-[var(--text-secondary)]')}>{directoryLabel}</span>}
+            {!isWiki && !library ? <span className={tw('text-xs font-medium text-[var(--text-secondary)]')}>{directoryLabel}</span> : null}
             <div className={tw('flex items-center gap-2')}>
               <CompactInput
                 aria-label={
@@ -480,17 +479,18 @@ export function KnowledgeSpace({
                   setQuery(event.target.value)
                   setSource(undefined)
                 }}
-                className={tw('w-full')}
+                className={tw('min-w-0 flex-1')}
               />
+              {isWiki ? <nav aria-label="项目知识视图" className={tw('flex shrink-0 gap-0.5 rounded-lg bg-[var(--surface-secondary)] p-0.5')}>
+                {projectViews.slice(0, 2).map(item => <CompactButton key={item.id} variant="tertiary" isIconOnly aria-label={item.label} title={item.label} aria-current={view === item.id ? 'page' : undefined} className={tw(view === item.id && 'bg-[var(--surface)] shadow-sm')} onPress={() => { if (view !== item.id) changeView(item.id) }}><Icon name={item.id === 'wiki' ? 'book' : 'grid'} size={15} /><span className={tw('sr-only')}>{item.label}</span></CompactButton>)}
+              </nav> : null}
             </div>
             {library ? (
-              <div className={tw('flex items-center justify-between gap-1')}>
-                <span className={tw('text-xs text-[var(--text-tertiary)]')}>
-                  {documents.length} 份知识
-                </span>
+              <div>
                 <KnowledgeMenu
                   label="添加知识"
                   text="添加知识"
+                  className={tw('h-9 w-full border border-[var(--panel-border)] bg-[var(--surface)]')}
                   items={[
                     {
                       id: 'file',
@@ -556,7 +556,7 @@ export function KnowledgeSpace({
               className={tw('min-h-0 flex-1 overflow-auto')}
               aria-label="页面列表"
             >
-              {isWiki ? <button type="button" aria-current={configure ? 'page' : undefined} onClick={() => navigate(() => { setConfigure(true); setSource(undefined); setQuery('') })} className={tw('mb-2 flex w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs hover:bg-[var(--surface-hover)]', configure && 'bg-[var(--surface-secondary)] font-medium')}><Icon name="book" size={15} />概览</button> : null}
+              {isWiki ? <button type="button" aria-current={configure ? 'page' : undefined} onClick={() => navigate(() => { setConfigure(true); setSource(undefined); setQuery('') })} className={tw('mb-2 flex w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs hover:bg-[var(--surface-hover)]', configure && 'bg-[var(--surface-secondary)] font-medium')}><Icon name="agentPreset" size={15} />概览<span aria-hidden="true" className={tw('ml-auto text-caption', wikiRunning ? 'text-[var(--link)]' : 'text-[var(--text-tertiary)]')}>{wikiRunning ? '生成中' : wikiDocuments.length ? '已生成' : ''}</span></button> : null}
               {outline.map(({ document: doc, depth }) => (
                 <button
                   key={doc.id}
@@ -570,13 +570,14 @@ export function KnowledgeSpace({
                   }}
                   style={{ paddingLeft: 8 + depth * 12 }}
                   className={tw(
-                    'mb-0.5 grid w-full gap-1 rounded-md border-0 bg-transparent py-2 pr-2 text-left text-xs leading-5 hover:bg-[var(--surface-hover)]',
+                    'mb-0.5 flex w-full items-center gap-2 rounded-md border-0 bg-transparent py-2 pr-2 text-left text-xs leading-5 hover:bg-[var(--surface-hover)]',
                     !configure && selectedId === doc.id && 'bg-[var(--surface-selected)]',
                   )}
                 >
-                  <span className={tw('truncate')}>{doc.title}</span>
+                  {library ? <Icon name="file" size={15} className={tw('shrink-0 text-[var(--text-secondary)]')} /> : null}
+                  <span className={tw('min-w-0 flex-1 truncate')}>{doc.title}</span>
                   {doc.state !== 'active' ? (
-                    <span className={tw('text-xs text-[var(--text-tertiary)]')}>
+                    <span className={tw('shrink-0 text-caption text-[var(--text-tertiary)]')}>
                       {knowledgeStates[doc.state]}
                     </span>
                   ) : null}
@@ -696,6 +697,7 @@ export function KnowledgeSpace({
               pageCount={wikiDocuments.length}
               cardCount={snapshot?.documents.filter(doc => doc.kind === 'card' && doc.state !== 'archived').length}
               indexedFiles={snapshot?.indexedFiles}
+              updatedAt={wikiDocuments.length ? Math.max(...wikiDocuments.map(doc => doc.updatedAt)) : undefined}
               onModelChange={settings => { void request({ type: 'settings', ...scope, settings }).then(reload) }}
               onJobAction={(type, jobId) => { void request({ type, ...scope, jobId }).then(reload) }}
               options={snapshot?.wikiOptions}
@@ -721,14 +723,14 @@ export function KnowledgeSpace({
               }
             />
           ) : view === 'map' && !selected && !source ? null : (
-            <div className={tw('px-7 py-5 max-[700px]:px-4')}>
-              {selected && source ? <nav aria-label="阅读标签" className={tw('mb-5 flex gap-2 border-b border-[var(--panel-border)] pb-2')}>
+            <div className={tw(selected ? '' : 'px-7 py-5 max-[700px]:px-4')}>
+              {selected && source ? <nav aria-label="阅读标签" className={tw('flex gap-1 border-b border-[var(--panel-border)] px-4 py-1.5')}>
                 <CompactButton variant="tertiary" onPress={() => setSource(current => current ? { ...current, visible: false } : current)} aria-pressed={!source.visible}>{selected.title}</CompactButton>
                 <CompactButton variant="tertiary" onPress={() => setSource(current => current ? { ...current, visible: true } : current)} aria-pressed={!!source.visible}>{source.source.label}</CompactButton>
                 <CompactButton variant="tertiary" isIconOnly aria-label="关闭来源" onPress={() => setSource(undefined)}><Icon name="close" size={14} /></CompactButton>
               </nav> : null}
               {selected ? <div hidden={!!source?.visible || !!hits || !!draft}>
-                {selected.kind === 'card' ? (() => { const parent = wikiDocuments.find(doc => selected.id.startsWith(`${doc.id.replace(/^wiki:/, 'card:')}:`)); return parent ? <CompactButton variant="tertiary" className={tw('mb-4 px-0 text-[var(--text-secondary)]')} onPress={() => navigate(() => { setView('wiki'); setQuery(''); void readDocument(parent.id) })}>所属页面：{parent.title}</CompactButton> : null })() : null}
+                {selected.kind === 'card' ? (() => { const parent = wikiDocuments.find(doc => selected.id.startsWith(`${doc.id.replace(/^wiki:/, 'card:')}:`)); return parent ? <CompactButton variant="tertiary" className={tw('mx-5 my-2 max-w-[calc(100%-2.5rem)] bg-transparent px-0 text-[var(--text-secondary)]')} onPress={() => navigate(() => { setView('wiki'); setQuery(''); void readDocument(parent.id) })}><span className={tw('truncate')}>所属页面：{parent.title}</span></CompactButton> : null })() : null}
                 <KnowledgeReader
                   key={selected.id}
                   document={selected}
@@ -770,7 +772,7 @@ export function KnowledgeSpace({
                 />
               </div> : null}
               {source?.visible ? (
-                <article className={tw('max-w-4xl')}>
+                <article className={tw('max-w-4xl', selected && 'px-7 py-5 max-[700px]:px-4')}>
                   <CompactButton
                     variant="tertiary"
                     onPress={() => setSource(undefined)}

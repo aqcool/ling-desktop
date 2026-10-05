@@ -16,6 +16,7 @@ import { KnowledgeMenu } from './KnowledgeMenu.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
 type Project = { workspaceId: string | null; taskId?: string; label: string }
+type ProjectStatus = { state: 'ready' | 'empty' | 'busy' | 'error'; pages: number; cards: number; updatedAt?: number }
 export function KnowledgeCenter({
   service,
   workspaceId,
@@ -52,7 +53,7 @@ export function KnowledgeCenter({
     [layout, setLayout] = useState<'grid' | 'list'>('grid'),
     [wikiFilter, setWikiFilter] = useState('all'),
     [statuses, setStatuses] = useState<
-      Record<string, 'ready' | 'empty' | 'busy' | 'error'>
+      Record<string, ProjectStatus>
     >({})
   const [project, setProject] = useState<Project | undefined>(
     initialProject
@@ -200,11 +201,14 @@ export function KnowledgeCenter({
             controller.signal,
           )
           if (!result.ok || !result.value.snapshot)
-            return [key, 'error'] as const
+            return [key, { state: 'error', pages: 0, cards: 0 }] as const
           const snapshot = result.value.snapshot
+          const documents = snapshot.documents.filter(doc => doc.state !== 'archived')
+          const pages = documents.filter(doc => doc.kind === 'wiki')
+          const cards = documents.filter(doc => doc.kind === 'card')
           return [
             key,
-            snapshot.jobs.some(
+            { state: snapshot.jobs.some(
               (job) =>
                 job.kind === 'wiki' &&
                 ['queued', 'running'].includes(job.status),
@@ -216,10 +220,11 @@ export function KnowledgeCenter({
                     (doc) => doc.kind === 'wiki' && doc.state !== 'archived',
                   )
                 ? 'ready'
-                : 'empty',
+                : 'empty', pages: pages.length, cards: cards.length,
+              updatedAt: pages.length ? Math.max(...pages.map(doc => doc.updatedAt)) : undefined },
           ] as const
         } catch {
-          return [key, 'error'] as const
+          return [key, { state: 'error', pages: 0, cards: 0 }] as const
         }
       }),
     )
@@ -404,7 +409,7 @@ export function KnowledgeCenter({
     (item) =>
       item.label.toLowerCase().includes(query.toLowerCase()) &&
       (wikiFilter === 'all' ||
-        statuses[item.taskId ?? item.workspaceId!] === wikiFilter),
+        statuses[item.taskId ?? item.workspaceId!]?.state === wikiFilter),
   )
   const viewControl = (
     <div
@@ -479,6 +484,7 @@ export function KnowledgeCenter({
           <CompactButton
             variant="tertiary"
             isIconOnly
+            className={tw('bg-transparent')}
             aria-label="刷新知识中心"
             onPress={() => {
               setError('')
@@ -513,16 +519,16 @@ export function KnowledgeCenter({
             className={tw('mb-10 flex items-center justify-between gap-4')}
           >
             <div>
-              <h1 className={tw('m-0 text-2xl font-semibold leading-relaxed')}>
+              <h1 className={tw('m-0 text-xl font-semibold leading-8')}>
                 {tab === 'libraries' ? (
                   <>
                     集中整理资料，构建{' '}
-                    <span className={tw('text-[var(--link)]')}>知识库</span>
+                    <span className={tw('inline-flex items-center gap-2 text-[var(--link)]')}><Icon name="book" size={22} />知识库</span>
                     <br />让 Agent 按需查阅
                   </>
                 ) : (
                   <>
-                    将代码转化为 Repo Wiki
+                    将代码转化为 <span className={tw('inline-flex items-center gap-2 text-[var(--link)]')}><Icon name="agentPreset" size={22} />Repo Wiki</span>
                     <br />
                     了解技术栈与项目架构
                   </>
@@ -530,7 +536,7 @@ export function KnowledgeCenter({
               </h1>
             </div>
             <Icon
-              name={tab === 'libraries' ? 'book' : 'code'}
+              name={tab === 'libraries' ? 'book' : 'agentPreset'}
               size={52}
               className={tw(
                 'mr-5 shrink-0 text-[var(--panel-border)] max-[700px]:hidden',
@@ -562,7 +568,7 @@ export function KnowledgeCenter({
                     variant="tertiary"
                     aria-pressed={wikiFilter === item.id}
                     className={tw(
-                      wikiFilter === item.id && 'bg-[var(--surface-selected)]',
+                      wikiFilter === item.id ? 'bg-[var(--surface-selected)]' : 'bg-transparent text-[var(--text-secondary)]',
                     )}
                     onPress={() => setWikiFilter(item.id)}
                   >
@@ -573,7 +579,7 @@ export function KnowledgeCenter({
             )}
             <div className={tw('flex items-center gap-3')}>
               {viewControl}
-              {tab === 'libraries' && libraries?.length ? (
+              {tab === 'libraries' && libraries?.length && layout === 'list' ? (
                 <CompactButton
                   isDisabled={!service}
                   onPress={() => {
@@ -608,13 +614,14 @@ export function KnowledgeCenter({
                     : 'grid gap-2',
                 )}
               >
+                {layout === 'grid' ? <button type="button" onClick={() => { setManaged(undefined); setDialog('create') }} className={tw('flex min-h-36 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--panel-border)] bg-transparent text-xs text-[var(--text-secondary)] hover:border-[var(--link)] hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')}><span className={tw('flex size-9 items-center justify-center rounded-lg border border-[var(--panel-border)]')}><Icon name="plus" size={20} /></span>创建知识库</button> : null}
                 {shownLibraries.map((item) => (
                   <article
                     key={item.id}
                     className={tw(
-                      'group relative rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)]',
+                      'group relative rounded-xl bg-[var(--surface-secondary)] hover:bg-[var(--surface-hover)]',
                       layout === 'grid'
-                        ? 'flex min-h-40 flex-col p-5'
+                        ? 'flex min-h-36 flex-col p-4'
                         : 'flex items-center gap-4 px-4 py-3',
                     )}
                   >
@@ -629,13 +636,7 @@ export function KnowledgeCenter({
                       }}
                       aria-label={`打开知识库：${item.name}`}
                     >
-                      <Icon
-                        name="book"
-                        size={20}
-                        className={tw(
-                          'mt-0.5 shrink-0 text-[var(--text-secondary)]',
-                        )}
-                      />
+                      <span className={tw('flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-[var(--text-secondary)]')}><Icon name="book" size={21} /></span>
                       <span className={tw('min-w-0')}>
                         <strong
                           className={tw('block truncate text-sm font-semibold')}
@@ -644,17 +645,17 @@ export function KnowledgeCenter({
                         </strong>
                         <span
                           className={tw(
-                            'mt-2 block text-xs leading-5 text-[var(--text-tertiary)]',
+                            'mt-1.5 flex items-center gap-1.5 text-xs leading-5 text-[var(--text-tertiary)]',
                           )}
                         >
-                          {item.documents} 份资料
+                          <Icon name="file" size={13} />{item.documents} 份资料
                         </span>
                       </span>
                     </button>
                     <div
                       className={tw(
                         'flex items-center justify-between gap-2',
-                        layout === 'grid' && 'mt-6',
+                        layout === 'grid' && 'mt-auto pt-4',
                       )}
                     >
                       <button
@@ -665,8 +666,9 @@ export function KnowledgeCenter({
                         )}
                         onClick={() => manage(item, 'scope')}
                       >
-                        {item.access === 'all' ? '全部工作区' : item.scopeLabel}
+                        {item.access === 'all' ? '全部工作区生效' : item.scopeLabel}
                       </button>
+                      <time dateTime={new Date(item.updatedAt).toISOString()} className={tw('ml-auto shrink-0 text-caption text-[var(--text-tertiary)]')}>{new Date(item.updatedAt).toLocaleDateString()}</time>
                       <KnowledgeMenu
                         label={`更多操作：${item.name}`}
                         items={[
@@ -732,23 +734,22 @@ export function KnowledgeCenter({
               )}
             >
               {shownProjects.map((item) => {
-                const status = statuses[item.taskId ?? item.workspaceId!]
+                const metadata = statuses[item.taskId ?? item.workspaceId!]
+                const status = metadata?.state
                 return (
                   <article
                     key={item.taskId ?? item.workspaceId}
                     className={tw(
-                      'rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] p-5',
+                      'group relative rounded-xl border border-[var(--panel-border)] p-4 transition-colors hover:bg-[var(--surface-hover)]',
+                      status === 'empty' ? 'border-dashed bg-[var(--surface)]' : 'border-transparent bg-[var(--surface-secondary)]',
                       layout === 'grid'
-                        ? 'flex min-h-40 flex-col gap-5'
+                        ? 'flex min-h-36 flex-col gap-5'
                         : 'flex items-center justify-between gap-4',
                     )}
                   >
-                    <div className={tw('flex min-w-0 items-center gap-3')}>
-                      <Icon
-                        name="folder"
-                        size={20}
-                        className={tw('shrink-0 text-[var(--text-secondary)]')}
-                      />
+                    <button type="button" aria-label={`打开 Repo Wiki：${item.label}`} className={tw('absolute inset-0 z-0 rounded-xl border-0 bg-transparent focus-visible:outline-2 focus-visible:outline-[var(--focus)]')} onClick={() => { setProject(item); setError('') }}><span className={tw('sr-only')}>{status === 'ready' ? '打开 Wiki' : status === 'busy' ? '查看进度' : '去生成'}</span></button>
+                    <div className={tw('pointer-events-none relative flex min-w-0 items-center gap-3')}>
+                      <span className={tw('flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--panel-border)] bg-[var(--surface)] text-[var(--text-secondary)]')}><Icon name="agentPreset" size={21} /></span>
                       <div className={tw('min-w-0')}>
                         <h2
                           className={tw('m-0 truncate text-sm font-semibold')}
@@ -757,20 +758,20 @@ export function KnowledgeCenter({
                         </h2>
                         <p
                           className={tw(
-                            'mb-0 mt-1 text-xs text-[var(--text-tertiary)]',
+                            'mb-0 mt-1.5 flex items-center gap-3 text-xs text-[var(--text-tertiary)]',
                           )}
                         >
-                          {item.taskId ? 'SSH 工作区' : '本机工作区'}
+                          {metadata ? <><span className={tw('flex items-center gap-1')}><Icon name="book" size={13} />{metadata.pages} 个页面</span><span className={tw('flex items-center gap-1')}><Icon name="grid" size={13} />{metadata.cards} 张卡片</span></> : '正在读取…'}
                         </p>
                       </div>
                     </div>
                     <div
                       className={tw(
-                        'mt-auto flex items-center justify-between gap-3',
+                        'pointer-events-none relative mt-auto flex items-center justify-between gap-3',
                       )}
                     >
                       <span
-                        className={tw('text-xs text-[var(--text-tertiary)]')}
+                        className={tw('rounded-md px-2 py-1 text-caption', status === 'ready' ? 'bg-[color-mix(in_srgb,var(--success)_8%,var(--surface))] text-[var(--success)]' : status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]')}
                       >
                         {status === 'ready'
                           ? '已生成'
@@ -782,19 +783,7 @@ export function KnowledgeCenter({
                                 ? '未生成'
                                 : '正在读取…'}
                       </span>
-                      <CompactButton
-                        variant="secondary"
-                        onPress={() => {
-                          setProject(item)
-                          setError('')
-                        }}
-                      >
-                        {status === 'ready'
-                          ? '打开 Wiki'
-                          : status === 'busy'
-                            ? '查看进度'
-                            : '去生成'}
-                      </CompactButton>
+                      {metadata?.updatedAt ? <time dateTime={new Date(metadata.updatedAt).toISOString()} className={tw('text-caption text-[var(--text-tertiary)]')}>更新于 {new Date(metadata.updatedAt).toLocaleDateString()}</time> : <span className={tw('flex items-center gap-1 text-xs text-[var(--text-secondary)]')}>{status === 'busy' ? '查看进度' : status === 'error' ? '查看详情' : '去生成'}<Icon name="chevronRight" size={13} /></span>}
                     </div>
                   </article>
                 )
