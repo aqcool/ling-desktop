@@ -88,6 +88,98 @@ function deferred<Value>() {
 }
 
 describe('workspace file editor integration', () => {
+  it('bounds the file tree in pixels, restores its preferred width after shrinking, and stops resizing when the drag ends', async () => {
+    let width = 600
+    let measure: (() => void) | undefined
+    const originalBounds = Element.prototype.getBoundingClientRect
+    const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      return this.classList.contains('workspace-files__body') ? new DOMRect(0, 0, width, 640) : originalBounds.call(this)
+    })
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private readonly callback: () => void) {}
+      observe(target: Element) { if (target.classList.contains('workspace-files__body')) measure = this.callback }
+      unobserve() {}
+      disconnect() {}
+    })
+    try {
+      const state = fixture()
+      const { container } = await mount(state.props)
+      const divider = container.querySelector<HTMLElement>('[aria-label="调整编辑器与文件树宽度"]')!
+      const treeWidth = () => Number(divider.getAttribute('aria-valuenow'))
+      expect(treeWidth()).toBe(224)
+      await act(async () => { divider.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowLeft' })) })
+      expect(treeWidth()).toBe(240)
+      await act(async () => { width = 1200; measure!() })
+      expect(treeWidth()).toBe(240)
+      await act(async () => { width = 360; measure!() })
+      expect(treeWidth()).toBeLessThan(168)
+      expect(width - treeWidth()).toBeGreaterThan(180)
+      await act(async () => { width = 1200; measure!() })
+      expect(treeWidth()).toBe(240)
+
+      let captured = false
+      divider.setPointerCapture = vi.fn(() => { captured = true })
+      divider.hasPointerCapture = vi.fn(() => captured)
+      divider.releasePointerCapture = vi.fn(() => { captured = false })
+      const pointer = (type: string, clientX: number) => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX })
+        Object.defineProperty(event, 'pointerId', { value: 1 })
+        divider.dispatchEvent(event)
+      }
+      await act(async () => { pointer('pointerdown', 960); pointer('pointermove', 900) })
+      expect(treeWidth()).toBe(300)
+      await act(async () => { pointer('pointermove', 0) })
+      expect(treeWidth()).toBe(320)
+      await act(async () => { pointer('pointerup', 0); pointer('pointermove', 1000) })
+      expect(divider.releasePointerCapture).toHaveBeenCalledWith(1)
+      expect(treeWidth()).toBe(320)
+      expect(state.loadDirectory).toHaveBeenCalledTimes(1)
+      expect(state.loadDocument).not.toHaveBeenCalled()
+    } finally { bounds.mockRestore() }
+  })
+
+  it('keeps the editor, unsaved selection and filter when collapsing the tree, and copies the current draft from the toolbar menu', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    try {
+      const state = fixture()
+      const { container } = await mount(state.props)
+      await click(container, '打开文件 first.ts')
+      const view = editor(container)
+      await replace(view, 'unsaved selection')
+      await act(async () => { view.dispatch({ selection: EditorSelection.single(0, 7) }) })
+      const filter = container.querySelector<HTMLInputElement>('[aria-label="筛选文件"]')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, 'first')
+        filter.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await click(container, '收起文件树')
+      expect(container.querySelector('[aria-label="文件树"]')).toBeNull()
+      expect(editor(container)).toBe(view)
+      expect(view.state.sliceDoc()).toBe('unsaved selection')
+      expect(view.state.selection.main.to).toBe(7)
+      await click(container, '展开文件树')
+      expect(container.querySelector<HTMLInputElement>('[aria-label="筛选文件"]')?.value).toBe('first')
+      expect(editor(container)).toBe(view)
+      await click(container, '添加选中代码到对话')
+      expect(state.onAddContext).toHaveBeenCalledWith({ kind: 'selection', path: 'first.ts', text: 'unsaved', startLine: 1, endLine: 1 })
+      await click(container, '更多文件操作')
+      await clickMenuItem('复制文件内容')
+      expect(writeText).toHaveBeenCalledWith('unsaved selection')
+      await click(container, '更多文件操作')
+      await clickMenuItem('关闭文件预览')
+      expect(container.querySelector('.cm-content')).toBeNull()
+      await click(container, '打开文件 first.ts')
+      expect(editor(container).state.sliceDoc()).toBe('unsaved selection')
+      expect(state.loadDocument).toHaveBeenCalledTimes(1)
+      expect(state.saveDocument).not.toHaveBeenCalled()
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
+      else Reflect.deleteProperty(navigator, 'clipboard')
+    }
+  })
+
   it('previews image bytes directly in the existing workbench without the text editor', async () => {
     const state = fixture()
     state.loadDirectory.mockResolvedValue({ ok: true, value: { ...state.directory, entries: [...state.directory.entries, { kind: 'file', name: 'photo.jpg', path: 'photo.jpg' }] } })

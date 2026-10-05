@@ -53,6 +53,7 @@ const paths = {
   expand: ['M15 3h6v6', 'M14 10l7-7', 'M9 21H3v-6', 'M10 14l-7 7'],
   external: ['M14 3h7v7', 'M10 14L21 3', 'M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5'],
   file: ['M14 3H6a1 1 0 00-1 1v16a1 1 0 001 1h12a1 1 0 001-1V8z', 'M14 3v5h5'],
+  fileTree: ['M3 3h6v5H3z', 'M15 10h6v5h-6z', 'M15 18h6v4h-6z', 'M6 8v12h9', 'M6 12.5h9'],
   flask: ['M9 3h6', 'M10 3v7L4.5 19a1.3 1.3 0 001.1 2h12.8a1.3 1.3 0 001.1-2L14 10V3', 'M7 16h10'],
   folder: [folderFrame],
   folderOpen: ['M3 19V6a1 1 0 011-1h5l2 2h9a1 1 0 011 1v2', 'M3 19l3-7h16l-3 7H3z'],

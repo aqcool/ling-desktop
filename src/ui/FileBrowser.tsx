@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { Spinner } from '@heroui/react/spinner'
 import type {
   LingReadResult,
@@ -16,7 +16,7 @@ import { FileIcon } from './FileIcon.js'
 import { Markdown } from './Markdown.js'
 import { CodeEditor, type CodeEditorHandle, type CodeEditorSelection } from './CodeEditor.js'
 import { OfficePreview } from './OfficePreview.js'
-import { Menu, MenuItem } from './Menu.js'
+import { Menu, MenuItem, MenuSeparator } from './Menu.js'
 import type { WorkspaceContextReference } from './attachments.js'
 import { tw } from './tailwind.js'
 
@@ -153,11 +153,11 @@ function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, re
 
   return (
     <li className={tw("workspace-files__tree-item min-w-0")}>
-      <div className={tw('group flex min-w-0 items-center rounded-md hover:bg-[var(--surface-hover)]', selectedPath === entry.path && 'bg-[var(--surface-selected)]')} onContextMenu={event => { event.preventDefault(); setContextRequest({ x: event.clientX, y: event.clientY, nonce: Date.now() }) }}>
+      <div className={tw('group relative flex min-w-0 items-center rounded-md hover:bg-[var(--surface-hover)]', selectedPath === entry.path && 'bg-[var(--surface-selected)]')} onContextMenu={event => { event.preventDefault(); setContextRequest({ x: event.clientX, y: event.clientY, nonce: Date.now() }) }}>
       <button
         aria-expanded={isDirectory ? expanded : undefined}
         aria-label={`${isDirectory ? expanded ? '折叠目录' : '展开目录' : '打开文件'} ${entry.name}`}
-        className={tw("workspace-files__entry flex h-control-sm flex-1 min-w-0 items-center gap-1.5 rounded-md border-0 bg-transparent py-0 pr-1 pl-[calc(0.25rem+var(--tree-depth)*0.8rem)] text-left text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:outline-0 focus-visible:bg-[var(--surface-hover)] focus-visible:outline-0", selectedPath === entry.path && "workspace-files__entry--selected bg-[var(--surface-selected)] text-[var(--foreground)]")}
+        className={tw("workspace-files__entry flex h-control-sm flex-1 min-w-0 items-center gap-1.5 rounded-md border-0 bg-transparent py-0 pr-1 pl-[calc(0.25rem+var(--tree-depth)*0.8rem)] text-left text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:outline-0 focus-visible:bg-[var(--surface-hover)] focus-visible:outline-0", onAddContext && entry.kind !== 'other' && 'group-hover:pr-7 group-focus-within:pr-7', selectedPath === entry.path && "workspace-files__entry--selected bg-[var(--surface-selected)] text-[var(--foreground)]")}
         onClick={() => { if (isDirectory) setExpanded(current => !current); else onSelect(entry.path) }}
         onKeyDown={event => {
           if (!onAddContext || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
@@ -171,12 +171,12 @@ function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, re
       >
         <span className={tw("workspace-files__chevron grid size-4 shrink-0 place-items-center")}>{isDirectory ? <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /> : null}</span>
         <FileIcon className={tw("flex-none")} path={entry.path} directory={isDirectory} expanded={expanded} size={16} />
-        <span className={tw("workspace-files__entry-name min-w-0 overflow-hidden text-xs text-ellipsis whitespace-nowrap")}>{entry.name}</span>
+        <span className={tw("workspace-files__entry-name min-w-0 overflow-hidden text-xs text-ellipsis whitespace-nowrap", selectedPath === entry.path && 'font-medium')}>{entry.name}</span>
       </button>
-      {onAddContext && entry.kind !== 'other' ? <Menu contextRequest={contextRequest} triggerAriaLabel={`${entry.name} 文件操作`} triggerClassName={tw('size-control-xs rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 aria-expanded:opacity-100')} triggerLabel={<Icon name="more" size={14} />}>
+      {onAddContext && entry.kind !== 'other' ? <div className={tw('absolute inset-y-0 right-0.5 flex items-center')}><Menu contextRequest={contextRequest} triggerAriaLabel={`${entry.name} 文件操作`} triggerClassName={tw('size-control-xs rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100')} triggerLabel={<Icon name="more" size={14} />}>
         <MenuItem icon="plus" onPress={() => { onAddContext({ kind: isDirectory ? 'directory' : 'file', path: entry.path }) }}>添加到对话</MenuItem>
         <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(entry.path) }}>复制相对路径</MenuItem>
-      </Menu> : null}
+      </Menu></div> : null}
       </div>
       {expanded ? (
         <ul className={tw("workspace-files__tree m-0 p-0 [list-style:none]")} role="group">
@@ -196,6 +196,14 @@ function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, re
 const unsavedBuffers = new Map<string, Map<string, { document: LingWorkspaceDocument; text: string }>>()
 const toolbarButton = 'inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)] disabled:opacity-40'
 
+// A wide workbench should give its extra space to the document, not the file tree.
+function treeWidthRange(bodyWidth: number) {
+  const available = Math.max(0, bodyWidth - 1)
+  const max = Math.min(320, Math.max(available * 0.42, available - 240))
+  return { min: Math.min(168, max), max }
+}
+const clampWidth = (width: number, range: { min: number; max: number }) => Math.max(range.min, Math.min(range.max, width))
+
 export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddContext, taskId, stateScope, workspaceLabel }: FileBrowserProps) {
   const scope = stateScope ?? taskId
   const [revision, setRevision] = useState(0)
@@ -204,9 +212,12 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
   const [directoryLoading, setDirectoryLoading] = useState(true)
   const [directoryMessage, setDirectoryMessage] = useState<string>()
   const [query, setQuery] = useState('')
-  const [treeWidth, setTreeWidth] = useState(34)
+  const [preferredTreeWidth, setPreferredTreeWidth] = useState(224)
+  const [bodyWidth, setBodyWidth] = useState(0)
   const [treeVisible, setTreeVisible] = useState(true)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const treeRange = bodyWidth > 0 ? treeWidthRange(bodyWidth) : { min: 168, max: 320 }
+  const treeWidth = clampWidth(preferredTreeWidth, treeRange)
   const [openedFile, setOpenedFile] = useState<string>()
   const openedFileRef = useRef(openedFile)
   openedFileRef.current = openedFile
@@ -224,11 +235,23 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
   const editorRef = useRef<CodeEditorHandle>(null)
   const dirty = document?.text !== undefined && draft !== document.text
   const editable = Boolean(saveDocument && document?.version && !document.truncated && document.text !== undefined)
+  const fileName = openedFile?.split('/').at(-1)
+  const fileDirectory = openedFile ? parentPath(openedFile) : ''
   const buffers = () => {
     let cache = unsavedBuffers.get(scope)
     if (!cache) { cache = new Map(); unsavedBuffers.set(scope, cache) }
     return cache
   }
+
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (!body) return
+    const measure = () => { setBodyWidth(body.getBoundingClientRect().width) }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => { observer.disconnect() }
+  }, [])
 
   useEffect(() => {
     setOpenedFile(parseStoredDocumentPaths(window.localStorage.getItem(workspaceDocumentStorageKey))[scope])
@@ -306,25 +329,37 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
   }
 
   return <div className={tw('workspace-files flex min-w-0 min-h-0 flex-1 flex-col')}>
-    <div className={tw('workspace-files__header flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-3 text-xs text-[var(--text-secondary)]')}>
-      <span className={tw('shrink-0 max-w-[30%] truncate')} title={workspaceLabel}>{workspaceLabel ?? '工作区'}</span>
-      {openedFile ? <><Icon name="chevronRight" size={12} /><FileIcon path={openedFile} size={15} /><span className={tw('min-w-0 flex-1 truncate text-[var(--foreground)]')} title={openedFile}>{openedFile}</span>{dirty ? <span className={tw('size-1.5 shrink-0 rounded-full bg-[var(--text-secondary)]')} role="status" aria-label="有未保存的修改" title="有未保存的修改" /> : null}</> : <span className={tw('flex-1')} />}
-      {selection && onAddContext ? <button aria-label="添加选中代码到对话" title="添加选中代码到对话 (⌘/Ctrl+Enter)" className={tw(toolbarButton, 'flex w-auto gap-1 px-2 text-caption')} onMouseDown={event => { event.preventDefault() }} onClick={() => { addSelection(selection) }} type="button"><Icon name="plus" size={14} />添加到对话</button> : null}
+    <div className={tw('workspace-files__header @container/file-toolbar flex h-10 shrink-0 items-center gap-3 border-b border-[var(--separator)] px-3 text-xs text-[var(--text-secondary)]')}>
+      <div aria-label="文件位置" className={tw('workspace-files__path flex min-w-0 flex-1 items-center gap-1.5')} title={openedFile ? `${workspaceLabel ?? '工作区'} / ${openedFile}` : workspaceLabel}>
+        <span className={tw('min-w-0 shrink-0 truncate', openedFile && 'max-w-[35%] @max-[22rem]/file-toolbar:hidden')} title={workspaceLabel}>{workspaceLabel ?? '工作区'}</span>
+        {openedFile ? <>
+          <Icon name="chevronRight" className={tw('text-[var(--text-tertiary)] @max-[22rem]/file-toolbar:hidden')} size={12} />
+          {fileDirectory ? <><span className={tw('min-w-0 max-w-[30%] truncate text-[var(--text-tertiary)] @max-[36rem]/file-toolbar:hidden')} title={fileDirectory}>{fileDirectory}</span><Icon name="chevronRight" className={tw('text-[var(--text-tertiary)] @max-[36rem]/file-toolbar:hidden')} size={12} /></> : null}
+          <span className={tw('min-w-0 truncate font-medium text-[var(--foreground)]')} title={openedFile}>{fileName}</span>
+          {dirty ? <span className={tw('size-1.5 shrink-0 rounded-full bg-[var(--text-secondary)]')} role="status" aria-label="有未保存的修改" title="有未保存的修改" /> : null}
+        </> : null}
+      </div>
+      <div aria-label="文件操作" className={tw('workspace-files__actions flex shrink-0 items-center gap-1')}>
+      {selection && onAddContext ? <button aria-label="添加选中代码到对话" title="添加选中代码到对话 (⌘/Ctrl+Enter)" className={tw(toolbarButton)} onMouseDown={event => { event.preventDefault() }} onClick={() => { addSelection(selection) }} type="button"><Icon name="plus" size={16} /></button> : null}
       {editable && dirty ? <button aria-label="保存文件" title="保存文件 (⌘/Ctrl+S)" disabled={saving} className={tw(toolbarButton)} onClick={() => { void save() }} type="button">{saving ? <Spinner size="sm" /> : <Icon name="save" size={15} />}</button> : null}
       <Menu contextRequest={codeContextRequest} triggerAriaLabel="更多文件操作" triggerClassName={tw(toolbarButton)} triggerLabel={<Icon name="more" size={16} />}>
         {selection && onAddContext ? <MenuItem icon="plus" onPress={() => { addSelection(selection) }}>添加选中代码到对话</MenuItem> : null}
         {openedFile && onAddContext ? <MenuItem icon="plus" onPress={() => { onAddContext({ kind: 'file', path: openedFile }) }}>添加文件到对话</MenuItem> : null}
+        {openedFile && onAddContext ? <MenuSeparator /> : null}
         {openedFile ? <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(openedFile) }}>复制相对路径</MenuItem> : null}
+        {document?.text !== undefined ? <MenuItem icon="clipboard" onPress={() => { void navigator.clipboard.writeText(draft) }}>复制文件内容</MenuItem> : null}
         {document?.text !== undefined ? <><MenuItem checked={wrap} onPress={() => { setWrap(current => !current) }}>自动换行</MenuItem><MenuItem disabled={dirty || saving} icon="refresh" onPress={() => { setDocumentRevision(current => current + 1) }}>重新读取文件</MenuItem></> : null}
         {editable && openedFile && /\.json$/iu.test(openedFile) ? <MenuItem disabled={saving} icon="code" onPress={() => { setDocumentMessage(undefined); editorRef.current?.formatJson() }}>格式化 JSON</MenuItem> : null}
         {dirty ? <MenuItem onPress={() => { change(document?.text ?? ''); setDocumentMessage(undefined) }}>还原未保存的修改</MenuItem> : null}
+        {openedFile ? <MenuSeparator /> : null}
         <MenuItem icon="refresh" onPress={() => { setRevision(current => current + 1); if (!dirty) setDocumentRevision(current => current + 1) }}>刷新文件树</MenuItem>
+        {openedFile ? <MenuItem icon="close" onPress={() => { setOpenedFile(undefined) }}>关闭文件预览</MenuItem> : null}
       </Menu>
       {document?.kind === 'markdown' ? <button aria-label={markdownPreview ? '查看 Markdown 源码' : '预览 Markdown'} aria-pressed={markdownPreview} className={tw(toolbarButton)} onClick={() => { setMarkdownPreview(current => !current) }} title={markdownPreview ? '源码' : '预览'} type="button"><Icon name={markdownPreview ? 'code' : 'eye'} size={16} /></button> : null}
-      <button aria-label={treeVisible ? '收起文件树' : '展开文件树'} aria-pressed={treeVisible} className={tw(toolbarButton, treeVisible && 'bg-[var(--surface-hover)]')} onClick={() => { setTreeVisible(current => !current) }} type="button"><Icon name="folder" size={16} /></button>
-      {openedFile ? <button aria-label="关闭文件预览" className={tw(toolbarButton)} onClick={() => { setOpenedFile(undefined) }} type="button"><Icon name="close" size={14} /></button> : null}
+      <button aria-label={treeVisible ? '收起文件树' : '展开文件树'} aria-pressed={treeVisible} className={tw(toolbarButton, treeVisible && 'bg-[var(--surface-selected)] text-[var(--foreground)]')} onClick={() => { setTreeVisible(current => !current) }} title={treeVisible ? '收起文件树' : '展开文件树'} type="button"><Icon name="fileTree" size={16} /></button>
+      </div>
     </div>
-    <div className={tw('workspace-files__body grid min-h-0 flex-1', treeVisible ? '[grid-template-columns:minmax(0,_1fr)_1px_minmax(0,_var(--file-tree-width))]' : 'grid-cols-1')} ref={bodyRef} style={{ '--file-tree-width': `${treeWidth}%` } as CSSProperties}>
+    <div className={tw('workspace-files__body grid min-h-0 min-w-0 flex-1', treeVisible ? '[grid-template-columns:minmax(0,_1fr)_1px_minmax(0,_var(--file-tree-width))]' : 'grid-cols-1')} ref={bodyRef} style={{ '--file-tree-width': bodyWidth > 0 ? `${treeWidth}px` : 'min(224px, 42%)' } as CSSProperties}>
       <section aria-label="工作区编辑器" className={tw('workspace-files__preview flex min-w-0 min-h-0 flex-col overflow-hidden')}>
         {openedFile === undefined ? <div className={tw('workspace-files__empty flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-[var(--text-tertiary)]')}><Icon name="file" size={30} /><strong className={tw('text-sm font-medium text-[var(--text-secondary)]')}>选择一个文件</strong><span className={tw('text-xs')}>从右侧文件树打开文件。</span></div> : <>
           {documentMessage ? <div className={tw('flex shrink-0 items-center gap-2 px-3 py-2 text-xs text-[var(--danger)]')} role="alert"><span className={tw('min-w-0 flex-1 break-words')}>{documentMessage}</span>{!document ? <button className={tw('shrink-0 rounded px-2 py-1 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} onClick={() => { setDocumentRevision(current => current + 1) }} type="button">重试</button> : null}</div> : null}
@@ -335,17 +370,25 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
           </> : <div className={tw('workspace-files__document min-h-0 flex-1 overflow-auto', !['markdown', 'office'].includes(document.kind) && 'p-3')}><DocumentBody document={document.text === undefined ? document : { ...document, text: draft }} /></div> : null}
         </>}
       </section>
-      {treeVisible ? <><div aria-label="调整编辑器与文件树宽度" aria-orientation="vertical" aria-valuemin={22} aria-valuemax={60} aria-valuenow={Math.round(treeWidth)} className={tw('workspace-files__divider relative z-1 bg-[var(--separator)] cursor-col-resize touch-none after:absolute after:inset-y-0 after:-inset-x-1 after:content-[""] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => {
+      {treeVisible ? <><div aria-label="调整编辑器与文件树宽度" aria-orientation="vertical" aria-valuemin={Math.round(treeRange.min)} aria-valuemax={Math.round(treeRange.max)} aria-valuenow={Math.round(treeWidth)} aria-valuetext={`文件树宽度 ${Math.round(treeWidth)} 像素`} className={tw('workspace-files__divider relative z-1 bg-[var(--separator)] cursor-col-resize touch-none after:absolute after:inset-y-0 after:-inset-x-1 after:content-[""] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')} onPointerDown={event => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }} onPointerMove={event => {
         if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
         const bounds = bodyRef.current?.getBoundingClientRect()
-        if (bounds) setTreeWidth(Math.max(22, Math.min(60, (bounds.right - event.clientX) / bounds.width * 100)))
+        if (bounds && bounds.width > 0) setPreferredTreeWidth(clampWidth(bounds.right - event.clientX, treeWidthRange(bounds.width)))
+      }} onPointerUp={event => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+      }} onPointerCancel={event => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       }} role="separator" tabIndex={0} onKeyDown={event => {
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-        event.preventDefault(); setTreeWidth(current => Math.max(22, Math.min(60, current + (event.key === 'ArrowLeft' ? 2 : -2))))
+        event.preventDefault(); setPreferredTreeWidth(clampWidth(treeWidth + (event.key === 'ArrowLeft' ? 16 : -16), treeRange))
       }} />
       <section aria-label="文件树" className={tw('workspace-files__sidebar flex min-w-0 min-h-0 flex-col overflow-hidden')}>
         <div className={tw('workspace-files__search m-2 flex h-control-sm shrink-0 items-center gap-1.5 rounded-md border border-[var(--panel-border)] px-2 text-[var(--text-tertiary)] focus-within:border-[var(--focus)]')}><Icon name="search" size={15} /><input className={tw('w-full min-w-0 border-0 bg-transparent text-xs text-[var(--foreground)] outline-0 placeholder:text-[var(--text-tertiary)]')} aria-label="筛选文件" onChange={event => { setQuery(event.target.value) }} placeholder="筛选文件…" type="search" value={query} /></div>
-        <div className={tw('workspace-files__tree-scroll min-h-0 flex-1 overflow-auto px-1 pb-2')}>
+        <div className={tw('workspace-files__tree-scroll min-h-0 flex-1 overflow-auto px-1.5 pb-2')}>
           {directoryLoading ? <p className={tw('flex items-center gap-2 px-2 py-2 text-xs text-[var(--text-tertiary)]')}><Spinner size="sm" />正在读取目录</p> : null}
           {!directoryLoading && directoryMessage ? <p className={tw('px-2 text-xs text-[var(--danger)]')}>{directoryMessage}</p> : null}
           {!directoryLoading && directory?.entries.length === 0 ? <p className={tw('px-2 text-xs text-[var(--text-tertiary)]')}>此目录没有内容。</p> : null}
