@@ -154,7 +154,7 @@ export function WikiSetup({
           >
             <span>先选择用于生成的模型。</span>
             <CompactButton variant="tertiary" onPress={onSettings}>
-              选择模型
+              配置整理模型
             </CompactButton>
           </div>
         ) : (

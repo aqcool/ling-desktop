@@ -56,7 +56,7 @@ export function clampWorkbenchWidth(width: number, workspaceWidth: number): numb
 
 
 /** Owns panel dimensions, persistence and observers. */
-export function useShellLayout({ utilityPanel, shortcutBlocked }: { readonly utilityPanel: 'knowledge' | null; readonly shortcutBlocked: boolean }) {
+export function useShellLayout({ shortcutBlocked }: { readonly shortcutBlocked: boolean }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem(sidebarStorageKey) === 'collapsed')
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(window.localStorage.getItem(sidebarWidthStorageKey))
@@ -76,10 +76,9 @@ export function useShellLayout({ utilityPanel, shortcutBlocked }: { readonly uti
     const saved = Number(window.localStorage.getItem(workbenchWidthStorageKey))
     return Number.isFinite(saved) && saved >= 19 && saved <= 80 ? saved : 44
   })
-  const [projectKnowledgeWidth, setProjectKnowledgeWidth] = useState(360)
   const [workspaceAvailableWidth, setWorkspaceAvailableWidth] = useState(() => Math.max(1, window.innerWidth - (sidebarCollapsed ? 0 : displayedSidebarWidth)))
   const [workspaceAvailableHeight, setWorkspaceAvailableHeight] = useState(() => window.innerHeight)
-  const displayedWorkbenchWidth = clampWorkbenchWidth(utilityPanel === 'knowledge' ? projectKnowledgeWidth / workspaceAvailableWidth * 100 : workbenchWidth, workspaceAvailableWidth)
+  const displayedWorkbenchWidth = clampWorkbenchWidth(workbenchWidth, workspaceAvailableWidth)
   const workbenchBounds = workbenchWidthBounds(workspaceAvailableWidth)
   const displayedTerminalHeight = clampTerminalHeight(terminalHeight, workspaceAvailableHeight)
   useEffect(() => {
@@ -146,8 +145,6 @@ export function useShellLayout({ utilityPanel, shortcutBlocked }: { readonly uti
     displayedTerminalHeight,
     workbenchWidth,
     setWorkbenchWidth,
-    projectKnowledgeWidth,
-    setProjectKnowledgeWidth,
     workspaceAvailableWidth,
     workspaceAvailableHeight,
     displayedWorkbenchWidth,

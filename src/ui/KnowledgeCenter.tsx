@@ -61,7 +61,6 @@ export function KnowledgeCenter({
       : undefined,
   )
   const [library, setLibrary] = useState<KnowledgeLibrary>(),
-    [personal, setPersonal] = useState(false),
     [initial, setInitial] = useState<{
       id: string
       kind: KnowledgeDocument['kind']
@@ -70,11 +69,11 @@ export function KnowledgeCenter({
       'create' | 'rename' | 'scope' | 'delete'
     >(),
     [managed, setManaged] = useState<KnowledgeLibrary>(),
-    [tools, setTools] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [refresh, setRefresh] = useState(0)
   const life = useRef(0)
+  const initialRead = useRef<AbortController | undefined>(undefined)
   useEffect(() => {
     const controller = new AbortController(),
       epoch = ++life.current
@@ -107,6 +106,7 @@ export function KnowledgeCenter({
   useEffect(() => {
     if (!service || !initialDocumentId) return
     const controller = new AbortController()
+    initialRead.current = controller
     void service
       .request(
         {
@@ -153,8 +153,11 @@ export function KnowledgeCenter({
         if (!controller.signal.aborted)
           setError(error instanceof Error ? error.message : '读取失败。')
       })
-    return () => controller.abort()
-  }, [service, initialDocumentId])
+    return () => {
+      controller.abort()
+      if (initialRead.current === controller) initialRead.current = undefined
+    }
+  }, [service, initialDocumentId, workspaceId, remoteTaskId])
   const projects: Project[] = [
     ...workspaces.map((w) => ({ workspaceId: w.workspaceId, label: w.label })),
     ...(remoteTaskId
@@ -224,11 +227,10 @@ export function KnowledgeCenter({
       }
     : { workspaceId: null }
   const back = () => {
+    initialRead.current?.abort()
     if (project) setTab('wiki')
     setLibrary(undefined)
     setProject(undefined)
-    setPersonal(false)
-    setTools(false)
     setInitial(undefined)
     setQuery('')
     setError('')
@@ -321,29 +323,25 @@ export function KnowledgeCenter({
         }}
       />
     ) : null
-  if (library || project || personal)
+  if (library || project)
     return (
       <>
         <KnowledgeSpace
           key={
             library?.id ??
-            `${project?.workspaceId ?? ''}:${project?.taskId ?? ''}:${personal}`
+            `${project?.workspaceId ?? ''}:${project?.taskId ?? ''}`
           }
           service={service}
           scope={
             library
               ? libraryScope
-              : personal
-                ? { workspaceId: null }
-                : {
-                    workspaceId: project!.workspaceId,
-                    ...(project!.taskId ? { taskId: project!.taskId } : {}),
-                  }
+              : {
+                  workspaceId: project!.workspaceId,
+                  ...(project!.taskId ? { taskId: project!.taskId } : {}),
+                }
           }
-          label={library?.name ?? (personal ? '个人记忆' : project!.label)}
+          label={library?.name ?? project!.label}
           library={library}
-          personal={personal}
-          tools={tools}
           initialDocumentId={initial?.id}
           initialKind={initial?.kind}
           currentTaskId={
@@ -357,7 +355,6 @@ export function KnowledgeCenter({
           onEditLibrary={() => library && manage(library, 'rename')}
           onScopeLibrary={() => library && manage(library, 'scope')}
           onDeleteLibrary={() => library && manage(library, 'delete')}
-          onOpenTools={() => setTools((value) => !value)}
         />
         {modal}
       </>
@@ -476,17 +473,6 @@ export function KnowledgeCenter({
               setQuery(event.target.value)
             }
             className={tw('w-56 max-[700px]:w-40')}
-          />
-          <KnowledgeMenu
-            label="知识中心更多操作"
-            items={[
-              {
-                id: 'memory',
-                label: '个人记忆',
-                action: () => setPersonal(true),
-              },
-              { id: 'settings', label: '记忆与模型设置', action: onSettings },
-            ]}
           />
         </div>
       </header>
@@ -773,7 +759,6 @@ export function KnowledgeCenter({
                         variant="secondary"
                         onPress={() => {
                           setProject(item)
-                          setTools(false)
                           setError('')
                         }}
                       >

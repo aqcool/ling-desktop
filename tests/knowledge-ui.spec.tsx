@@ -3,14 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { KnowledgeCenter } from '../src/ui/KnowledgeCenter.js'
 import { WikiSetup } from '../src/ui/WikiSetup.js'
 import { MemorySettings } from '../src/ui/MemorySettings.js'
-import {
-  ProjectKnowledgePanel,
-  projectKnowledgeDocuments,
-} from '../src/ui/ProjectKnowledgePanel.js'
-import type {
-  KnowledgeDocument,
-  LingKnowledgeService,
-} from '../src/runtime/knowledge.js'
+import { KnowledgeSpace } from '../src/ui/KnowledgeSpace.js'
+import type { LingKnowledgeService } from '../src/runtime/knowledge.js'
 const service: LingKnowledgeService = {
   request: async () => ({ ok: true, value: {} }),
 }
@@ -33,75 +27,8 @@ describe('knowledge presentation boundary', () => {
     expect(html).not.toContain('建立代码索引')
     expect(html).not.toContain('会话总结</button>')
     expect(html).not.toContain('添加记忆')
-  })
-  it('keeps the project reader free of scope switches and management actions', () => {
-    const html = renderToStaticMarkup(
-      <ProjectKnowledgePanel
-        service={service}
-        workspaceId="project"
-        workspaceLabel="atlas"
-        onOpenTask={() => {}}
-        onOpenCenter={() => {}}
-      />,
-    )
-    expect(html).toContain('aria-label="当前项目知识"')
-    expect(html).toContain('atlas')
-    expect(html).toContain('搜索当前项目')
-    expect(html).toContain('打开知识中心')
-    for (const control of [
-      '<select',
-      '个人记忆',
-      '建立代码索引',
-      '生成 Wiki',
-      '总结当前会话',
-      '添加记忆',
-      '导出',
-      '记忆设置',
-    ])
-      expect(html).not.toContain(control)
-  })
-  it('does not fall back to personal or another project when no project is selected', () => {
-    const html = renderToStaticMarkup(
-      <ProjectKnowledgePanel
-        service={service}
-        workspaceLabel="不指定工作区"
-        onOpenTask={() => {}}
-        onOpenCenter={() => {}}
-      />,
-    )
-    expect(html).toContain('选择项目后查看相关知识')
-    expect(html).not.toContain('搜索当前项目')
-    expect(html).not.toContain('个人记忆')
-  })
-  it('shows confirmed project knowledge, while proposals and archives remain in the center', () => {
-    const base: KnowledgeDocument = {
-      id: 'rule',
-      scope: 'project',
-      kind: 'memory',
-      title: '规则',
-      body: '原文',
-      state: 'active',
-      version: 1,
-      manual: true,
-      updatedAt: 1,
-      sources: [],
-    }
-    const documents = [
-      base,
-      { ...base, id: 'candidate', state: 'candidate' as const },
-      { ...base, id: 'archive', state: 'archived' as const },
-      { ...base, id: 'stale', state: 'stale' as const, updatedAt: 2 },
-    ]
-    expect(projectKnowledgeDocuments(documents).map((doc) => doc.id)).toEqual([
-      'stale',
-      'rule',
-    ])
-    expect(documents.map((doc) => doc.id)).toEqual([
-      'rule',
-      'candidate',
-      'archive',
-      'stale',
-    ])
+    expect(html).not.toContain('知识中心更多操作')
+    expect(html).not.toContain('记忆与模型设置')
   })
   it('keeps remote scope explicit and offers summaries only for the selected project', () => {
     const html = renderToStaticMarkup(
@@ -118,8 +45,31 @@ describe('knowledge presentation boundary', () => {
     expect(html).toContain('当前 SSH 项目')
     expect(html).toContain('Wiki 页面')
     expect(html).toContain('知识卡片')
-    expect(html).not.toContain('会话总结</button>')
-    expect(html).toContain('aria-label="Wiki 目录"')
+    expect(html).toContain('aria-label="项目知识视图"')
+    expect(html).toContain('会话总结')
+    expect(html).toContain('代码查找')
+    expect(html).toContain('代码图谱')
+    expect(html).not.toContain('项目工具')
+    expect(html).not.toContain('记忆与模型设置')
+    expect(html).not.toContain('aria-label="Wiki 目录"')
+    expect(html).not.toContain('隐藏目录')
+  })
+  it('keeps a library focused on its own documents and management', () => {
+    const html = renderToStaticMarkup(
+      <KnowledgeSpace
+        service={service}
+        scope={{ workspaceId: null, libraryId: 'library' }}
+        label="团队资料"
+        library={{ id: 'library', name: '团队资料', description: '', workspaceId: null, scope: 'global', scopeLabel: '全部工作区', version: 1, updatedAt: 1, documents: 0 }}
+        onBack={() => {}}
+        onSettings={() => {}}
+        onOpenTask={() => {}}
+      />,
+    )
+    expect(html).toContain('aria-label="知识库资料"')
+    expect(html).not.toContain('项目知识视图')
+    expect(html).not.toContain('项目工具')
+    expect(html).not.toContain('记忆与模型设置')
   })
   it('offers a focused Wiki setup without pretending unavailable generation is enabled', () => {
     const html = renderToStaticMarkup(
@@ -139,7 +89,7 @@ describe('knowledge presentation boundary', () => {
       '简体中文',
       '自动更新 Wiki',
       'Wiki 智能体引用',
-      '选择模型',
+      '配置整理模型',
     ])
       expect(html).toContain(label)
     expect(html).toContain('disabled')

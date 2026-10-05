@@ -85,6 +85,13 @@ describe('shell state boundaries', () => {
     expect(monitor()).toBeNull()
     await click('button[aria-label="展开工作面"]')
     expect(monitor()).toBeNull()
+    const knowledgeEntry = Array.from(view.container.querySelectorAll<HTMLButtonElement>('.sidebar-bottom__item')).find(button => button.textContent === '知识中心')!
+    await act(async () => { knowledgeEntry.click() })
+    expect(view.container.querySelector('section[aria-label="知识中心主页面"]')).not.toBeNull()
+    expect(view.container.querySelector('aside[aria-label="工作面"]')).toBeNull()
+    expect(view.container.querySelector('aside[aria-label="项目知识"]')).toBeNull()
+    expect(view.container.querySelector('.workspace-header')?.textContent).not.toContain('返回任务')
+    expect(monitor()).toBeNull()
   })
 
   it('keeps manual monitor visibility and section collapse through workbench and task navigation', async () => {
@@ -145,7 +152,7 @@ describe('shell state boundaries', () => {
     let monitor!: ReturnType<typeof useTaskMonitor>
     const onSubmit = vi.fn()
     function Harness() {
-      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', prompt: '', onSubmit, onBrowserToggle: vi.fn(), onWorkspaceOpen: vi.fn() }, activeWorkspaceId: 'project', workspaceLabel: 'Project' })
+      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', prompt: '', onSubmit, onBrowserToggle: vi.fn() }, activeWorkspaceId: 'project', workspaceLabel: 'Project' })
       monitor = useTaskMonitor({ screen: 'workspace', workbenchOpen: true, workbenchMaximized: workbench.workbenchMaximized, workspaceAvailableWidth: 1200 })
       return null
     }
@@ -175,7 +182,7 @@ describe('shell state boundaries', () => {
     const service = { takeTerminalUiRequest } as unknown as LingServerService
     let workbench!: ReturnType<typeof useWorkbench>
     function Harness({ taskId }: { taskId: string }) {
-      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', selectedTask: task(taskId), serverManager: service, prompt: '', onSubmit: vi.fn(), onBrowserToggle: vi.fn(), onWorkspaceOpen: vi.fn() }, activeOperationsServerId: 'server', workspaceLabel: 'Project' })
+      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', selectedTask: task(taskId), serverManager: service, prompt: '', onSubmit: vi.fn(), onBrowserToggle: vi.fn() }, activeOperationsServerId: 'server', workspaceLabel: 'Project' })
       return null
     }
     const view = await mount(<Harness taskId="a" />)
@@ -210,7 +217,7 @@ describe('shell state boundaries', () => {
     window.localStorage.setItem('ling.terminal-height', '220')
     let layout!: ReturnType<typeof useShellLayout>
     function Harness({ blocked }: { blocked: boolean }) {
-      layout = useShellLayout({ utilityPanel: null, shortcutBlocked: blocked })
+      layout = useShellLayout({ shortcutBlocked: blocked })
       return null
     }
     const view = await mount(<Harness blocked />)

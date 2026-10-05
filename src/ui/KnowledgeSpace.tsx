@@ -22,13 +22,14 @@ import { KnowledgeMenu } from './KnowledgeMenu.js'
 import { KnowledgeImportDialog } from './KnowledgeDialogs.js'
 import { WikiSetup } from './WikiSetup.js'
 import { tw } from './tailwind.js'
-const views = [
+const projectViews = [
+  { id: 'wiki', label: 'Wiki 页面' },
+  { id: 'card', label: '知识卡片' },
   { id: 'summary', label: '会话总结' },
-  { id: 'memory', label: '记忆' },
   { id: 'code', label: '代码查找' },
   { id: 'graph', label: '代码图谱' },
 ] as const
-type View = (typeof views)[number]['id'] | 'reference' | 'wiki' | 'card'
+type View = (typeof projectViews)[number]['id'] | 'reference' | 'memory'
 export function KnowledgeSpace({
   service,
   scope,
@@ -36,7 +37,6 @@ export function KnowledgeSpace({
   library,
   personal = false,
   memoryOnly = false,
-  tools = false,
   initialDocumentId,
   initialKind,
   currentTaskId,
@@ -46,7 +46,6 @@ export function KnowledgeSpace({
   onEditLibrary,
   onDeleteLibrary,
   onScopeLibrary,
-  onOpenTools,
 }: {
   service?: LingKnowledgeService
   scope: KnowledgeScopeInput
@@ -54,7 +53,6 @@ export function KnowledgeSpace({
   library?: KnowledgeLibrary
   personal?: boolean
   memoryOnly?: boolean
-  tools?: boolean
   initialDocumentId?: string
   initialKind?: KnowledgeDocument['kind']
   currentTaskId?: string
@@ -64,25 +62,19 @@ export function KnowledgeSpace({
   onEditLibrary?: () => void
   onDeleteLibrary?: () => void
   onScopeLibrary?: () => void
-  onOpenTools?: () => void
 }) {
   const { snapshot, error, pending, request, reload, report } = useKnowledge(
     service,
     scope,
   )
-  const [view, setView] = useState<View>(
-    library
-      ? 'reference'
-      : personal || memoryOnly
-        ? 'memory'
-        : initialKind === 'summary' ||
-            initialKind === 'memory' ||
-            initialKind === 'card'
-          ? initialKind
-          : tools
-            ? 'summary'
-            : 'wiki',
-  )
+  const initialView: View = library
+    ? 'reference'
+    : personal || memoryOnly
+      ? 'memory'
+      : initialKind === 'summary' || initialKind === 'card'
+        ? initialKind
+        : 'wiki'
+  const [view, setView] = useState<View>(initialView)
   const [selected, setSelected] = useState<KnowledgeDocument>(),
     [revisions, setRevisions] = useState<KnowledgeDocument[]>([]),
     [query, setQuery] = useState(''),
@@ -107,6 +99,7 @@ export function KnowledgeSpace({
     }>(),
     fileInput = useRef<HTMLInputElement>(null),
     reading = useRef(0),
+    openingInitial = useRef(!!initialDocumentId),
     autoOpened = useRef<string | undefined>(undefined)
   const documents = (snapshot?.documents ?? []).filter(
     (doc) =>
@@ -129,8 +122,15 @@ export function KnowledgeSpace({
     }
   }
   useEffect(() => {
-    if (initialDocumentId) void open(initialDocumentId)
-  }, [initialDocumentId])
+    if (!initialDocumentId) return
+    changeView(initialView)
+    openingInitial.current = true
+    let live = true
+    void open(initialDocumentId).finally(() => {
+      if (live) openingInitial.current = false
+    })
+    return () => { live = false }
+  }, [initialDocumentId, initialView])
   useEffect(() => {
     if (!query.trim()) {
       setHits(undefined)
@@ -174,6 +174,7 @@ export function KnowledgeSpace({
   }, [view, graphPath.join('|'), snapshot?.indexedAt])
   const changeView = (id: View) => {
     reading.current++
+    openingInitial.current = false
     autoOpened.current = undefined
     setConfigure(false)
     setView(id)
@@ -187,7 +188,7 @@ export function KnowledgeSpace({
     const first = outline[0]?.document
     if (
       view !== 'wiki' ||
-      initialDocumentId ||
+      openingInitial.current ||
       selected ||
       source ||
       draft ||
@@ -295,13 +296,17 @@ export function KnowledgeSpace({
             ? job.kind === 'index'
             : false),
   )
-  const isTools =
-    personal ||
-    view === 'summary' ||
-    view === 'memory' ||
-    view === 'code' ||
-    view === 'graph'
-  const isWiki = !library && !isTools
+  const isProject = !library && !personal && !memoryOnly
+  const isWiki = isProject && (view === 'wiki' || view === 'card')
+  const directoryLabel = library
+    ? '资料目录'
+    : view === 'memory'
+      ? '记忆目录'
+      : view === 'summary'
+        ? '会话总结目录'
+        : view === 'code' || view === 'graph'
+          ? '代码检索'
+          : 'Wiki 目录'
   const wikiDocuments = (snapshot?.documents ?? []).filter(
     (doc) => doc.kind === 'wiki' && doc.state !== 'archived',
   )
@@ -309,11 +314,22 @@ export function KnowledgeSpace({
     (job) => job.kind === 'wiki' && ['queued', 'running'].includes(job.status),
   )
   const modelReady = !!snapshot?.settings.provider && !!snapshot?.settings.model
+  const hasDirectory = library
+    ? !!(documents.length || draft || selected)
+    : isWiki
+      ? !!(documents.length || selected || source || activeJobs.length)
+      : view === 'summary'
+        ? !!(documents.length || currentTaskId || activeJobs.length)
+        : true
   return (
     <section
       className={tw('flex min-h-0 flex-1 flex-col overflow-hidden')}
       aria-label={
-        memoryOnly ? '记忆管理' : library ? '知识库资料' : isTools ? '项目工具页面' : '项目 Wiki 阅读页'
+        personal || memoryOnly
+          ? '记忆管理'
+          : library
+            ? '知识库资料'
+            : '项目知识页面'
       }
     >
       <header
@@ -330,12 +346,8 @@ export function KnowledgeSpace({
             {memoryOnly
               ? '返回记忆设置'
               : library
-              ? '知识库'
-              : personal
-                ? '个人记忆'
-                : isTools
-                  ? '项目工具'
-                  : 'Repo Wiki'}
+                ? '知识库'
+                : 'Repo Wiki'}
           </CompactButton>
           <span className={tw('text-sm text-[var(--text-tertiary)]')}>/</span>
           <strong className={tw('truncate text-sm font-medium')}>
@@ -343,130 +355,115 @@ export function KnowledgeSpace({
           </strong>
         </div>
         <div className={tw('flex shrink-0 items-center gap-2')}>
-          <KnowledgeMenu
-            items={
-              library
-                ? [
-                    {
-                      id: 'rename',
-                      label: '重命名',
-                      action: () => onEditLibrary?.(),
-                    },
-                    {
-                      id: 'scope',
-                      label: '管理生效范围',
-                      action: () => onScopeLibrary?.(),
-                    },
-                    {
-                      id: 'export',
-                      label: '导出知识库',
-                      action: () => {
-                        void request({
-                          type: 'export',
-                          ...scope,
-                          libraryId: library.id,
-                        }).then((value) => {
-                          if (value?.text)
-                            downloadKnowledge(value.text, library.name)
-                        })
-                      },
-                    },
-                    {
-                      id: 'delete',
-                      label: '删除知识库',
-                      danger: true,
-                      action: () => onDeleteLibrary?.(),
-                    },
-                  ]
-                : personal || memoryOnly
-                  ? [{ id: 'settings', label: '记忆设置', action: onSettings }]
-                  : [
-                      ...(!isTools
-                        ? [
-                            {
-                              id: 'setup',
-                              label: '生成设置',
-                              action: () => setConfigure(true),
-                            },
-                          ]
-                        : []),
+          {library || isWiki ? (
+            <KnowledgeMenu
+              items={
+                library
+                  ? [
                       {
-                        id: 'tools',
-                        label: isTools ? '返回 Wiki' : '项目工具',
-                        action: () => {
-                          changeView(isTools ? 'wiki' : 'summary')
-                          onOpenTools?.()
-                        },
+                        id: 'rename',
+                        label: '重命名',
+                        action: () => onEditLibrary?.(),
+                      },
+                      {
+                        id: 'scope',
+                        label: '管理生效范围',
+                        action: () => onScopeLibrary?.(),
                       },
                       {
                         id: 'export',
-                        label: '导出 Wiki',
+                        label: '导出知识库',
                         action: () => {
                           void request({
                             type: 'export',
                             ...scope,
-                            kind: 'wiki',
+                            libraryId: library.id,
                           }).then((value) => {
                             if (value?.text)
-                              downloadKnowledge(value.text, `${label}-wiki`)
+                              downloadKnowledge(value.text, library.name)
                           })
                         },
                       },
                       {
-                        id: 'settings',
-                        label: '记忆与模型设置',
-                        action: onSettings,
+                        id: 'delete',
+                        label: '删除知识库',
+                        danger: true,
+                        action: () => onDeleteLibrary?.(),
                       },
                     ]
-            }
-          />
-          <CompactButton
-            variant="tertiary"
-            isIconOnly
-            aria-label={sidebar ? '隐藏目录' : '显示目录'}
-            aria-pressed={sidebar}
-            onPress={() => setSidebar((value) => !value)}
-          >
-            <Icon name="panelLeft" size={17} />
-          </CompactButton>
+                  : [
+                      {
+                        id: 'setup',
+                        label: '生成设置',
+                        action: () => setConfigure(true),
+                      },
+                      {
+                        id: 'export',
+                        label: view === 'card' ? '导出知识卡片' : '导出 Wiki',
+                        action: () => {
+                          void request({
+                            type: 'export',
+                            ...scope,
+                            kind: view === 'card' ? 'card' : 'wiki',
+                          }).then((value) => {
+                            if (value?.text)
+                              downloadKnowledge(value.text, `${label}-${view === 'card' ? 'cards' : 'wiki'}`)
+                          })
+                        },
+                      },
+                    ]
+              }
+            />
+          ) : null}
+          {hasDirectory ? (
+            <CompactButton
+              variant="tertiary"
+              isIconOnly
+              aria-label={sidebar ? '隐藏目录' : '显示目录'}
+              aria-pressed={sidebar}
+              onPress={() => setSidebar((value) => !value)}
+            >
+              <Icon name="panelLeft" size={17} />
+            </CompactButton>
+          ) : null}
         </div>
       </header>
+      {isProject ? (
+        <nav
+          aria-label="项目知识视图"
+          className={tw('flex shrink-0 flex-wrap gap-x-5 gap-y-1 border-b border-[var(--panel-border)] px-5 max-[700px]:px-4')}
+        >
+          {projectViews.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={view === item.id ? 'page' : undefined}
+              onClick={() => { if (view !== item.id) changeView(item.id) }}
+              className={tw(
+                'border-0 border-b-2 border-solid border-transparent bg-transparent px-0 py-2.5 text-xs text-[var(--text-secondary)] hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
+                view === item.id && 'border-b-[var(--action)] font-medium text-[var(--foreground)]',
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
       <div
         className={tw(
           'grid min-h-0 flex-1',
-          sidebar && (!library || documents.length || draft || selected)
+          sidebar && hasDirectory
             ? 'grid-cols-[260px_minmax(0,1fr)] max-[980px]:grid-cols-[210px_minmax(0,1fr)] max-[700px]:grid-cols-1 max-[700px]:grid-rows-[auto_minmax(0,1fr)]'
             : 'grid-cols-1',
         )}
       >
-        {sidebar && (!library || documents.length || draft || selected) ? (
+        {sidebar && hasDirectory ? (
           <aside
-            aria-label={
-              library ? '资料目录' : isTools ? '项目工具目录' : 'Wiki 目录'
-            }
+            aria-label={directoryLabel}
             className={tw(
               'flex min-h-0 flex-col gap-3 overflow-hidden border-r border-[var(--panel-border)] px-4 py-3 max-[700px]:max-h-48 max-[700px]:border-r-0 max-[700px]:border-b',
             )}
           >
-            {isTools && !personal && !memoryOnly ? (
-              <nav aria-label="项目工具" className={tw('grid gap-0.5 pb-2')}>
-                {views.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-current={view === item.id ? 'page' : undefined}
-                    onClick={() => changeView(item.id)}
-                    className={tw(
-                      'rounded-lg border-0 bg-transparent px-3 py-2 text-left text-xs hover:bg-[var(--surface-hover)]',
-                      view === item.id &&
-                        'bg-[var(--surface-selected)] font-medium',
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </nav>
-            ) : null}
             <div className={tw('flex items-center gap-2')}>
               <CompactInput
                 aria-label={
@@ -506,35 +503,6 @@ export function KnowledgeSpace({
                 className={tw('w-full')}
               />
             </div>
-            {isWiki ? (
-              <nav
-                aria-label="Repo Wiki 内容视角"
-                className={tw(
-                  'flex gap-1 rounded-lg bg-[var(--surface-secondary)] p-0.5',
-                )}
-              >
-                {(
-                  [
-                    { id: 'wiki', label: 'Wiki 页面', icon: 'book' },
-                    { id: 'card', label: '知识卡片', icon: 'agentPreset' },
-                  ] as const
-                ).map((item) => (
-                  <CompactButton
-                    key={item.id}
-                    variant="tertiary"
-                    aria-pressed={view === item.id}
-                    className={tw(
-                      'flex-1',
-                      view === item.id && 'bg-[var(--surface)] shadow-sm',
-                    )}
-                    onPress={() => changeView(item.id)}
-                  >
-                    <Icon name={item.icon} size={14} />
-                    {item.label}
-                  </CompactButton>
-                ))}
-              </nav>
-            ) : null}
             {library ? (
               <div className={tw('flex items-center justify-between gap-1')}>
                 <span className={tw('text-xs text-[var(--text-tertiary)]')}>
@@ -1142,7 +1110,7 @@ export function KnowledgeSpace({
                   !modelReady &&
                   (view === 'wiki' || view === 'summary') ? (
                     <CompactButton variant="secondary" onPress={onSettings}>
-                      选择整理模型
+                      配置整理模型
                     </CompactButton>
                   ) : null}
                 </Empty>

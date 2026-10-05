@@ -14,7 +14,6 @@ interface WorkbenchOptions {
     | 'composerAgentPreset'
     | 'onBrowserToggle'
     | 'onSubmit'
-    | 'onWorkspaceOpen'
     | 'permission'
     | 'prompt'
     | 'screen'
@@ -44,7 +43,6 @@ function browserAnnotationText(annotations: readonly BrowserAnnotation[]): strin
 /** Owns workbench tabs and browser requests, without changing task monitor visibility. */
 export function useWorkbench({ props, activeServerId, activeOperationsServerId, taskServerId, activeWorkspaceId, workspaceLabel }: WorkbenchOptions) {
   const { browserOpen, screen, prompt, onSubmit, selectedTask } = props
-  const [utilityPanel, setUtilityPanel] = useState<'knowledge' | null>(null)
   const [workbenchMaximized, setWorkbenchMaximized] = useState(false)
   const [workbenchTabs, setWorkbenchTabs] = useState<readonly WorkbenchTab[]>([])
   useEffect(() => {
@@ -70,15 +68,7 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     onSubmit(combined, clearBrowserAnnotations)
   }
 
-  const toggleUtilityPanel = (kind: 'knowledge') => {
-    props.onWorkspaceOpen()
-    setWorkbenchMaximized(false)
-    if (browserOpen) props.onBrowserToggle()
-    setUtilityPanel(current => current === kind ? null : kind)
-  }
-
   const openWorkbenchTab = (kind: WorkbenchTabKind, initialSideTask?: Pick<SideTaskState, 'attachments' | 'prompt'>) => {
-    setUtilityPanel(null)
     if (!browserOpen) props.onBrowserToggle()
     const existing = kind === 'side-task' ? undefined : workbenchTabs.find(tab => tab.kind === kind)
     if (existing) {
@@ -93,7 +83,6 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
   }
 
   const previewDelivery = useCallback((taskId: string, file: LingPresentedFile) => {
-    setUtilityPanel(null)
     if (!browserOpen) props.onBrowserToggle()
     const tab: WorkbenchTab = { id: 'document', kind: 'document', label: deliveryName(file.path), delivery: { taskId, file } }
     setWorkbenchTabs(current => current.some(item => item.id === tab.id) ? current.map(item => item.id === tab.id ? tab : item) : [...current, tab])
@@ -110,8 +99,7 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
 
   const closeWorkbench = () => {
     setWorkbenchMaximized(false)
-    if (utilityPanel) setUtilityPanel(null)
-    else if (browserOpen) props.onBrowserToggle()
+    if (browserOpen) props.onBrowserToggle()
   }
 
   useEffect(() => {
@@ -134,7 +122,6 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     const check = () => {
       void service.takeTerminalUiRequest(taskId).then(result => {
         if (!active || !result.ok || !result.value.open) return
-        setUtilityPanel(null)
         if (!browserOpen) props.onBrowserToggle()
         setWorkbenchTabs(current => current.some(tab => tab.id === 'terminal') ? current : [...current, { id: 'terminal', kind: 'terminal', label: '终端' }])
         setActiveWorkbenchTabId('terminal')
@@ -158,8 +145,6 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
   return {
     clearBrowserAnnotations,
     setBrowserAnnotations,
-    utilityPanel,
-    setUtilityPanel,
     workbenchMaximized,
     setWorkbenchMaximized,
     workbenchTabs,
@@ -173,7 +158,6 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     browserAnnotations,
     browserAnnotationResetKey,
     submitWithBrowserAnnotations,
-    toggleUtilityPanel,
     openWorkbenchTab,
     previewDelivery,
     closeWorkbenchTab,

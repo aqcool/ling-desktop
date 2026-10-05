@@ -24,7 +24,6 @@ import { InteractionPanel } from './InteractionPanel.js'
 import { KnowledgeCenter } from './KnowledgeCenter.js'
 import { Menu, MenuItem, MenuSeparator } from './Menu.js'
 import { MonitorSectionsContext } from './MonitorSection.js'
-import { ProjectKnowledgePanel } from './ProjectKnowledgePanel.js'
 import { PromptDialog } from './PromptDialog.js'
 import { QuickNotes } from './QuickNotes.js'
 import { ServerFileBrowser } from './ServerFileBrowser.js'
@@ -196,8 +195,6 @@ export function LingShell(props: LingShellProps) {
   const {
     clearBrowserAnnotations,
     setBrowserAnnotations,
-    utilityPanel,
-    setUtilityPanel,
     workbenchMaximized,
     setWorkbenchMaximized,
     workbenchTabs,
@@ -211,7 +208,6 @@ export function LingShell(props: LingShellProps) {
     browserAnnotations,
     browserAnnotationResetKey,
     submitWithBrowserAnnotations,
-    toggleUtilityPanel,
     openWorkbenchTab,
     previewDelivery,
     closeWorkbenchTab,
@@ -227,17 +223,16 @@ export function LingShell(props: LingShellProps) {
     setTerminalHeight,
     displayedTerminalHeight,
     setWorkbenchWidth,
-    setProjectKnowledgeWidth,
     workspaceAvailableWidth,
     workspaceAvailableHeight,
     displayedWorkbenchWidth,
     workbenchBounds,
-  } = useShellLayout({ utilityPanel, shortcutBlocked: Boolean(dialog) })
+  } = useShellLayout({ shortcutBlocked: Boolean(dialog) })
   const { notesFloating, setNotesFloating, notesOrigin, notesError, requestNotes, handleNoteAction } = useShellNotes(props)
   const [knowledgeTarget, setKnowledgeTarget] = useState<{ workspaceId?: string; remoteTaskId?: string; documentId?: string }>()
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [actionOutputOpen, setActionOutputOpen] = useState(false)
-  const workbenchOpen = screen === 'workspace' && (browserOpen || utilityPanel !== null)
+  const workbenchOpen = screen === 'workspace' && browserOpen
   const {
     monitorPreferences,
     setMonitorPreferences,
@@ -318,7 +313,6 @@ export function LingShell(props: LingShellProps) {
   }, [activeServerId, props.serverManager, props.loadWorkspaceDocument])
 
   const openExtensions = () => {
-    setUtilityPanel(null)
     onSettingsOpen()
     props.onSettingsTabChange('extensions')
   }
@@ -429,7 +423,7 @@ export function LingShell(props: LingShellProps) {
                 <button aria-current={screen === 'knowledge' ? 'page' : undefined} className={tw("sidebar-bottom__item flex min-h-control w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-compact [color:var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]", screen === 'knowledge' && "sidebar-bottom__item--active bg-[var(--surface-selected)] hover:bg-[var(--surface-selected)]")} onClick={() => { openKnowledgeCenter() }} type="button">
                   <Icon className={tw("flex-none [color:var(--text-secondary)]")} name="book" size={17} /><span>知识中心</span>
                 </button>
-                <button aria-current={screen === 'automation' ? 'page' : undefined} className={tw("sidebar-bottom__item flex min-h-control w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-compact [color:var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]", screen === 'automation' && "sidebar-bottom__item--active bg-[var(--surface-selected)] hover:bg-[var(--surface-selected)]")} onClick={() => { setUtilityPanel(null); props.onAutomationOpen() }} type="button">
+                <button aria-current={screen === 'automation' ? 'page' : undefined} className={tw("sidebar-bottom__item flex min-h-control w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-compact [color:var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]", screen === 'automation' && "sidebar-bottom__item--active bg-[var(--surface-selected)] hover:bg-[var(--surface-selected)]")} onClick={props.onAutomationOpen} type="button">
                   <Icon className={tw("flex-none [color:var(--text-secondary)]")} name="calendarClock" size={17} /><span>自动化</span>
                 </button>
                 <button className={tw("sidebar-bottom__item flex min-h-control w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-compact [color:var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:[outline:2px_solid_var(--focus)] focus-visible:[outline-offset:1px]")} onClick={openExtensions} type="button">
@@ -555,14 +549,13 @@ export function LingShell(props: LingShellProps) {
               ) : null}
             </div>
           </div>
-          {screen === 'knowledge' || screen === 'automation' ? <div className={tw('flex items-center gap-2 [-webkit-app-region:no-drag]')}>{behavior.quickNotes || behavior.replyAnnotations ? <button type="button" aria-label="打开速记板" title="打开速记板 · ⌘/Ctrl+9" className={tw('grid size-8 place-items-center rounded-lg border-0 bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} onClick={() => requestNotes()}><Icon name="clipboard" size={17} /></button> : null}<button className={tw('[-webkit-app-region:no-drag] rounded-md border-0 bg-transparent px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} type="button" onClick={props.onWorkspaceOpen}>返回任务</button></div> : <div className={tw("workspace-header__actions [-webkit-app-region:no-drag] flex shrink-0 items-center gap-0.5")}>
+          {screen === 'knowledge' || screen === 'automation' ? <div className={tw('flex items-center gap-2 [-webkit-app-region:no-drag]')}>{behavior.quickNotes || behavior.replyAnnotations ? <button type="button" aria-label="打开速记板" title="打开速记板 · ⌘/Ctrl+9" className={tw('grid size-8 place-items-center rounded-lg border-0 bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} onClick={() => requestNotes()}><Icon name="clipboard" size={17} /></button> : null}{screen === 'automation' ? <button className={tw('[-webkit-app-region:no-drag] rounded-md border-0 bg-transparent px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} type="button" onClick={props.onWorkspaceOpen}>返回任务</button> : null}</div> : <div className={tw("workspace-header__actions [-webkit-app-region:no-drag] flex shrink-0 items-center gap-0.5")}>
             {modePreferences.locationControls && activeWorkspaceId ? <WorkspaceToolsToolbar key={activeWorkspaceId} workspaceId={activeWorkspaceId} tools={workspaceTools} actionsEnabled={behavior.workspaceActions} onRun={() => { setTerminalOpen(true); setActionOutputOpen(true) }} /> : null}
             <WorkbenchHeaderAction active={monitorOpen} controls="task-monitor" expanded={monitorOpen} icon="listCheck" label={monitorOpen ? '隐藏任务监控' : monitorPresentation === 'floating' ? '打开任务监控' : '显示任务监控'} onClick={toggleLocalStatus} />
-            <Menu triggerAriaLabel="更多工具" triggerLabel={<Icon name="more" size={17} />} triggerClassName={tw('size-control-sm shrink-0 rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]', utilityPanel === 'knowledge' && 'bg-[var(--surface-secondary)] text-[var(--foreground)]')} listClassName="min-w-40">
-              {behavior.quickNotes || behavior.replyAnnotations ? <MenuItem icon="clipboard" suffix="⌘/Ctrl+9" onPress={() => requestNotes(selectedTask?.taskId)}>打开速记板</MenuItem> : null}
-              <MenuItem checked={utilityPanel === 'knowledge'} icon="book" onPress={() => { toggleUtilityPanel('knowledge') }}>项目知识</MenuItem>
-            </Menu>
-            {!browserOpen && !utilityPanel ? <>
+            {behavior.quickNotes || behavior.replyAnnotations ? <Menu triggerAriaLabel="更多工具" triggerLabel={<Icon name="more" size={17} />} triggerClassName={tw('size-control-sm shrink-0 rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} listClassName="min-w-40">
+              <MenuItem icon="clipboard" suffix="⌘/Ctrl+9" onPress={() => requestNotes(selectedTask?.taskId)}>打开速记板</MenuItem>
+            </Menu> : null}
+            {!browserOpen ? <>
               <WorkbenchHeaderAction active={terminalOpen} controls="workspace-terminal" expanded={terminalOpen} icon="terminalPanel" label="终端面板" onClick={() => { setTerminalOpen(current => !current) }} />
               <WorkbenchHeaderAction expanded={false} icon="panelRight" label="展开工作面" onClick={props.onBrowserToggle} />
             </> : null}
@@ -570,7 +563,7 @@ export function LingShell(props: LingShellProps) {
         </header>}
 
         {screen === 'automation' ? <AutomationCenter service={props.automation} workspaces={workspaces} workspaceId={activeWorkspaceId} models={props.modelSettings} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} /> : screen === 'knowledge' ? (
-          <KnowledgeCenter key={`${knowledgeTarget?.remoteTaskId ?? knowledgeTarget?.workspaceId ?? 'center'}:${knowledgeTarget?.documentId ?? ''}`} initialProject={!!knowledgeTarget} initialDocumentId={knowledgeTarget?.documentId} remoteTaskId={knowledgeTarget?.remoteTaskId ?? (activeServerId ? selectedTask?.taskId : undefined)} service={props.knowledge} workspaceId={knowledgeTarget?.workspaceId ?? activeWorkspaceId} workspaces={workspaces} taskId={selectedTask?.taskId} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} onSettings={() => { onSettingsOpen(); props.onSettingsTabChange('memory') }} />
+          <KnowledgeCenter key={`${knowledgeTarget?.remoteTaskId ?? knowledgeTarget?.workspaceId ?? 'center'}:${knowledgeTarget?.documentId ?? ''}`} initialProject={!!knowledgeTarget} initialDocumentId={knowledgeTarget?.documentId} remoteTaskId={knowledgeTarget?.remoteTaskId ?? (activeServerId ? selectedTask?.taskId : undefined)} service={props.knowledge} workspaceId={knowledgeTarget?.workspaceId ?? activeWorkspaceId} workspaces={workspaces} taskId={selectedTask?.taskId} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} onSettings={() => { setMemoryRecapRequested(true); onSettingsOpen(); props.onSettingsTabChange('memory') }} />
         ) : screen === 'settings' ? (
           <ShellSettings settings={props} memoryRecapRequested={memoryRecapRequested} setMemoryRecapRequested={setMemoryRecapRequested} activeWorkspaceId={activeWorkspaceId} settingsGitWorkspace={settingsGitWorkspace} setSettingsGitWorkspace={setSettingsGitWorkspace} remoteTaskId={activeServerId ? selectedTask?.taskId : undefined} remoteLabel={taskRemoteCwd} taskViewState={taskViewState} setTaskViewState={setTaskViewState} monitorPreferences={monitorPreferences} setMonitorPreferences={setMonitorPreferences} onOpenDialog={setDialog} />
         ) : (
@@ -745,25 +738,8 @@ export function LingShell(props: LingShellProps) {
             ) : null}
           </>
         )}
-        {(browserOpen || utilityPanel) && screen === 'workspace' ? (
-        <aside aria-label={utilityPanel === 'knowledge' ? '项目知识' : '工作面'} className={tw("workspace-workbench row-[1/3] flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--panel-border)] bg-[var(--surface)]", workbenchMaximized ? "col-start-1" : "col-start-2", "max-[700px]:col-start-1")}>
-          {utilityPanel ? (
-            <div className={tw("inspector__bar select-none [-webkit-app-region:drag] mb-2.5 flex items-center justify-between gap-2 px-3.5 pt-3")}>
-              <strong className={tw("text-sm")}>{'项目知识'}</strong>
-              <button
-                aria-label={`关闭${'项目知识'}`}
-                className={tw("icon-button [-webkit-app-region:no-drag] inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")}
-                onClick={closeWorkbench}
-                type="button"
-              >
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-          ) : null}
-          {utilityPanel === 'knowledge' ? (
-            <ProjectKnowledgePanel key={activeServerId ? `ssh:${selectedTask?.taskId}` : `local:${activeWorkspaceId}`} remoteTaskId={activeServerId ? selectedTask?.taskId : undefined} service={props.knowledge} workspaceId={activeWorkspaceId} workspaceLabel={activeServerId ? taskRemoteCwd ?? workspaceLabel : workspaceLabel} onOpenTask={props.onSelectTask} onOpenCenter={documentId => { openKnowledgeCenter(true, documentId) }} />
-          ) : browserOpen ? (
-            <>
+        {browserOpen && screen === 'workspace' ? (
+        <aside aria-label="工作面" className={tw("workspace-workbench row-[1/3] flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--panel-border)] bg-[var(--surface)]", workbenchMaximized ? "col-start-1" : "col-start-2", "max-[700px]:col-start-1")}>
               <div className={tw("workbench-header select-none [-webkit-app-region:drag] flex h-10 flex-none items-center justify-between gap-2 px-2.5", workbenchTabs.length > 0 && "border-b border-solid border-[var(--panel-border)]")}>
                 <WorkbenchTabs activeId={activeWorkbenchTabId} onClose={closeWorkbenchTab} onSelect={setActiveWorkbenchTabId} tabs={workbenchTabs} />
                 <div className={tw("workbench-header__actions [-webkit-app-region:no-drag] ml-auto grid shrink-0 grid-flow-col auto-cols-7 items-center gap-1")}>
@@ -806,11 +782,9 @@ export function LingShell(props: LingShellProps) {
                 <WorkbenchHomeAction icon="review" onClick={() => { setReviewSource('git'); openWorkbenchTab('review') }} title="打开审阅" />
                 <WorkbenchHomeAction icon="terminalSquare" onClick={() => { openWorkbenchTab('terminal') }} title="打开终端" />
               </div> : null}
-            </>
-          ) : null}
         </aside>
         ) : null}
-        {(browserOpen || utilityPanel) && !workbenchMaximized && screen === 'workspace' ? (
+        {browserOpen && !workbenchMaximized && screen === 'workspace' ? (
           <div
             aria-label="调整任务与工作区宽度"
             aria-orientation="vertical"
@@ -823,8 +797,7 @@ export function LingShell(props: LingShellProps) {
               if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
               event.preventDefault()
               if (event.key === 'End' || (event.key === 'ArrowRight' && displayedWorkbenchWidth <= workbenchBounds.minimum + 0.1)) {
-                if (utilityPanel) setUtilityPanel(null)
-                else closeWorkbench()
+                closeWorkbench()
                 return
               }
               const workspace = event.currentTarget.parentElement
@@ -833,8 +806,7 @@ export function LingShell(props: LingShellProps) {
               const { minimum, maximum } = workbenchWidthBounds(width)
               const next = event.key === 'Home' ? maximum
                 : displayedWorkbenchWidth + (event.key === 'ArrowLeft' ? 5 : -5)
-              if (utilityPanel === 'knowledge') setProjectKnowledgeWidth(clampWorkbenchWidth(next, width) / 100 * width)
-              else setWorkbenchWidth(clampWorkbenchWidth(next, width))
+              setWorkbenchWidth(clampWorkbenchWidth(next, width))
             }}
             onPointerDown={event => {
               if (event.button !== 0) return
@@ -848,8 +820,7 @@ export function LingShell(props: LingShellProps) {
               const bounds = event.currentTarget.parentElement?.getBoundingClientRect()
               if (!bounds) return
               const next = (1 - (event.clientX - bounds.left) / bounds.width) * 100
-              if (utilityPanel === 'knowledge') setProjectKnowledgeWidth(clampWorkbenchWidth(next, bounds.width) / 100 * bounds.width)
-              else setWorkbenchWidth(clampWorkbenchWidth(next, bounds.width))
+              setWorkbenchWidth(clampWorkbenchWidth(next, bounds.width))
             }}
             onPointerUp={event => {
               if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
