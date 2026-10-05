@@ -1,4 +1,5 @@
 import type { LingGitRequest, LingGitResult, LingReadResult } from './contract.js'
+import type { LingRemoteFileRequest, LingRemoteFileResult } from './remote-files.js'
 
 export type LingServerEnvironment = 'development' | 'staging' | 'production'
 export interface LingServerInput {
@@ -26,6 +27,7 @@ export interface LingServerTerminalSnapshot {
 export interface LingServerFilesDirectory { readonly path: string; readonly entries: readonly { readonly name: string; readonly type: 'directory' | 'file' | 'other' }[] }
 export interface LingServerTextFile { readonly path: string; readonly text: string; readonly sha256: string; readonly truncated: boolean }
 export interface LingServerService {
+  fileManager(serverId: string, request: LingRemoteFileRequest, signal?: AbortSignal): Promise<LingReadResult<LingRemoteFileResult>>
   list(): Promise<LingReadResult<readonly LingServer[]>>
   add(input: LingServerInput): Promise<LingReadResult<LingServer>>
   update(id: string, input: LingServerInput): Promise<LingReadResult<LingServer>>

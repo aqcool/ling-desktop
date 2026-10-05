@@ -88,7 +88,25 @@ const serverBroker = new ServerBroker(home, {
   },
   encrypt: value => safeStorage.encryptStringAsync(value),
   decrypt: async value => (await safeStorage.decryptStringAsync(value)).result,
-}, join(root, 'lib'))
+}, join(root, 'lib'), {
+  upload: async directory => {
+    const window = BrowserWindow.getFocusedWindow() ?? mainWindow
+    if (!window || window.isDestroyed()) throw new Error('请先打开灵创窗口。')
+    const result = await dialog.showOpenDialog(window, { title: directory ? '上传目录' : '上传文件',
+      properties: directory ? ['openDirectory'] : ['openFile', 'multiSelections'] })
+    return result.canceled ? [] : result.filePaths
+  },
+  download: async (name, directory) => {
+    const window = BrowserWindow.getFocusedWindow() ?? mainWindow
+    if (!window || window.isDestroyed()) throw new Error('请先打开灵创窗口。')
+    if (directory) {
+      const result = await dialog.showOpenDialog(window, { title: '选择下载目录的保存位置', properties: ['openDirectory', 'createDirectory'] })
+      return result.canceled ? undefined : result.filePaths[0]
+    }
+    const result = await dialog.showSaveDialog(window, { title: '下载文件', defaultPath: name })
+    return result.canceled ? undefined : result.filePath
+  },
+})
 let appearance: WindowAppearance = { mode: 'system', palette: 'default' }
 const themeSnapshot = () => ({ ...appearance, resolved: nativeTheme.shouldUseDarkColors ? 'dark' as const : 'light' as const })
 const windowColors = () => themeTokens(themeSnapshot().resolved, appearance.palette)
@@ -202,6 +220,7 @@ async function startHost(): Promise<void> {
       return { ok: true as const }
     },
     async (request, signal) => {
+      if (request.action === 'sftp') return serverBroker.manageFiles(request.serverId, request.request, signal)
       if (request.action === 'read') return serverBroker.readFile(request.serverId, request.path, signal, request.root, request.maxBytes)
       if (request.action === 'write') return serverBroker.writeFile(request.serverId, request.path, request.text, request.expected, request.policy, signal)
       const entries = await serverBroker.listFiles(request.serverId, request.path, signal, request.root)

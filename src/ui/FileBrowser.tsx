@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Spinner } from '@heroui/react/spinner'
 import type {
   LingReadResult,
@@ -21,6 +21,12 @@ import type { WorkspaceContextReference } from './attachments.js'
 import { tw } from './tailwind.js'
 
 interface FileBrowserProps {
+  readonly rootPath?: string
+  readonly refreshToken?: number
+  readonly showHidden?: boolean
+  readonly entryActions?: (entry: LingWorkspaceEntry, unsaved: boolean) => ReactNode
+  readonly absolutePaths?: boolean
+  readonly mutation?: { readonly source: string; readonly destination?: string; readonly nonce: number }
   readonly loadDirectory: (
     taskId: string,
     path: string,
@@ -115,7 +121,11 @@ export function DocumentBody({ document }: { readonly document: LingWorkspaceDoc
   )
 }
 
-function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, revision, selectedPath, taskId }: {
+function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, revision, selectedPath, taskId, entryActions, showHidden, absolutePaths, hasUnsaved }: {
+  readonly hasUnsaved: (path: string) => boolean
+  readonly absolutePaths?: boolean
+  readonly entryActions?: FileBrowserProps['entryActions']
+  readonly showHidden?: boolean
   readonly entry: LingWorkspaceEntry
   readonly depth: number
   readonly loadDirectory: FileBrowserProps['loadDirectory']
@@ -157,25 +167,26 @@ function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, re
       <button
         aria-expanded={isDirectory ? expanded : undefined}
         aria-label={`${isDirectory ? expanded ? '折叠目录' : '展开目录' : '打开文件'} ${entry.name}`}
-        className={tw("workspace-files__entry flex h-control-sm flex-1 min-w-0 items-center gap-1.5 rounded-md border-0 bg-transparent py-0 pr-1 pl-[calc(0.25rem+var(--tree-depth)*0.8rem)] text-left text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:outline-0 focus-visible:bg-[var(--surface-hover)] focus-visible:outline-0", onAddContext && entry.kind !== 'other' && 'group-hover:pr-7 group-focus-within:pr-7', selectedPath === entry.path && "workspace-files__entry--selected bg-[var(--surface-selected)] text-[var(--foreground)]")}
+        className={tw("workspace-files__entry flex h-control-sm flex-1 min-w-0 items-center gap-1.5 rounded-md border-0 bg-transparent py-0 pr-1 pl-[calc(0.25rem+var(--tree-depth)*0.8rem)] text-left text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:outline-0 focus-visible:bg-[var(--surface-hover)] focus-visible:outline-0", (onAddContext || entryActions) && 'group-hover:pr-7 group-focus-within:pr-7', selectedPath === entry.path && "workspace-files__entry--selected bg-[var(--surface-selected)] text-[var(--foreground)]")}
         onClick={() => { if (isDirectory) setExpanded(current => !current); else onSelect(entry.path) }}
         onKeyDown={event => {
-          if (!onAddContext || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
+          if ((!onAddContext && !entryActions) || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
           event.preventDefault()
           const bounds = event.currentTarget.getBoundingClientRect()
           setContextRequest({ x: bounds.left, y: bounds.bottom, nonce: Date.now() })
         }}
         style={{ '--tree-depth': String(depth) } as CSSProperties}
-        title={entry.path}
+        title={`${entry.path}${entry.bytes === undefined || isDirectory ? '' : ` · ${sizeLabel(entry.bytes)}`}`}
         type="button"
       >
         <span className={tw("workspace-files__chevron grid size-4 shrink-0 place-items-center")}>{isDirectory ? <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /> : null}</span>
         <FileIcon className={tw("flex-none")} path={entry.path} directory={isDirectory} expanded={expanded} size={16} />
         <span className={tw("workspace-files__entry-name min-w-0 overflow-hidden text-xs text-ellipsis whitespace-nowrap", selectedPath === entry.path && 'font-medium')}>{entry.name}</span>
       </button>
-      {onAddContext && entry.kind !== 'other' ? <div className={tw('absolute inset-y-0 right-0.5 flex items-center')}><Menu contextRequest={contextRequest} triggerAriaLabel={`${entry.name} 文件操作`} triggerClassName={tw('size-control-xs rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100')} triggerLabel={<Icon name="more" size={14} />}>
-        <MenuItem icon="plus" onPress={() => { onAddContext({ kind: isDirectory ? 'directory' : 'file', path: entry.path }) }}>添加到对话</MenuItem>
-        <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(entry.path) }}>复制相对路径</MenuItem>
+      {onAddContext || entryActions ? <div className={tw('absolute inset-y-0 right-0.5 flex items-center')}><Menu contextRequest={contextRequest} triggerAriaLabel={`${entry.name} 文件操作`} triggerClassName={tw('size-control-xs rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100')} triggerLabel={<Icon name="more" size={14} />}>
+        {onAddContext && entry.kind !== 'other' ? <MenuItem icon="plus" onPress={() => { onAddContext({ kind: isDirectory ? 'directory' : 'file', path: entry.path }) }}>添加到对话</MenuItem> : null}
+        <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(entry.path) }}>{absolutePaths ? '复制路径' : '复制相对路径'}</MenuItem>
+        {entryActions?.(entry, hasUnsaved(entry.path))}
       </Menu></div> : null}
       </div>
       {expanded ? (
@@ -183,8 +194,8 @@ function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, re
           {loading ? <li className={tw("workspace-files__tree-state py-1.5 px-2.5 [color:var(--text-tertiary)] text-xs")}>正在读取…</li> : null}
           {message ? <li className={tw("workspace-files__tree-state py-1.5 px-2.5 [color:var(--text-tertiary)] text-xs workspace-files__tree-state--error [color:var(--danger)]")}>{message}</li> : null}
           {!loading && directory?.entries.length === 0 ? <li className={tw("workspace-files__tree-state py-1.5 px-2.5 [color:var(--text-tertiary)] text-xs")}>空目录</li> : null}
-          {!loading ? ordered(directory?.entries ?? []).map(child => (
-            <FileTreeEntry depth={depth + 1} entry={child} key={child.path} loadDirectory={loadDirectory} onSelect={onSelect} onAddContext={onAddContext} revision={revision} selectedPath={selectedPath} taskId={taskId} />
+          {!loading ? ordered(directory?.entries ?? []).filter(child => showHidden !== false || !child.name.startsWith('.')).map(child => (
+            <FileTreeEntry depth={depth + 1} entry={child} key={child.path} loadDirectory={loadDirectory} onSelect={onSelect} onAddContext={onAddContext} revision={revision} selectedPath={selectedPath} taskId={taskId} entryActions={entryActions} showHidden={showHidden} absolutePaths={absolutePaths} hasUnsaved={hasUnsaved} />
           )) : null}
         </ul>
       ) : null}
@@ -204,7 +215,7 @@ function treeWidthRange(bodyWidth: number) {
 }
 const clampWidth = (width: number, range: { min: number; max: number }) => Math.max(range.min, Math.min(range.max, width))
 
-export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddContext, taskId, stateScope, workspaceLabel }: FileBrowserProps) {
+export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddContext, taskId, stateScope, workspaceLabel, rootPath = '', refreshToken = 0, entryActions, showHidden, absolutePaths, mutation }: FileBrowserProps) {
   const scope = stateScope ?? taskId
   const [revision, setRevision] = useState(0)
   const [documentRevision, setDocumentRevision] = useState(0)
@@ -242,6 +253,14 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
     if (!cache) { cache = new Map(); unsavedBuffers.set(scope, cache) }
     return cache
   }
+  const hasUnsaved = (path: string) => [...(unsavedBuffers.get(scope)?.keys() ?? [])].some(key => key === path || key.startsWith(`${path}/`))
+  useEffect(() => {
+    if (!mutation) return
+    setOpenedFile(current => {
+      if (!current || (current !== mutation.source && !current.startsWith(`${mutation.source}/`))) return current
+      return mutation.destination ? mutation.destination + current.slice(mutation.source.length) : undefined
+    })
+  }, [mutation, scope])
 
   useLayoutEffect(() => {
     const body = bodyRef.current
@@ -268,7 +287,7 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
     const abort = new AbortController()
     setDirectoryLoading(true)
     setDirectoryMessage(undefined)
-    void loadDirectory(taskId, '', abort.signal).then(result => {
+    void loadDirectory(taskId, rootPath, abort.signal).then(result => {
       if (abort.signal.aborted) return
       if (result.ok) setDirectory(result.value)
       else { setDirectory(undefined); setDirectoryMessage(result.message) }
@@ -277,7 +296,7 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
       if (!abort.signal.aborted) { setDirectoryMessage('无法读取目录内容。'); setDirectoryLoading(false) }
     })
     return () => { abort.abort() }
-  }, [loadDirectory, revision, taskId])
+  }, [loadDirectory, revision, taskId, rootPath, refreshToken])
   useEffect(() => {
     setSelection(null)
     setDocumentMessage(undefined)
@@ -297,7 +316,7 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
       if (!abort.signal.aborted) { setDocumentMessage('无法读取文件内容。'); setDocumentLoading(false) }
     })
     return () => { abort.abort() }
-  }, [loadDocument, openedFile, documentRevision, scope, taskId])
+  }, [loadDocument, openedFile, documentRevision, scope, taskId, refreshToken])
 
   const change = (text: string) => {
     setDraft(text)
@@ -346,12 +365,13 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
         {selection && onAddContext ? <MenuItem icon="plus" onPress={() => { addSelection(selection) }}>添加选中代码到对话</MenuItem> : null}
         {openedFile && onAddContext ? <MenuItem icon="plus" onPress={() => { onAddContext({ kind: 'file', path: openedFile }) }}>添加文件到对话</MenuItem> : null}
         {openedFile && onAddContext ? <MenuSeparator /> : null}
-        {openedFile ? <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(openedFile) }}>复制相对路径</MenuItem> : null}
+        {openedFile ? <MenuItem icon="copy" onPress={() => { void navigator.clipboard.writeText(openedFile) }}>{absolutePaths ? '复制路径' : '复制相对路径'}</MenuItem> : null}
         {document?.text !== undefined ? <MenuItem icon="clipboard" onPress={() => { void navigator.clipboard.writeText(draft) }}>复制文件内容</MenuItem> : null}
         {document?.text !== undefined ? <><MenuItem checked={wrap} onPress={() => { setWrap(current => !current) }}>自动换行</MenuItem><MenuItem disabled={dirty || saving} icon="refresh" onPress={() => { setDocumentRevision(current => current + 1) }}>重新读取文件</MenuItem></> : null}
         {editable && openedFile && /\.json$/iu.test(openedFile) ? <MenuItem disabled={saving} icon="code" onPress={() => { setDocumentMessage(undefined); editorRef.current?.formatJson() }}>格式化 JSON</MenuItem> : null}
         {dirty ? <MenuItem onPress={() => { change(document?.text ?? ''); setDocumentMessage(undefined) }}>还原未保存的修改</MenuItem> : null}
         {openedFile ? <MenuSeparator /> : null}
+        {openedFile && entryActions ? entryActions({ name: fileName ?? openedFile, path: openedFile, kind: 'file', bytes: document?.bytes }, dirty) : null}
         <MenuItem icon="refresh" onPress={() => { setRevision(current => current + 1); if (!dirty) setDocumentRevision(current => current + 1) }}>刷新文件树</MenuItem>
         {openedFile ? <MenuItem icon="close" onPress={() => { setOpenedFile(undefined) }}>关闭文件预览</MenuItem> : null}
       </Menu>
@@ -393,7 +413,7 @@ export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddCo
           {!directoryLoading && directoryMessage ? <p className={tw('px-2 text-xs text-[var(--danger)]')}>{directoryMessage}</p> : null}
           {!directoryLoading && directory?.entries.length === 0 ? <p className={tw('px-2 text-xs text-[var(--text-tertiary)]')}>此目录没有内容。</p> : null}
           {!directoryLoading && directory ? <ul className={tw('workspace-files__tree m-0 p-0 list-none')} role="tree">
-            {ordered(directory.entries).filter(entry => entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(entry => <FileTreeEntry depth={0} entry={entry} key={entry.path} loadDirectory={loadDirectory} onSelect={setOpenedFile} onAddContext={onAddContext} revision={revision} selectedPath={openedFile} taskId={taskId} />)}
+            {ordered(directory.entries).filter(entry => (showHidden !== false || !entry.name.startsWith('.')) && entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(entry => <FileTreeEntry depth={0} entry={entry} key={entry.path} loadDirectory={loadDirectory} onSelect={setOpenedFile} onAddContext={onAddContext} revision={revision + refreshToken} selectedPath={openedFile} taskId={taskId} entryActions={entryActions} showHidden={showHidden} absolutePaths={absolutePaths} hasUnsaved={hasUnsaved} />)}
             {directory.truncated ? <li className={tw('px-2 py-1.5 text-xs text-[var(--text-tertiary)]')}>目录内容过多，只列出部分条目。</li> : null}
           </ul> : null}
         </div>

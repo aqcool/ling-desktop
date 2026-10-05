@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { ServerBridge } from '../src/host/server-bridge.ts'
 
 describe('server bridge', () => {
+  it('routes SFTP independently of task policy, validates results and cancels only the correlated request', async () => {
+    const sent: object[] = []
+    const bridge = new ServerBridge(message => { sent.push(message) })
+    const abort = new AbortController()
+    const browsing = bridge.file({ action: 'sftp', serverId: '00000000-0000-4000-8000-000000000001', request: { type: 'list', path: '.' } }, abort.signal)
+    expect(sent[0]).toMatchObject({ type: 'server-file-request', request: { action: 'sftp', request: { type: 'list', path: '.' } } })
+    bridge.receive({ type: 'server-response', requestId: 1, result: { type: 'directory', directory: { path: '/home/tester', entries: [], truncated: false } } })
+    await expect(browsing).resolves.toMatchObject({ type: 'directory' })
+    const reading = bridge.file({ action: 'sftp', serverId: '00000000-0000-4000-8000-000000000001', request: { type: 'read', path: '/home/tester/file' } }, abort.signal)
+    abort.abort()
+    await expect(reading).rejects.toThrow('取消')
+    expect(sent.at(-1)).toEqual({ type: 'server-cancel', requestId: 2 })
+    const invalid = bridge.file({ action: 'sftp', serverId: '00000000-0000-4000-8000-000000000001', request: { type: 'jobs' } }, new AbortController().signal)
+    bridge.receive({ type: 'server-response', requestId: 3, result: { type: 'jobs', jobs: [], credential: 'must not cross' } })
+    await expect(invalid).rejects.toThrow('无效结果')
+  })
   it('carries resolved session policy to file and process providers and validates file results', async () => {
     const sent: object[] = []
     const bridge = new ServerBridge(message => { sent.push(message) })

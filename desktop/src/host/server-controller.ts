@@ -22,6 +22,7 @@ import { getServerBridge } from './server-bridge.ts'
 import { deployDirectory } from './server-directory-deploy.ts'
 import { RemoteWorkspaceGit } from './server-git.ts'
 import type { LingGitRequest } from 'ling-desktop/runtime'
+import type { LingRemoteFileRequest } from 'ling-desktop/runtime'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { lingServers: LingServersController }
@@ -30,6 +31,12 @@ declare module '@deepseek-ai/cordis' {
 /** First-party Host plugin. The model has no tool entry for these operations. */
 export class LingServersController extends TypertRemoteService {
   static inject = ['typert', 'agents', 'tools', 'systemPrompt', 'sandboxPolicy']
+  async fileManager(serverId: string, request: LingRemoteFileRequest, signal: AbortSignal) {
+    await this.server(serverId)
+    const result = await getServerBridge().file({ action: 'sftp', serverId, request }, signal)
+    if (!('type' in result)) throw new Error('SFTP 返回了无效结果。')
+    return result
+  }
   private readonly store: ServerStore
   private readonly sessions: ServerSessions
   private readonly operations: ServerSessions
@@ -606,7 +613,7 @@ const decorate = Remote as unknown as (implementation: (...args: never[]) => unk
 }) => void
 for (const name of ['executions', 'list', 'add', 'configure', 'forget', 'probe', 'directories', 'bindTask', 'taskBinding', 'attachOperations', 'operationsBinding',
   'takeTerminalUiRequest', 'terminalScope', 'terminalList', 'terminalOpen', 'terminalPoll', 'terminalWrite', 'terminalResize', 'terminalClose',
-  'filesList', 'filesRead', 'filesSave', 'gitRequest'] as const) {
+  'filesList', 'filesRead', 'filesSave', 'fileManager', 'gitRequest'] as const) {
   decorate(prototype[name] as (...args: never[]) => unknown, {
     name, private: false, static: false, addInitializer(initializer) { initializer.call(receiver) },
   })

@@ -3,6 +3,7 @@ import type { LingImageMediaType, LingPromptAttachment } from '../runtime/contra
 export interface WorkspaceContextReference {
   readonly kind: 'file' | 'directory' | 'selection'
   readonly path: string
+  readonly server?: { readonly id: string; readonly label: string }
   readonly text?: string
   /** One-based, inclusive original editor line numbers. */
   readonly startLine?: number
@@ -48,7 +49,9 @@ export function toComposerQuote(text: string, preview = text): ComposerAttachmen
 function normalizedWorkspaceContext(reference: WorkspaceContextReference): WorkspaceContextReference {
   if (!['file', 'directory', 'selection'].includes(reference.kind) || typeof reference.path !== 'string'
     || !reference.path.length || reference.path.includes('\0')) throw new Error('工作区引用的路径无效。')
-  if (reference.kind !== 'selection') return { kind: reference.kind, path: reference.path }
+  const server = reference.server
+  if (server && (!server.id || !server.label || server.id.includes('\0') || server.label.includes('\0'))) throw new Error('服务器引用无效。')
+  if (reference.kind !== 'selection') return { kind: reference.kind, path: reference.path, ...(server ? { server } : {}) }
   if (typeof reference.text !== 'string' || !reference.text.length) throw new Error('请先选择要引用的代码。')
   const startLine = reference.startLine
   const endLine = reference.endLine ?? startLine
@@ -56,7 +59,7 @@ function normalizedWorkspaceContext(reference: WorkspaceContextReference): Works
     || (endLine !== undefined && (!Number.isSafeInteger(endLine) || startLine === undefined || endLine < startLine))) {
     throw new Error('代码选区的行范围无效。')
   }
-  return { kind: 'selection', path: reference.path, text: reference.text,
+  return { kind: 'selection', path: reference.path, text: reference.text, ...(server ? { server } : {}),
     ...(startLine === undefined ? {} : { startLine, endLine }) }
 }
 
@@ -89,7 +92,7 @@ export function workspaceContextPresentation(reference: WorkspaceContextReferenc
   const name = contextBasename(reference.path)
   return {
     label: reference.kind === 'selection' ? `${name}${range ? `:${range}` : ' · 代码选区'}` : name,
-    title: `${reference.path}${range ? `:${range}` : ''}`,
+    title: `${reference.server ? `${reference.server.label} · ` : ''}${reference.path}${range ? `:${range}` : ''}`,
     typeLabel: reference.kind === 'directory' ? '目录' : reference.kind === 'selection' ? '选区' : '文件',
   }
 }
@@ -102,12 +105,13 @@ export function toComposerWorkspaceContext(reference: WorkspaceContextReference)
     `# 工作区${context.kind === 'directory' ? '目录' : context.kind === 'selection' ? '代码选区' : '文件'}引用`,
     `原始工作区路径：\n\n${fencedContext(context.path)}`,
   ]
+  if (context.server) sections.push(`远程服务器：\n\n${fencedContext(`${context.server.label}\nserverId: ${context.server.id}`)}\n\n此路径位于该服务器，不是本地工作区。请使用对应服务器的文件工具。`)
   if (context.kind === 'selection') {
     const range = lineRange(context)
     if (range) sections.push(`原始行范围：${range}（从 1 开始，包含起止行）。`)
     sections.push(`选中的原始文本（保留编辑器中的内容，可能包含尚未保存的修改）：\n\n${fencedContext(context.text!)}`)
   } else {
-    sections.push(context.kind === 'directory'
+    sections.push(context.server ? '这是远端路径引用。请仅使用当前任务已连接的对应服务器工具读取；如果服务器不匹配，请先核对连接。' : context.kind === 'directory'
       ? '这是工作区目录的路径引用。请使用当前工作区的文件工具按需查看目录与文件。'
       : '这是工作区文件的路径引用。请使用当前工作区的文件工具按需读取原文件。')
   }
@@ -122,7 +126,7 @@ export function workspaceContextKey(reference: WorkspaceContextReference): strin
   const context = normalizedWorkspaceContext(reference)
   const path = context.kind === 'directory' && !/^(?:[\\/]|[a-z]:[\\/])$/iu.test(context.path)
     ? context.path.replace(/[\\/]+$/u, '') : context.path
-  return JSON.stringify([context.kind, path, context.startLine ?? null, context.endLine ?? null, context.text ?? null])
+  return JSON.stringify([context.kind, path, context.startLine ?? null, context.endLine ?? null, context.text ?? null, ...(context.server ? [context.server.id] : [])])
 }
 
 function readAsDataUrl(file: File): Promise<string> {

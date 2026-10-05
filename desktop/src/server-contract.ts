@@ -2,6 +2,8 @@ import type { InvocationDescriptor, RemoteResult, TypertRemoteContribution } fro
 import type { TypertContribution } from '@deepseek-ai/dsh-typert-registry'
 import { z } from 'zod'
 import type { LingGitRequest, LingGitResult, LingServerExecution } from 'ling-desktop/runtime'
+import type { LingRemoteFileRequest, LingRemoteFileResult } from 'ling-desktop/runtime'
+import { sftpRequestSchema, sftpResultSchema } from './sftp-contract.ts'
 
 export const serverEnvironmentSchema = z.enum(['development', 'staging', 'production'])
 export const serverInputSchema = z.object({
@@ -43,6 +45,7 @@ const gitSnapshotSchema = z.object({ repository: z.boolean(), root: z.string(), 
 const gitResultSchema: z.ZodType<LingGitResult> = z.object({ snapshot: gitSnapshotSchema, diff: z.string().optional(), message: z.string().optional() }).strict()
 
 export interface LingServersRemote {
+  fileManager(serverId: string, request: LingRemoteFileRequest, signal?: AbortSignal): Promise<RemoteResult<LingRemoteFileResult>>
   executions(taskId: string, callIds: readonly string[]): Promise<RemoteResult<readonly LingServerExecution[]>>
   list(): Promise<RemoteResult<readonly LingServer[]>>
   add(input: LingServerInput): Promise<RemoteResult<LingServer>>
@@ -71,6 +74,7 @@ export interface LingServersRemote {
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap { lingServers: LingServersRemote }
   interface TypertRemoteMap {
+    'lingServers/fileManager': LingServersRemote['fileManager']
     'lingServers/executions': LingServersRemote['executions']
     'lingServers/list': LingServersRemote['list']
     'lingServers/add': LingServersRemote['add']
@@ -112,6 +116,7 @@ const executionSchema: z.ZodType<LingServerExecution> = z.object({
   status: z.enum(['running', 'completed', 'failed', 'interrupted']), exitCode: z.number().int().optional(), error: z.string().optional(),
 }).strict()
 const descriptors: readonly InvocationDescriptor[] = [
+  descriptor('fileManager', [parameter('fileManager', 'serverId', z.string().uuid()), parameter('fileManager', 'request', sftpRequestSchema)], sftpResultSchema, true),
   descriptor('executions', [parameter('executions', 'taskId', z.string().min(1).max(128)), parameter('executions', 'callIds', z.array(z.string().min(1).max(256)).max(256))], z.array(executionSchema)),
   descriptor('list', [], z.array(serverSchema)),
   descriptor('add', [parameter('add', 'input', serverInputSchema)], serverSchema),

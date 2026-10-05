@@ -199,7 +199,9 @@
     "pnpm": "11.8.0",
     "react": "18.3.1",
     "ssh2": "1.17.0",
+    "tar": "7.5.22",
     "yaml": "^2.9.0",
+    "yauzl": "3.4.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -207,6 +209,7 @@
     "@types/node": "^22.20.0",
     "@types/react": "^18",
     "@types/ssh2": "^1",
+    "@types/yauzl": "2.10.3",
     "electron": "44.0.0",
     "electron-builder": "26.15.7",
     "immer": "10.1.1",
@@ -214,8 +217,7 @@
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
     "vitest": "4.1.8",
-    "zustand": "4.4.7",
-    "tar": "7.5.22"
+    "zustand": "4.4.7"
   },
   "exports": {
     ".": "./lib/extensions.js",

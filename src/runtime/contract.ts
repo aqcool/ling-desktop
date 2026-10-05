@@ -5,6 +5,7 @@ export * from './computer-control.js'
 import type { LingServerService } from './servers.js'
 export type * from './plugins.js'
 export type * from './servers.js'
+export type * from './remote-files.js'
 export type LingConnectionPhase = 'offline' | 'connecting' | 'ready' | 'failed'
 
 export * from './knowledge.js'

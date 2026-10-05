@@ -13,6 +13,9 @@ import type { LingServer, LingServerDirectory, LingServerProbe } from './server-
 import { directoryCommand } from './server-ssh.ts'
 import { localDeploymentFile, localDownloadTarget, parseRemoteFileHash, remoteDeploymentDirectory, remoteDeploymentPath, remoteFileHashCommand, shellQuote } from './server-deployment.ts'
 import { ServerStore } from './server-store.ts'
+import { SftpFiles } from './sftp-files.ts'
+import { SftpManager, type TransferPicker } from './sftp-manager.ts'
+import type { LingRemoteFileRequest } from 'ling-desktop/runtime'
 
 const { Client, utils } = ssh2
 
@@ -89,10 +92,13 @@ export class ServerBroker {
   private pending: Promise<unknown> = Promise.resolve()
   private readonly inventory: ServerStore
   private readonly runtimes = new Map<string, { key: string; runtime: Promise<DshRemoteRuntime> }>()
+  private readonly sftpSessions = new Map<string, Promise<{ client: ssh2.Client; files: SftpFiles }>>()
+  private readonly fileManager: SftpManager
   private readonly terminals = new Map<string, { serverId: string; handle: SubprocessTerminalHandle;
     output: TerminalOutput; closed: boolean; exitCode?: number; error?: string }>()
-  constructor(private readonly home: string, private readonly codec: SecretCodec, private readonly artifactDirectory?: string) {
+  constructor(private readonly home: string, private readonly codec: SecretCodec, private readonly artifactDirectory?: string, picker?: TransferPicker) {
     this.inventory = new ServerStore(join(home, 'ling-servers.json'))
+    this.fileManager = new SftpManager(async id => (await this.sftp(id)).files, picker)
   }
   private get file(): string { return join(this.home, 'ling-server-secrets.json') }
 
@@ -202,6 +208,10 @@ export class ServerBroker {
     await this.disconnect(id)
   }
   private async disconnect(id: string) {
+    await this.fileManager.close(id)
+    const sftp = this.sftpSessions.get(id)
+    this.sftpSessions.delete(id)
+    await sftp?.then(value => { value.client.end() }).catch(() => {})
     const previous = this.runtimes.get(id)
     this.runtimes.delete(id)
     await previous?.runtime.then(runtime => runtime.close()).catch(() => {})
@@ -461,9 +471,62 @@ export class ServerBroker {
     return (await this.runtime(id, signal)).listFiles(path, signal, root)
   }
   async close(): Promise<void> {
+    await this.fileManager.close()
+    const sftp = [...this.sftpSessions.values()]
+    this.sftpSessions.clear()
+    await Promise.allSettled(sftp.map(async record => { (await record).client.end() }))
     const records = [...this.runtimes.values()]
     this.runtimes.clear()
     await Promise.allSettled(records.map(async record => (await record.runtime).close()))
+  }
+  manageFiles(id: string, request: LingRemoteFileRequest, signal?: AbortSignal) {
+    return this.fileManager.request(id, request, signal)
+  }
+  /** A separate pooled SSH channel keeps file transfers independent of helper/terminal lifecycle. */
+  private async sftp(id: string): Promise<{ client: ssh2.Client; files: SftpFiles }> {
+    // Revalidate inventory/vault identity even when reusing a live connection.
+    const server = await this.server(id)
+    const entry = (await this.read()).entries[id]
+    if (!entry?.fingerprint || entry.endpoint !== endpoint(server)) throw new Error('请先确认当前服务器的主机指纹。')
+    if (!entry.credential) throw new Error('请先保存服务器密码或私钥。')
+    const storedCredential = entry.credential
+    const existing = this.sftpSessions.get(id)
+    if (existing) return existing
+    const opening = (async () => {
+      if (!(await this.codec.available())) throw new Error('系统安全存储不可用，无法读取凭证。')
+      const credential = JSON.parse(await this.codec.decrypt(Buffer.from(storedCredential.encrypted, 'base64'))) as Credential
+      if (credential.method !== storedCredential.method) throw new Error('服务器凭证库内容不一致。')
+      const client = new Client()
+      try {
+        await new Promise<void>((resolve, reject) => {
+          let mismatch = false
+          client.on('error', () => reject(new Error(mismatch ? '服务器指纹已变化，连接已阻断。' : 'SFTP 连接失败，请检查账号和凭证。')))
+          client.once('ready', resolve)
+          client.once('close', () => {
+            if (this.sftpSessions.get(id) === opening) this.sftpSessions.delete(id)
+            reject(new Error('SFTP 连接已断开，请重试。'))
+          })
+          client.connect({ host: server.alias, port: server.port ?? 22, username: server.user,
+            readyTimeout: 10000, keepaliveInterval: 10000, keepaliveCountMax: 3,
+            hostVerifier: (key: Buffer) => {
+              try { mismatch = !sameFingerprint(fingerprintFromKey(key), entry.fingerprint!); return !mismatch }
+              catch { mismatch = true; return false }
+            }, authHandler: [credential.method === 'password' ? 'password' : 'publickey'],
+            ...(credential.method === 'password' ? { password: credential.password } : { privateKey: credential.privateKey, passphrase: credential.passphrase }),
+          })
+        })
+        const channel = await new Promise<ssh2.SFTPWrapper>((resolve, reject) => client.sftp((error, value) => error ? reject(error) : resolve(value)))
+        channel.once('close', () => {
+          if (this.sftpSessions.get(id) === opening) this.sftpSessions.delete(id)
+          client.end()
+        })
+        channel.on('error', () => { client.end() })
+        return { client, files: new SftpFiles(channel) }
+      } catch (error) { client.end(); throw error }
+    })()
+    this.sftpSessions.set(id, opening)
+    void opening.catch(() => { if (this.sftpSessions.get(id) === opening) this.sftpSessions.delete(id) })
+    return opening
   }
   private async runtime(id: string, signal?: AbortSignal): Promise<DshRemoteRuntime> {
     const server = await this.server(id)

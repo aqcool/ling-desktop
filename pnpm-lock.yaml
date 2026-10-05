@@ -1230,9 +1230,15 @@ importers:
       ssh2:
         specifier: 1.17.0
         version: 1.17.0
+      tar:
+        specifier: 7.5.22
+        version: 7.5.22
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+      yauzl:
+        specifier: 3.4.0
+        version: 3.4.0
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -1246,6 +1252,9 @@ importers:
       '@types/react':
         specifier: ^18
         version: 18.3.31
+      '@types/yauzl':
+        specifier: 2.10.3
+        version: 2.10.3
       '@types/ssh2':
         specifier: ^1
         version: 1.15.6
@@ -1261,9 +1270,6 @@ importers:
       jsdom:
         specifier: 29.1.1
         version: 29.1.1(@noble/hashes@2.3.0)
-      tar:
-        specifier: 7.5.22
-        version: 7.5.22
       tsdown:
         specifier: 0.22.2
         version: 0.22.2(typescript@6.0.3)
@@ -8775,6 +8781,16 @@ packages:
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
+
+  '@types/yauzl@2.10.3':
+    resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
+
+  yauzl@3.4.0:
+    resolution: {integrity: sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw==}
+    engines: {node: '>=12'}
+
+  pend@1.2.0:
+    resolution: {integrity: sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==}
 
 snapshots:
 
@@ -17747,3 +17763,13 @@ snapshots:
       react: 18.3.1
 
   zwitch@2.0.4: {}
+
+  '@types/yauzl@2.10.3':
+    dependencies:
+      '@types/node': 22.20.1
+
+  yauzl@3.4.0:
+    dependencies:
+      pend: 1.2.0
+
+  pend@1.2.0: {}

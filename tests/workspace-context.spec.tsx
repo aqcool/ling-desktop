@@ -10,6 +10,16 @@ const decode = (reference: WorkspaceContextReference) => {
 }
 
 describe('workspace context transport', () => {
+  it('retains remote identity and never conflates an identical path on another server or the local workspace', () => {
+    const reference = { kind: 'file' as const, path: '/home/tester/config.json', server: { id: 'server-a', label: '测试服务器' } }
+    const { value, text } = decode(reference)
+    expect(value.context).toEqual(reference)
+    expect(text).toContain('serverId: server-a')
+    expect(text).toContain('不是本地工作区')
+    expect(text).not.toContain('请使用当前工作区的文件工具')
+    expect(workspaceContextKey(reference)).not.toBe(workspaceContextKey({ ...reference, server: undefined }))
+    expect(workspaceContextKey(reference)).not.toBe(workspaceContextKey({ ...reference, server: { id: 'server-b', label: '另一台' } }))
+  })
   it('sends original file and directory paths without copying their contents', () => {
     const file = decode({ kind: 'file', path: '/work/灵创/src/config.ts', text: 'private file contents' })
     const directory = decode({ kind: 'directory', path: 'C:\\Projects\\LING\\src\\', text: 'nested files' })

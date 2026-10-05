@@ -23,6 +23,7 @@ export function createDshServerProjection(
     }
   }
   return {
+    fileManager: (serverId, action, signal) => request(service => service.fileManager(serverId, action, signal)),
     list: () => request(service => service.list()),
     add: input => request(service => service.add(input)),
     update: (id, input) => request(service => service.configure(id, input)),
