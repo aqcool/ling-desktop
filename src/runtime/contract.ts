@@ -916,3 +916,4 @@ export interface LingRuntimeAdapter {
   subscribeTaskTimeline(taskId: string, listener: (items: readonly LingTimelineItem[]) => void): () => void
 }
 export type { LingPresentedFile, LingReplyFeatures } from './reply-features.js'
+export { redactDiagnostic, rendererFailure, type LingRendererFailure } from './diagnostics.js'

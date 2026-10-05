@@ -74,6 +74,15 @@ are omitted. Narrow settings rows stack their controls without horizontal
 scrolling. Keep page-specific styles in JSX and reserve the stylesheet for
 shared theme tokens and base behavior.
 
+Renderer failures have a LING recovery page and a native recovery notice, which
+also works after Chromium or preload failure. Reload affects only that window;
+the local Host and background tasks keep running, and messages are not resent.
+Host/main failures offer a manual application restart instead. Saved sessions
+remain available, but interrupted work must be continued manually. Unsaved input
+and file edits may be lost on reload or restart. Diagnostic copying includes
+version, platform, phase and bounded error stacks with common credentials
+redacted; it does not collect application state or environment variables.
+
 ## ChatGPT authorization networking
 
 The LING host reads the macOS static HTTP/HTTPS proxy at startup when neither

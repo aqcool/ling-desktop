@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, powerSaveBlocker, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type NativeImage } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, powerSaveBlocker, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type NativeImage } from 'electron'
 import { DesktopHostProcess } from './host-process.ts'
 import { APP_URL, IPC } from './ipc.ts'
 import { readWorkspaceBranch, WorkspaceGit } from './workspace-git.ts'
@@ -20,6 +20,7 @@ import { credentialDocument } from './credential-window.ts'
 import { quickNotesUrl, parseNoteWindowContext, parseNoteWindowAction } from './quick-notes-window.ts'
 import { SnapshotShortcut } from './snapshot-shortcut.ts'
 import { ApplicationIconController, FileApplicationIconStore, applyNativeApplicationIcon, type ApplicationIconStyle } from './application-icon.ts'
+import { DesktopFailureRecovery, parseRendererFailure, type FailureSource } from './failure-recovery.ts'
 
 const root = dirname(LING_HOST_PACKAGE)
 const workspaceGit = new WorkspaceGit(path => shell.openPath(path))
@@ -113,10 +114,23 @@ const windowColors = () => themeTokens(themeSnapshot().resolved, appearance.pale
 const credentialWindows = new Map<number, { window: BrowserWindow; serverId: string; pendingKey?: string }>()
 
 
-function reportFailure(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
+const recovery = new DesktopFailureRecovery({
+  version: app.getVersion(), platform: process.platform, arch: process.arch, home: app.getPath('home'),
+  available: () => !quitting,
+  show: async (notice, target) => {
+    const owner = [...windows].find(window => window.id === target?.id && !window.isDestroyed())
+      ?? (mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined)
+    const options = { ...notice, type: 'error' as const, defaultId: 0, cancelId: 2, noLink: true }
+    return (owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)).response
+  },
+  copy: text => clipboard.writeText(text),
+  restart: () => { app.relaunch(); app.quit() },
+  failed: error => { console.error('LING recovery failed', error) },
+})
+
+function reportFailure(error: unknown, source: FailureSource = 'main', window?: BrowserWindow): void {
   console.error(error)
-  if (!quitting) dialog.showErrorBox('灵创启动失败', message)
+  void recovery.report(source, error, window)
 }
 
 function assertAppSender(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>): BrowserWindow {
@@ -158,12 +172,15 @@ function createWindow(notes = false): BrowserWindow {
   })
   windows.add(window)
   const contentsId = window.webContents.id
-  window.on('closed', () => { snapshotShortcut.clearOwner(contentsId); windows.delete(window) })
+  window.on('closed', () => { recovery.closed(window); snapshotShortcut.clearOwner(contentsId); windows.delete(window) })
+  window.webContents.on('did-start-navigation', details => {
+    if (details.isMainFrame && !details.isSameDocument) recovery.loading(window)
+  })
   window.once('ready-to-show', () => window.show())
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (!notes && isTaskWindowUrl(url) && !quitting) {
       const task = createWindow()
-      void task.loadURL(url).catch(reportFailure)
+      void task.loadURL(url).catch(error => reportFailure(error, 'boot', task))
     } else openExternal(url)
     return { action: 'deny' }
   })
@@ -195,9 +212,9 @@ function createWindow(notes = false): BrowserWindow {
     })
   })
   window.webContents.on('render-process-gone', (_event, details) => {
-    if (!quitting) reportFailure(new Error(`Renderer: ${details.reason}`))
+    reportFailure(new Error(`Renderer: ${details.reason}; exitCode=${details.exitCode}`), 'renderer', window)
   })
-  window.webContents.on('preload-error', (_event, _path, error) => reportFailure(error))
+  window.webContents.on('preload-error', (_event, _path, error) => reportFailure(error, 'preload', window))
   return window
 }
 
@@ -206,7 +223,11 @@ async function startHost(): Promise<void> {
   host = new DesktopHostProcess(
     process.execPath, root, projectDir, undefined,
     { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' },
-    reportFailure, undefined, 'runtime', undefined, join(root, 'lib', 'host.js'), undefined,
+    error => {
+      hostUrl = undefined; hostCookie = undefined
+      setAutomationAwake(false)
+      reportFailure(error, 'host')
+    }, undefined, 'runtime', undefined, join(root, 'lib', 'host.js'), undefined,
     (serverId, cwd, command, signal, outputLimit, onOutput, policy) => serverBroker.run(serverId, cwd, command, signal, outputLimit, onOutput, policy),
     (serverId, root, source, destination, sha256, remoteSha256, signal) => serverBroker.upload(serverId, root, source, destination, sha256, remoteSha256, signal),
     (serverId, root, source, destination, sha256, localSha256, signal) => serverBroker.download(serverId, root, source, destination, sha256, localSha256, signal),
@@ -232,6 +253,7 @@ async function startHost(): Promise<void> {
   const url = new URL(ready.url)
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') throw new Error('LING Host must use loopback HTTP')
   hostCookie = await authenticateWebHost(ready.url)
+  if (recovery.hasHostFailure) throw new Error('LING Host stopped during startup')
   hostUrl = ready.url
   if (!ready.injections) throw new Error('LING Host omitted Web boot injections')
   injections = ready.injections
@@ -421,9 +443,22 @@ async function main(): Promise<void> {
     return { injections, streamBaseUrl: new URL(hostUrl).origin }
   })
   ipcMain.handle(IPC.failed, (event, message: unknown) => {
-    assertAppSender(event)
+    const owner = assertAppSender(event)
     if (typeof message !== 'string') throw new Error('Invalid boot error')
-    reportFailure(new Error(message.slice(0, 4096)))
+    reportFailure(new Error(message.slice(0, 4096)), 'boot', owner)
+  })
+  ipcMain.handle(IPC.rendererReady, event => { recovery.ready(assertAppSender(event)) })
+  ipcMain.handle(IPC.rendererFailure, (event, raw: unknown) => {
+    const owner = assertAppSender(event)
+    const failure = parseRendererFailure(raw)
+    console.error('LING Renderer failure', failure.message)
+    // Return immediately: the failure page remains interactive while the native notice is open.
+    void recovery.report('renderer', new Error(failure.message), owner, failure)
+  })
+  ipcMain.handle(IPC.recoveryReload, event => { recovery.reload(assertAppSender(event)) })
+  ipcMain.handle(IPC.recoveryCopy, (event, raw: unknown) => {
+    const owner = assertAppSender(event)
+    recovery.copy(parseRendererFailure(raw), owner)
   })
   let picking: Promise<string | null> | undefined
   ipcMain.handle(IPC.workspaceGit, async (event, path: unknown, request: unknown) => {
@@ -465,12 +500,13 @@ async function main(): Promise<void> {
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
   startup = startHost()
-  void startup.catch(reportFailure)
+  void startup.catch(error => reportFailure(error, 'host'))
   const openMain = (): void => {
     if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); return }
     mainWindow = createWindow()
     mainWindow.on('closed', () => { mainWindow = undefined })
-    void mainWindow.loadURL(APP_URL).catch(reportFailure)
+    const window = mainWindow
+    void window.loadURL(APP_URL).catch(error => reportFailure(error, 'boot', window))
   }
   const setTray = (enabled: boolean) => {
     if (!enabled) { tray?.destroy(); tray = undefined; return }
@@ -517,7 +553,7 @@ async function main(): Promise<void> {
     notification.once('click', () => {
       if (owner.isDestroyed()) {
         const target = createWindow()
-        void target.loadURL(`${APP_URL}?task=${encodeURIComponent(value.taskId as string)}`).catch(reportFailure)
+        void target.loadURL(`${APP_URL}?task=${encodeURIComponent(value.taskId as string)}`).catch(error => reportFailure(error, 'boot', target))
       } else {
         if (owner.isMinimized()) owner.restore()
         owner.show(); owner.focus(); owner.webContents.send(IPC.openTask, value.taskId)
@@ -549,5 +585,6 @@ app.on('before-quit', event => {
   void Promise.all([host?.stop(), serverBroker.close()]).then(() => app.quit(), error => { console.error(error); app.exit(1) })
 })
 if (claimDesktopSingleInstance(app, () => { mainWindow?.show(); mainWindow?.focus() })) {
-  void main().catch(reportFailure)
+  process.on('uncaughtException', error => reportFailure(error))
+  void main().catch(error => reportFailure(error))
 }

@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc.ts'
 import { markDocumentPlatform } from './preload-platform.ts'
 import type { ApplicationIconSnapshot, ApplicationIconStyle } from './application-icon.ts'
+import type { LingRendererFailure } from 'ling-desktop/runtime'
 
 declare global {
   interface Window {
@@ -16,6 +17,12 @@ declare global {
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   markDocumentPlatform()
+  contextBridge.exposeInMainWorld('__LING_RECOVERY__', {
+    ready: () => ipcRenderer.invoke(IPC.rendererReady),
+    report: (failure: LingRendererFailure) => ipcRenderer.invoke(IPC.rendererFailure, failure),
+    reload: () => ipcRenderer.invoke(IPC.recoveryReload),
+    copy: (failure: LingRendererFailure) => ipcRenderer.invoke(IPC.recoveryCopy, failure),
+  })
   contextBridge.exposeInMainWorld('__LING_QUICK_NOTES__', {
     open: (origin?: unknown) => ipcRenderer.invoke(IPC.notesOpen, origin),
     context: () => ipcRenderer.invoke(IPC.notesContext),
