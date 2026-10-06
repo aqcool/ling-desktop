@@ -4,10 +4,56 @@ import { LingServersController } from '../src/host/server-controller.ts'
 import { decodeApprovalDetails } from '../src/approval-details.ts'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt, { renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import Approval, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 afterEach(() => { vi.unstubAllEnvs() })
 
 describe('server approval integration', () => {
+  it('keeps local SSH available and explains full access using the live permission context', async () => {
+    vi.stubEnv('DSH_HOME', '/tmp/ling-permission-prompt-test')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/local' })
+      await ctx.plugin(Approval)
+      ctx.provide('typert', { register: () => () => {} } as never)
+      const controller = new LingServersController(ctx)
+      Object.assign(controller, {
+        sessions: { get: async () => undefined },
+        operations: { get: async () => ({ serverId: 'bound-server', cwd: '/srv/app' }) },
+        store: { list: async () => [{ id: 'bound-server', name: 'Fixture server' }] },
+      })
+      const session = ctx.sessions.create(SessionId('permission-prompt-test'), { meta: { cwd: '/local' } })
+      const agent = { id: session.id, session, ctx } as Agent
+      await (controller as unknown as { installOperations(agent: Agent): Promise<void> }).installOperations(agent)
+      setSandboxMode(session, 'danger-full-access')
+      setApprovalPolicy(session, 'never')
+      const assembly = await ctx.systemPrompt.assemble({ agent })
+      const guidance = assembly.sections.find(section => section.name === 'ling:operations-server')!.text
+      expect(guidance).toContain('Local SSH, scp, sftp and rsync are also available')
+      expect(guidance).not.toContain('Do not use local shell tools to reach that server')
+      expect(ctx.tools.get('server_exec')).toBeDefined()
+      expect(assembly.contexts.find(context => context.name === 'ling:operations-permissions')?.text).toContain('does not by itself deny ordinary commands in full access')
+      expect(assembly.contexts.find(context => context.name === 'approval:policy')?.text).toContain('Approval prompts are disabled')
+      expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('danger-full-access')
+      // A live switch must remove full-access guidance without rebuilding the task.
+      setSandboxMode(session, 'workspace-write')
+      setApprovalPolicy(session, 'ask')
+      const restricted = await ctx.systemPrompt.assemble({ agent })
+      expect(restricted.contexts.find(context => context.name === 'ling:operations-permissions')?.text).toBe('')
+      expect(renderContextSnapshot(restricted)).not.toContain('Current LING mode is danger-full-access')
+      expect(restricted.contexts.find(context => context.name === 'approval:policy')?.text).toContain('Approval policy: ask')
+    } finally { await ctx.fiber.dispose() }
+  })
   it('uses actual binding metadata and command analysis rather than the model purpose to decide approval', async () => {
     vi.stubEnv('DSH_HOME', '/tmp/ling-approval-integration')
     const ctx = new Context()
@@ -41,6 +87,11 @@ describe('server approval integration', () => {
     if (inherited.kind === 'ask') expect(decodeApprovalDetails(inherited.reason)?.impact).toContain(upstream.reason)
     mode = 'danger-full-access'
     expect(await policy(exec('systemctl restart nginx', '重启'), next)).toEqual({ kind: 'allow' })
+    for (const command of ['ssh configured-host pwd', 'rsync -a ./dist/ configured-host:/srv/app/']) {
+      const local = { ...exec(command, '本地 SSH'), name: 'bash' } as ToolExecution
+      expect(await policy(local, next)).toEqual({ kind: 'allow' })
+      expect(await policy(local, async () => ({ kind: 'deny', reason: 'independent policy' }))).toEqual({ kind: 'deny', reason: 'independent policy' })
+    }
     mode = 'read-only'
     expect((await policy(exec('systemctl restart nginx', '重启'), next)).kind).toBe('deny')
     expect((await policy(exec('systemctl restart nginx', '重启'), async () => upstream)).kind).toBe('deny')
