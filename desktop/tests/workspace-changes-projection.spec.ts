@@ -1,9 +1,10 @@
 import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { describe, expect, it, vi } from 'vitest'
-import { createDshWorkspaceChangesProjection } from '../src/client/workspace-changes-projection.js'
+import { createDshWorkspaceChangesProjection, lingWorkspaceChangesDefinition } from '../src/client/workspace-changes-projection.js'
 
 function chatSnapshot(seq = 8): ChatSnapshot {
   return {
+    nodes: { values: () => [] },
     timeline: {
       turnOrder: [1],
       turns: new Map([[1, {
@@ -26,6 +27,18 @@ function binding() {
 }
 
 describe('DSH workspace changes projection', () => {
+  it('owns workspace announcements even when no upstream UI definition is mounted', async () => {
+    const event = { seq: 8, type: 'workspace/changes', data: { turn: 1 } }
+    expect(lingWorkspaceChangesDefinition.match(event as never)).toEqual({ id: '8', role: 'start' })
+    expect(lingWorkspaceChangesDefinition.match({ ...event, data: { turn: -1 } } as never)).toBeNull()
+    const node = lingWorkspaceChangesDefinition.buildViewNode!({ key: 'changes:8', id: '8', matches: [{ event }], location: { kind: 'session' } } as never)
+    expect(node).toMatchObject({ kind: 'ling-workspace-changes', anchorSeq: 8, data: { turn: 1, seq: 8 } })
+    const snapshot = chatSnapshot()
+    const projection = createDshWorkspaceChangesProjection({ binding: () => ({ target: () => ({ getSnapshot: () => ({ ...snapshot, timeline: { ...snapshot.timeline, turns: new Map() }, nodes: { values: () => [node] } }) }) }) } as never,
+      vi.fn(async () => new Response(JSON.stringify({ turn: 1, files: [], total: 0, added: 0, deleted: 0 }))) as typeof fetch)
+    await expect(projection.list(binding(), new AbortController().signal)).resolves.toMatchObject([{ seq: 8, turn: 1 }])
+  })
+
   it('reads announced turn summaries from the authenticated host route', async () => {
     const signal = new AbortController().signal
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
@@ -99,5 +112,12 @@ describe('DSH workspace changes projection', () => {
     )
     await expect(malformed.diff(binding(), 8, 0, new AbortController().signal))
       .rejects.toThrow('Invalid changes diff response')
+  })
+
+  it('accepts the zero-line side of an added or deleted file', async () => {
+    const projection = createDshWorkspaceChangesProjection({} as never,
+      vi.fn(async () => new Response(JSON.stringify({ kind: 'text', path: 'new.ts', display: 'new.ts', before: false, after: true, coarse: false,
+        hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ['+export {}'] }] }))) as typeof fetch)
+    await expect(projection.diff(binding(), 8, 0, new AbortController().signal)).resolves.toMatchObject({ hunks: [{ oldStart: 0 }] })
   })
 })

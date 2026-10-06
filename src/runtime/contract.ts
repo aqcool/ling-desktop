@@ -318,6 +318,10 @@ export interface LingTimelineItem {
   readonly turnComplete?: boolean
   /** Runtime event times; a closed turn's elapsed time must survive reloads. */
   readonly turnTiming?: { readonly startedAt: string; readonly endedAt?: string }
+  /** Durable changes announcement revision, including arrivals after turn/end. */
+  readonly turnChangesSeq?: number
+  /** Host-derived call input; output alone is not a useful collapsed preview. */
+  readonly tool?: { readonly input: string; readonly preview?: string; readonly elapsedMs?: number; readonly background?: boolean; readonly children?: readonly LingTimelineItem[] }
   readonly attachments?: readonly LingTimelineAttachment[]
   readonly execution?: LingServerExecution
 }

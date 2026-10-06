@@ -329,6 +329,30 @@ describe('conversation connection affordance', () => {
 })
 
 describe('conversation process disclosure', () => {
+  it('reports tool failures in the compact heading and previews commands instead of output', () => {
+    const events = [
+      { ...item, itemId: 'first', kind: 'tool-activity' as const, title: 'bash', status: 'completed' as const, text: 'total 42', tool: { input: '{"command":"ls src"}', preview: 'ls src' } },
+      { ...item, itemId: 'second', kind: 'tool-activity' as const, title: 'read', status: 'failed' as const, text: 'file missing' },
+    ]
+    const html = renderConversation(events, { phase: 'ready' })
+    expect(html).toContain('执行工具 2 次，其中 1 次失败')
+    expect(html).toContain('读取文件 执行失败')
+    const summary = html.match(/<details class="timeline-activity[^>]*><summary[^>]*>(.*?)<\/summary>/)?.[1]
+    expect(summary).toContain('ls src')
+    expect(summary).not.toContain('total 42')
+    expect(html).toContain('aria-label="工具输入"')
+  })
+
+  it('shows delegation independently without calling a background receipt completed', () => {
+    const delegation = { ...item, itemId: 'agent', kind: 'tool-activity' as const, title: 'subagent_audit', status: 'completed' as const,
+      text: 'started subagent child', tool: { input: '{}', preview: '核对文档', background: true } }
+    expect(displayTimeline([delegation], false, true)[0]?.process).toBe(false)
+    const html = renderConversation([delegation], { phase: 'ready' })
+    expect(html).toContain('子智能体 已返回')
+    expect(html).not.toContain('子智能体 已完成')
+    expect(html).toContain('核对文档')
+  })
+
   it('joins reasoning-only messages with adjacent tools while keeping the answer and its actions separate', () => {
     const thought = { ...item, itemId: 'thought', text: '', detail: '先检查文件' }
     const tool = { ...item, itemId: 'tool', kind: 'tool-activity' as const, text: '文件内容' }

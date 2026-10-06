@@ -2,6 +2,11 @@ const labels: Readonly<Record<string, string>> = {
   bash: '终端命令', pwsh: 'PowerShell 命令', terminal: '终端命令',
   read: '读取文件', read_image: '查看图片', write: '写入文件', edit: '编辑文件',
   grep: '搜索内容', glob: '查找文件', web_fetch: '读取网页', web_search: '搜索网页',
+  run_code: '执行脚本', subagent: '子智能体',
+}
+/** Shipped DSH delegation names; control tools remain ordinary activities. */
+export function isSubagentTool(name: string | undefined): boolean {
+  return name === 'subagent' || name?.startsWith('subagent_') === true
 }
 const computerLabels: Readonly<Record<string, string>> = {
   list_apps: '查看应用', list_windows: '查看窗口', get_window_state: '查看窗口',

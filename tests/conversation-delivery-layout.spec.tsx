@@ -29,11 +29,23 @@ describe('conversation turn results', () => {
     expect(html.match(/aria-label="本轮用时"/g)).toHaveLength(1)
     expect(html.indexOf('用时 1126 秒')).toBeLessThan(html.indexOf('入口已更新。'))
     expect(html.indexOf('入口已更新。')).toBeLessThan(html.indexOf('已编辑 1 个文件'))
+    expect(html.indexOf('已编辑 1 个文件')).toBeLessThan(html.lastIndexOf('aria-label="复制消息"'))
   })
 
   it('keeps the previous result attached to its own turn when another question arrives', () => {
     const html = render([question, answer, { ...question, itemId: 'next', seq: 6, turn: 2, text: '下一步检查服务' }])
     expect(html.indexOf('已编辑 1 个文件')).toBeLessThan(html.indexOf('下一步检查服务'))
+  })
+
+  it('keeps every loaded turn result in its own exchange rather than only the latest card', () => {
+    const nextQuestion = { ...question, turn: 2, itemId: 'next-question', seq: 6, text: '再修改页面' }
+    const nextAnswer = { ...answer, turn: 2, itemId: 'next-answer', seq: 8, text: '第二轮完成', presentedFiles: undefined }
+    const html = renderToStaticMarkup(<Conversation connection={{ phase: 'ready' }} demo={false} hasOlder={false}
+      items={[question, answer, nextQuestion, nextAnswer]} changes={[changes, { ...changes, turn: 2, seq: 9 }]}
+      loadingOlder={false} onLoadOlder={() => {}} onReconnect={() => {}} running={false} threadKey="task" onReviewChanges={() => {}} />)
+    expect(html.match(/已编辑 1 个文件/g)).toHaveLength(2)
+    expect(html.indexOf('第 1 轮文件变更')).toBeLessThan(html.indexOf('再修改页面'))
+    expect(html.indexOf('第 2 轮文件变更')).toBeGreaterThan(html.indexOf('第二轮完成'))
   })
 
   it('uses settled runtime time after reload rather than time since opening the conversation', () => {

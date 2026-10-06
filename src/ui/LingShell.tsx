@@ -589,7 +589,7 @@ export function LingShell(props: LingShellProps) {
                 demo={demo}
                 hasOlder={hasOlder}
                 items={timeline}
-                latestChanges={modePreferences.fileChanges ? props.changes.at(-1) : undefined}
+              changes={modePreferences.fileChanges ? props.changes : undefined}
                 onReviewChanges={selection => { setReviewSource('task'); openWorkbenchTab('review'); props.onChangeSelect(selection) }}
                 loadAttachment={props.loadAttachment}
                 loadingOlder={loadingOlder}

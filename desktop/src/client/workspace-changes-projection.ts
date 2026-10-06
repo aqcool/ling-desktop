@@ -1,6 +1,6 @@
 import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationNodeDefinition, UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   LingChangedFile,
   LingDiffHunk,
@@ -15,6 +15,25 @@ interface ChangeCoordinates {
 
 interface LocationDataReader {
   get(key: string): unknown
+}
+
+/** Own the durable announcement without mounting DSH's deliverables UI. */
+export const lingWorkspaceChangesDefinition: ConversationNodeDefinition = {
+  kind: 'ling-workspace-changes', target: 'chat',
+  match(event) {
+    const data = object(event.data)
+    return (event.type as string) === 'workspace/changes' && positiveInteger(data?.['turn'])
+      ? { id: String(event.seq), role: 'start' } : null
+  },
+  start: () => ({}), update: () => ({}),
+  buildViewNode(context) {
+    const match = context.matches[0]
+    const data = object(match?.event.data)
+    if (!match || !positiveInteger(data?.['turn'])) return null
+    return { key: context.key, id: context.id, kind: 'ling-workspace-changes', target: 'chat',
+      anchorSeq: match.event.seq, location: match.location, visibility: 'hidden',
+      data: { turn: data['turn'], seq: match.event.seq } }
+  },
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -74,9 +93,9 @@ function taskChanges(taskId: string, seq: number, value: unknown): LingTaskChang
 function diffHunk(value: unknown): LingDiffHunk | undefined {
   const hunk = object(value)
   if (hunk === undefined
-    || !positiveInteger(hunk['oldStart'])
+    || !nonNegativeInteger(hunk['oldStart'])
     || !nonNegativeInteger(hunk['oldLines'])
-    || !positiveInteger(hunk['newStart'])
+    || !nonNegativeInteger(hunk['newStart'])
     || !nonNegativeInteger(hunk['newLines'])
     || !Array.isArray(hunk['lines'])
     || !hunk['lines'].every(line => typeof line === 'string')) return undefined
@@ -116,13 +135,23 @@ function fileDiff(value: unknown): LingFileDiff | undefined {
 }
 
 function coordinates(snapshot: ChatSnapshot): readonly ChangeCoordinates[] {
-  return snapshot.timeline.turnOrder.flatMap(turn => {
+  const byTurn = new Map<number, ChangeCoordinates>()
+  // Retain compatibility when an upstream business definition is present.
+  for (const turn of snapshot.timeline.turnOrder) {
     const location = snapshot.timeline.turns.get(turn)
-    if (location === undefined) return []
+    if (location === undefined) continue
     const deliverables = object((location.data as unknown as LocationDataReader).get('deliverables'))
     const changes = object(deliverables?.['changes'])
-    return positiveInteger(changes?.['seq']) ? [{ turn, seq: changes['seq'] }] : []
-  })
+    if (positiveInteger(changes?.['seq'])) byTurn.set(turn, { turn, seq: changes['seq'] })
+  }
+  for (const node of snapshot.nodes.values()) {
+    if (node.kind !== 'ling-workspace-changes') continue
+    const data = object(node.data)
+    if (!positiveInteger(data?.['turn']) || !positiveInteger(data?.['seq'])) continue
+    const previous = byTurn.get(data['turn'])
+    if (!previous || previous.seq < data['seq']) byTurn.set(data['turn'], { turn: data['turn'], seq: data['seq'] })
+  }
+  return [...byTurn.values()].sort((a, b) => a.seq - b.seq)
 }
 
 function endpoint(path: string, values: Record<string, string | number>): string {

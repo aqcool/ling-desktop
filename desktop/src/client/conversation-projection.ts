@@ -97,6 +97,27 @@ function toolText(node: RunningToolCall | ToolResultNode): string {
   return text || (node.isError ? '执行失败' : '已完成')
 }
 
+function toolPresentation(node: RunningToolCall | ToolResultNode): NonNullable<LingTimelineItem['tool']> | undefined {
+  const raw = 'name' in node ? node.argsRaw : node.call?.argsRaw
+  if (!raw?.trim()) return undefined
+  let input = raw
+  let preview: string | undefined
+  let background: boolean | undefined
+  try {
+    const args: unknown = JSON.parse(raw)
+    input = JSON.stringify(args, null, 2)
+    if (args && typeof args === 'object' && !Array.isArray(args)) {
+      const value = args as Record<string, unknown>
+      if (typeof value['run_in_background'] === 'boolean') background = value['run_in_background']
+      for (const key of ['command', 'cmd', 'file_path', 'path', 'pattern', 'query', 'url', 'description']) {
+        if (typeof value[key] === 'string' && value[key].trim()) { preview = value[key].trim(); break }
+      }
+    }
+  } catch { preview = raw.trim() }
+  const elapsedMs = 'callTime' in node && node.callTime !== null ? Math.max(0, node.time - node.callTime) : undefined
+  return { input, ...(preview ? { preview } : {}), ...(elapsedMs === undefined ? {} : { elapsedMs }), ...(background === undefined ? {} : { background }) }
+}
+
 interface TurnStops {
   readonly windows: readonly { readonly from: number; readonly to: number }[]
 }
@@ -225,12 +246,16 @@ function projectTool(
   const aborted = settled && stopped && node.isError
   const seq = 'seq' in node ? node.seq : undefined
   const attachments = settled ? contentAttachments(node.content) : []
+  const tool = toolPresentation(node)
+  const children = node.subCalls?.filter(child => !['server_exec', 'remote_run'].includes(toolName(child)))
+    .map(child => projectTool(taskId, child, suffix, stopped))
   return {
     itemId: `${taskId}:tool:${node.callId}:${suffix}`,
     taskId,
     ...(seq === undefined ? {} : { seq }),
     kind: 'tool-activity',
     title: toolName(node),
+    ...(tool || children?.length ? { tool: { input: tool?.input ?? '', ...tool, ...(children?.length ? { children } : {}) } } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     text: aborted ? '已停止' : toolText(node),
     createdAt: isoTime(node.time),
@@ -383,6 +408,14 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
     return item.text || (item.attachments?.length ?? 0) > 0 ? [item] : []
   })
 
+  // Hidden business records still invalidate their owning visible result.
+  for (const node of snapshot.nodes.values()) {
+    if (node.kind === 'ling-workspace-changes') {
+      const data = node.data as { turn: number; seq: number }
+      const at = items.findLastIndex(item => item.turn === data.turn)
+      if (at >= 0) items[at] = { ...items[at]!, turnChangesSeq: data.seq }
+    }
+  }
   for (const key of snapshot.order) {
     const node = snapshot.nodes.get(key)
     if (node === undefined) continue

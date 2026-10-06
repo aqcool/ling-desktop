@@ -49,6 +49,22 @@ function stoppedTurn(turn: number, startSeq: number, endSeq: number): ChatSnapsh
 }
 
 describe('DSH Conversation projection', () => {
+  it('previews actual tool input and preserves the output separately', () => {
+    const call = { kind: 'tool-result', seq: 4, time: 3500, callId: 'shell', callTime: 1000,
+      call: { name: 'bash', argsRaw: JSON.stringify({ command: 'ls -la src', timeout: 30 }) },
+      content: [{ type: 'text', text: 'total 42\nindex.ts' }], isError: false, subCalls: [] }
+    expect(projectConversation('task', snapshot({ nodes: [call] as never }))[0]).toMatchObject({
+      title: 'bash', text: 'total 42\nindex.ts', tool: { preview: 'ls -la src', elapsedMs: 2500 },
+    })
+    expect(projectConversation('task', snapshot({ nodes: [{ ...call, call: { name: 'bash', argsRaw: 'not-json' } }] as never }))[0]?.tool).toMatchObject({ input: 'not-json', preview: 'not-json' })
+  })
+
+  it('publishes a late workspace changes revision on its owning turn without extra chat text', () => {
+    const reply = { kind: 'assistant', seq: 4, time: 1000, turn: 1, step: 1, blocks: [{ kind: 'text', text: '已完成' }] }
+    const announcement = { key: 'changes:6', kind: 'ling-workspace-changes', id: '6', target: 'chat', anchorSeq: 6, data: { turn: 1, seq: 6 }, visibility: 'hidden', location: { kind: 'turn', turn: { turn: 1 } } }
+    expect(projectConversation('task', { ...snapshot({ nodes: [reply] as never }, new Map(), [announcement] as never), order: [] })).toMatchObject([{ text: '已完成', turnChangesSeq: 6 }])
+  })
+
   it('presents queued and steering input once across local acknowledgement and Host admission', () => {
     const local = { pendingSubmissions: [
       { requestId: 'rpc-1', placement: 'queued', text: '稍后执行', time: 1, attachments: [] },

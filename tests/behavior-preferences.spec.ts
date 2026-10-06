@@ -58,13 +58,14 @@ describe('notification transitions', () => {
 describe('completed response folding', () => {
   const base: LingTimelineItem = { taskId: 'task', itemId: 'user', kind: 'user-message', text: 'Fix', status: 'completed', createdAt: '2026-09-27T00:00:00Z' }
   const timeline: LingTimelineItem[] = [base, { ...base, itemId: 'analysis', kind: 'assistant-message', text: 'Working' }, { ...base, itemId: 'tool', kind: 'tool-activity' }, { ...base, itemId: 'final', kind: 'assistant-message', text: 'Done' }]
-  it('folds intermediate messages after completion while preserving the final answer', () => {
+  it('preserves commentary as visible paragraphs when process folding is enabled', () => {
     const groups = displayTimeline(timeline, false, true)
-    expect(groups.map(group => [group.process, group.items.map(item => item.itemId)])).toEqual([[false, ['user']], [true, ['analysis', 'tool']], [false, ['final']]])
+    expect(groups.map(group => [group.process, group.items.map(item => item.itemId)])).toEqual([[false, ['user']], [false, ['analysis']], [true, ['tool']], [false, ['final']]])
     expect(displayTimeline(timeline, true, true).find(group => group.items[0]?.itemId === 'analysis')?.process).toBe(false)
   })
-  it('does not hide failures inside a collapsed process', () => {
-    expect(displayTimeline([{ ...base, itemId: 'error', kind: 'tool-activity', status: 'failed' }], false, true)[0]?.process).toBe(false)
+  it('groups failed tools but keeps terminal turn failures independent', () => {
+    expect(displayTimeline([{ ...base, itemId: 'error', kind: 'tool-activity', status: 'failed' }], false, true)[0]?.process).toBe(true)
+    expect(displayTimeline([{ ...base, itemId: 'error', kind: 'system-notice', status: 'failed' }], false, true)[0]?.process).toBe(false)
   })
 })
 it('distinguishes goal creation from control commands', () => {

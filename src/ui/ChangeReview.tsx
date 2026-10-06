@@ -156,16 +156,17 @@ export function ChangeReview({
 }
 
 /** Compact conversation summary; file clicks use the same diff selection as the review panel. */
-export function ConversationChangeSummary({ change, onSelect, deliveries = [], onPreviewDelivery }: {
+export function ConversationChangeSummary({ change, onSelect, deliveries = [], onPreviewDelivery, inReply = false }: {
   readonly change: LingTaskChanges
   readonly onSelect: (selection: ChangeSelection) => void
   readonly deliveries?: readonly LingPresentedFile[]
   readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
+  readonly inReply?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   if (change.files.length === 0) return null
   const visible = expanded ? change.files : change.files.slice(0, 3)
-  return <section aria-label={`第 ${String(change.turn)} 轮文件变更`} className={tw("mx-2 min-w-0 overflow-hidden rounded-lg border border-[var(--panel-border)] text-sm")}>
+  return <section aria-label={`第 ${String(change.turn)} 轮文件变更`} className={tw("min-w-0 overflow-hidden rounded-lg border border-[var(--panel-border)] text-sm", inReply ? 'mt-4' : 'mx-4')}>
     <div className={tw("flex items-center gap-3 border-b border-[var(--panel-border)] px-4 py-3")}>
       <span className={tw("grid size-10 shrink-0 place-items-center rounded-lg bg-[var(--surface-secondary)] text-[var(--text-tertiary)]")}><Icon name="review" size={20} /></span>
       <div className={tw("min-w-0 flex-1")}><p className={tw("m-0 font-semibold leading-6")}>已编辑 {change.total} 个文件</p><p className={tw("m-0 flex gap-2 text-xs leading-5 tabular-nums")}><span className={tw("text-[var(--success)]")}>+{change.added}</span><span className={tw("text-[var(--danger)]")}>−{change.deleted}</span></p></div>

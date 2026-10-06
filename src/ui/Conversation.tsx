@@ -21,7 +21,7 @@ import { ConversationChangeSummary, type ChangeSelection } from './ChangeReview.
 import { Markdown, renderedMarkdownText } from './Markdown.js'
 import { tw } from './tailwind.js'
 import { Menu, MenuItem } from './Menu.js'
-import { toolLabel } from './tool-labels.js'
+import { toolLabel, isSubagentTool } from './tool-labels.js'
 import { ReplyAnnotationDialog, type ReplyAnnotationDraft } from './ReplyAnnotationDialog.js'
 import { sameTimelineProps } from './timeline-item-equality.js'
 import { DeliveryCards, type OpenDelivery } from './DeliveryCards.js'
@@ -50,6 +50,7 @@ interface ConversationProps {
   readonly onOpenDelivery?: OpenDelivery
   readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
   readonly latestChanges?: LingTaskChanges
+  readonly changes?: readonly LingTaskChanges[]
   readonly onReviewChanges?: (selection: ChangeSelection) => void
   readonly items: readonly LingTimelineItem[]
   readonly connection: LingRuntimeConnection
@@ -128,8 +129,8 @@ function Disclosure({ expanded, className, children }: { expanded: boolean; clas
 
 type PresentationItem = LingTimelineItem & { readonly presentation?: 'reasoning' }
 
-function ProcessState({ active, completed }: { active: boolean; completed: boolean }) {
-  return <span aria-hidden="true" className={tw('grid size-3 shrink-0 place-items-center border [border-radius:50%] [corner-shape:round]', active ? 'animate-spin border-[var(--text-tertiary)] border-r-transparent motion-reduce:animate-none' : completed ? 'border-[var(--success)] text-[var(--success)]' : 'border-[var(--text-tertiary)]')}>
+function ProcessState({ active, completed, failed = false }: { active: boolean; completed: boolean; failed?: boolean }) {
+  return <span aria-hidden="true" className={tw('grid size-3 shrink-0 place-items-center border [border-radius:50%] [corner-shape:round]', active ? 'animate-spin border-[var(--text-tertiary)] border-r-transparent motion-reduce:animate-none' : completed ? 'border-[var(--success)] text-[var(--success)]' : failed ? 'border-[var(--danger)] text-[var(--danger)]' : 'border-[var(--text-tertiary)]')}>
     {completed ? <Icon name="check" size={9} /> : null}
   </span>
 }
@@ -139,21 +140,29 @@ const ProcessActivity = memo(function ProcessActivity({ item, live, expanded, lo
   const reasoning = item.presentation === 'reasoning'
   const active = live && (reasoning ? item.reasoningStreaming === true : item.status === 'running')
   const completed = reasoning ? !active : item.status === 'completed'
+  const failed = !reasoning && item.status === 'failed'
+  const delegation = item.kind === 'tool-activity' && isSubagentTool(item.title)
   const source = reasoning ? item.detail ?? '' : [item.text, item.detail].filter(Boolean).join('\n\n')
   const lines = source.trim().split('\n').filter(line => line.trim())
-  const preview = (active && reasoning ? lines.at(-1) : lines[0])?.replaceAll('**', '')
-  const label = reasoning ? (active ? '正在思考' : '已思考')
+  const preview = (reasoning ? active ? lines.at(-1) : lines[0] : item.tool?.preview ?? lines[0])?.replaceAll('**', '')
+  // A background delegation receipt is not proof that the child finished.
+  const delegatedStatus = active ? '委派中' : failed ? '委派失败' : item.status === 'interrupted' ? '已停止'
+    : item.tool?.background === false ? '已完成' : '已返回'
+  const label = delegation ? `子智能体 ${delegatedStatus}` : reasoning ? (active ? '正在思考' : '已思考')
     : item.kind === 'assistant-message' ? '回复'
-    : `${item.title && item.kind === 'tool-activity' ? toolLabel(item.title) : item.title ?? (item.kind === 'tool-activity' ? '工具执行' : '上下文')}${item.kind === 'tool-activity' ? active ? ' 运行中' : completed ? ' 已运行' : ' 已停止' : active ? ' 进行中' : ''}`
+    : `${item.title && item.kind === 'tool-activity' ? toolLabel(item.title) : item.title ?? (item.kind === 'tool-activity' ? '工具执行' : '上下文')}${item.kind === 'tool-activity' ? active ? ' 运行中' : completed ? ' 已运行' : failed ? ' 执行失败' : ' 已停止' : active ? ' 进行中' : ''}`
   return <Disclosure expanded={expanded} className={tw('timeline-activity group/activity min-w-0 text-[var(--text-secondary)]')}>
-    <summary data-reasoning={reasoning ? '' : undefined} data-state={active ? 'running' : completed ? 'completed' : 'interrupted'} className={tw('flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-md px-1 py-0.5 text-compact leading-6 outline-none hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]')}>
-      <ProcessState active={active} completed={completed} />
-      <span className={tw('shrink-0')}>{label}</span>
+    <summary data-reasoning={reasoning ? '' : undefined} data-state={active ? 'running' : completed ? 'completed' : failed ? 'failed' : 'interrupted'} className={tw('flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-md px-1 py-0.5 text-compact leading-6 outline-none hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]')}>
+      {delegation ? <span aria-hidden="true" className={tw('grid size-5 shrink-0 place-items-center rounded-full [corner-shape:round] bg-[var(--surface-secondary)] text-[var(--link)]')}><Icon name="robot" size={12} /></span> : <ProcessState active={active} completed={completed} failed={failed} />}
+      <span className={tw('shrink-0', failed && 'text-[var(--danger)]')}>{label}</span>
       {preview ? <><span aria-hidden="true" className={tw('text-[var(--text-tertiary)]')}>·</span><span className={tw('min-w-0 truncate text-[var(--text-tertiary)]')}>{preview}</span></> : null}
+      {delegation && !active && item.tool?.background === false && item.tool.elapsedMs !== undefined ? <span className={tw('shrink-0 text-xs tabular-nums text-[var(--text-tertiary)]')}>{formatElapsed(item.tool.elapsedMs, 'seconds')}</span> : null}
     </summary>
     <div className={tw('mb-2 ml-6 mt-1 min-w-0')}>
+      {!reasoning && item.tool?.input ? <pre aria-label="工具输入" className={tw('mb-2 mt-0 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--surface-secondary)] p-3 font-mono text-xs leading-5')}>{item.tool.input}</pre> : null}
       {reasoning || item.kind === 'assistant-message' ? <Markdown source={source} subdued /> : <pre className={tw('m-0 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--surface-secondary)] p-3 font-mono text-xs leading-5')}>{source}</pre>}
       {item.attachments?.length ? <div className={tw('mt-2 flex flex-wrap gap-1.5')}>{item.attachments.map(attachment => <AttachmentChip attachment={attachment} key={attachment.attachmentId} load={loadAttachment} taskId={item.taskId} />)}</div> : null}
+      {item.tool?.children?.length ? <div aria-label="子工具调用" className={tw('mt-2 grid min-w-0 gap-0.5 border-l border-[var(--panel-border)] pl-2')}>{item.tool.children.map(child => <ProcessActivity key={child.itemId} item={child} live={live} expanded={false} loadAttachment={loadAttachment} />)}</div> : null}
     </div>
   </Disclosure>
 }, sameTimelineProps)
@@ -165,13 +174,16 @@ function ProcessGroup({ items, liveIds, preferences, children }: { items: readon
   const [now, setNow] = useState(Date.now)
   useEffect(() => { if (!active) return; setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [active])
   const tools = items.filter(item => item.kind === 'tool-activity' && !item.title?.startsWith('/')).length
+  const failed = items.filter(item => item.kind === 'tool-activity' && item.status === 'failed').length
+  const settledLabel = preferences.toolCounts && tools > 0 ? `执行工具 ${tools} 次${failed > 0 ? `，其中 ${failed} 次失败` : ''}`
+    : items.some(item => item.status === 'interrupted') ? '已停止' : '已处理'
   return <Disclosure expanded={active || !preferences.collapseProcess} className={tw('timeline-process group/process min-w-0 text-[var(--text-secondary)]')}>
     <summary className={tw('flex min-h-7 w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-md px-4 text-compact leading-6 text-[var(--text-tertiary)] outline-none hover:text-[var(--foreground)] focus-visible:ring-2 focus-visible:ring-[var(--focus)]')}>
       <span className={tw('grid size-5 shrink-0 place-items-center rounded-md border border-[var(--panel-border)] bg-[var(--surface)]')}><Icon className={tw('transition-transform group-open/process:rotate-90')} name="chevronRight" size={12} /></span>
-      <span className={tw('shrink-0')}>{active ? '正在执行中' : items.some(item => item.status === 'interrupted') ? '已停止' : '已处理'}</span>
-      {active && Number.isFinite(started) ? <span className={tw('tabular-nums')}>· {formatElapsed(Math.max(0, now - started), preferences.elapsedFormat)}</span> : preferences.toolCounts && tools > 0 ? <span className={tw('truncate text-xs')}>· 执行工具 {tools} 次</span> : null}
+      <span className={tw('min-w-0 truncate')}>{active ? '正在执行中' : settledLabel}</span>
+      {active && Number.isFinite(started) ? <span className={tw('tabular-nums')}>· {formatElapsed(Math.max(0, now - started), preferences.elapsedFormat)}</span> : null}
     </summary>
-    <div className={tw('ml-[25px] mt-1 grid min-w-0 gap-0.5 border-l border-[var(--panel-border)] pl-3')}>{children}</div>
+    <div className={tw('ml-[25px] mt-1 grid min-w-0 gap-0.5 border-l border-[var(--panel-border)] pl-1')}>{children}</div>
   </Disclosure>
 }
 
@@ -206,13 +218,13 @@ function ServerExecutionView({ item, live, expanded }: { item: LingTimelineItem;
   </Disclosure>
 }
 
-function ThinkingStatus({ start, preferences }: { start: number; preferences: BehaviorPreferences }) {
+function ThinkingStatus({ start, preferences, showElapsed }: { start: number; preferences: BehaviorPreferences; showElapsed: boolean }) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => { setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(timer) }, [])
   const phrase = preferences.thinkingPhrases[Math.floor(Math.max(0, now - start) / 4000) % preferences.thinkingPhrases.length]
   return <div className={tw("flex min-h-control-xs items-center gap-2 px-4 text-xs text-[var(--text-tertiary)]")} role="status">
     {preferences.thinkingLoader === 'matrix' ? <span aria-hidden="true" className={tw('grid size-3 grid-cols-3 gap-px')}>{Array.from({ length: 9 }, (_, i) => <span className={tw('size-0.5 animate-pulse bg-current motion-reduce:animate-none')} style={{ animationDelay: `${i * 170}ms` }} key={i} />)}</span> : preferences.thinkingLoader === 'spinner' ? <Icon aria-hidden name="refresh" className={tw('animate-spin motion-reduce:animate-none')} size={12} /> : preferences.thinkingLoader === 'dots' ? <span aria-hidden="true" className={tw('flex gap-0.5')}>{[0, 1, 2].map(i => <span className={tw('size-1 animate-bounce rounded-full bg-current motion-reduce:animate-none')} style={{ animationDelay: `${i * 150}ms` }} key={i} />)}</span> : null}<span>{phrase}</span>
-    <span className={tw('tabular-nums')}>{formatElapsed(now - start, preferences.elapsedFormat)}</span>
+    {showElapsed ? <span className={tw('tabular-nums')}>{formatElapsed(now - start, preferences.elapsedFormat)}</span> : null}
   </div>
 }
 
@@ -490,6 +502,7 @@ const TimelineRow = memo(function TimelineRow({
   onOpenDelivery,
   onPreviewDelivery,
   elapsedFormat = 'seconds',
+  trailingContent,
 }: {
   readonly item: LingTimelineItem
   readonly showActions?: boolean
@@ -512,6 +525,7 @@ const TimelineRow = memo(function TimelineRow({
   readonly onOpenDelivery?: OpenDelivery
   readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
   readonly elapsedFormat?: BehaviorPreferences['elapsedFormat']
+  readonly trailingContent?: ReactNode
 }) {
   const textRef = useRef<HTMLDivElement>(null)
   const articleRef = useCallback((node: HTMLElement | null) => registerMessage?.(item.itemId, node), [item.itemId, registerMessage])
@@ -556,6 +570,7 @@ const TimelineRow = memo(function TimelineRow({
 
         </div>
         {item.presentedFiles?.length && onOpenDelivery && onPreviewDelivery ? <DeliveryCards taskId={item.taskId} files={item.presentedFiles} onOpen={onOpenDelivery} onPreview={onPreviewDelivery} /> : null}
+        {trailingContent}
         {(isUser || showActions) ? <MessageActions item={item} plainText={() => !isUser && textRef.current ? renderedMarkdownText(textRef.current) : item.text} onForkAt={onForkAt} onAddReply={onAddReply} onEdit={isUser && onEditMessage && onEditRequest ? () => onEditRequest(item) : undefined} forkDisabled={forkDisabled} /> : null}
       </div>
       {item.streaming && live ? <span className={tw("mt-1 h-4 w-1 shrink-0 animate-pulse bg-current")} aria-hidden="true" /> : null}
@@ -594,22 +609,20 @@ function replyActionIds(items: readonly LingTimelineItem[], running: boolean): R
   return ids
 }
 
-export function displayTimeline(items: readonly LingTimelineItem[], running: boolean, collapse: boolean) {
+export function displayTimeline(items: readonly LingTimelineItem[], _running: boolean, _collapse: boolean) {
   // Permission changes are reflected in the composer, not conversation content.
   items = items.filter(item => !(item.kind === 'tool-activity' && item.title === '/permission' && item.status === 'completed'))
-  const finals = replyActionIds(items, running)
   const groups: { process: boolean; items: PresentationItem[] }[] = []
-  const lastUser = items.findLastIndex(item => item.kind === 'user-message')
-  for (const [index, item] of items.entries()) {
+  for (const item of items) {
     // Split only the presentation: runtime identity, turn actions and anchors stay intact.
     const parts: PresentationItem[] = item.kind === 'assistant-message' && item.detail?.trim()
       ? [{ ...item, presentation: 'reasoning', text: '', attachments: undefined, presentedFiles: undefined }, ...(item.text || item.title || item.attachments?.length || item.presentedFiles?.length ? [{ ...item, detail: undefined }] : [])]
       : [item]
     for (const part of parts) {
-      const process = !item.compaction && !part.presentedFiles?.length && (part.presentation === 'reasoning'
-        || collapse && item.status !== 'failed' && item.kind !== 'user-message' && !finals.has(item.itemId) && (index < lastUser || !running)
-        || item.status !== 'failed' && (item.kind === 'tool-activity' || item.kind === 'system-notice'))
-      if (process && groups.at(-1)?.process) groups.at(-1)!.items.push(part)
+      const process = !item.compaction && !part.presentedFiles?.length && !isSubagentTool(item.title) && (part.presentation === 'reasoning'
+        || item.kind === 'tool-activity' || item.status !== 'failed' && item.kind === 'system-notice')
+      const previous = groups.at(-1)
+      if (process && previous?.process && previous.items.at(-1)?.turn === part.turn && previous.items.at(-1)?.taskId === part.taskId) previous.items.push(part)
       else groups.push({ process, items: [part] })
     }
   }
@@ -699,6 +712,7 @@ export function Conversation({
   onPreviewDelivery,
   items,
   latestChanges,
+  changes,
   onReviewChanges,
   connection,
   demo,
@@ -729,13 +743,23 @@ export function Conversation({
   if (running && Number.isFinite(runtimeStart)) clockStart.current = { thread: threadKey, start: runtimeStart }
   else if (running && (!wasRunning.current || !clockStart.current || clockStart.current.thread !== threadKey)) clockStart.current = { thread: threadKey, start: Date.now() }
   wasRunning.current = running
-  const reviewChange = onReviewChanges ? latestChanges : undefined
-  const reviewedDeliveries = useMemo(() => reviewChange ? items.filter(item => item.taskId === reviewChange.taskId && item.turn === reviewChange.turn).flatMap(item => item.presentedFiles ?? []) : [], [items, reviewChange])
-  const presentedItems = useMemo(() => withoutReviewedDeliveries(items, reviewChange), [items, reviewChange])
+  const reviewChanges = useMemo(() => onReviewChanges ? changes ?? (latestChanges ? [latestChanges] : []) : [], [changes, latestChanges, onReviewChanges])
+  const presentedItems = useMemo(() => reviewChanges.reduce((result, change) => withoutReviewedDeliveries(result, change), items), [items, reviewChanges])
   const groups = useMemo(() => displayTimeline(presentedItems, running, preferences.collapseProcess), [presentedItems, running, preferences.collapseProcess])
-  const matchingChangeGroup = reviewChange ? groups.findLastIndex(group => group.items.some(item => item.taskId === reviewChange.taskId && item.turn === reviewChange.turn)) : -1
-  const changeGroup = matchingChangeGroup >= 0 || !reviewChange ? matchingChangeGroup
-    : groups.findLastIndex(group => group.items.some(item => item.taskId === reviewChange.taskId && item.seq !== undefined && item.seq <= reviewChange.seq))
+  const changeGroups = useMemo(() => {
+    const mapped = new Map<number, { change: LingTaskChanges; deliveries: LingPresentedFile[] }[]>()
+    for (const change of reviewChanges) {
+      const matching = groups.findLastIndex(group => group.items.some(item => item.taskId === change.taskId && item.turn === change.turn))
+      const index = matching >= 0 ? matching : groups.findLastIndex(group => group.items.some(item => item.taskId === change.taskId && item.seq !== undefined && item.seq <= change.seq))
+      // Do not attach unloaded older results to an unrelated visible exchange.
+      if (index < 0 && groups.length > 0) continue
+      const entry = { change, deliveries: items.filter(item => item.taskId === change.taskId && item.turn === change.turn).flatMap(item => item.presentedFiles ?? []) }
+      mapped.set(index, [...mapped.get(index) ?? [], entry])
+    }
+    return mapped
+  }, [groups, items, reviewChanges])
+  const changeCards = (index: number, inReply = false) => onReviewChanges ? changeGroups.get(index)?.map(({ change, deliveries }) =>
+    <ConversationChangeSummary key={`${change.taskId}:${change.seq}`} change={change} deliveries={deliveries} inReply={inReply} onPreviewDelivery={onPreviewDelivery} onSelect={onReviewChanges} />) : undefined
   const scrollRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<ConversationSelection>()
   const [annotation, setAnnotation] = useState<ReplyAnnotationDraft>()
@@ -939,17 +963,19 @@ export function Conversation({
             </button>
           </div>
         ) : null}
-        {!groups.length && reviewChange && onReviewChanges ? <ConversationChangeSummary change={reviewChange} deliveries={reviewedDeliveries} onPreviewDelivery={onPreviewDelivery} onSelect={onReviewChanges} /> : null}
+        {!groups.length ? changeCards(-1) : null}
         {groups.map((group, index) => <Fragment key={`${group.process ? 'process' : 'message'}:${group.items[0]?.itemId}`}>{group.process ? (
           <ProcessGroup items={group.items} liveIds={liveItemIds} preferences={preferences} key={`process:${group.items[0]?.itemId}`}>
-            {group.items.map(item => item.execution || item.status === 'failed' && item.presentation !== 'reasoning'
+            {group.items.map(item => item.execution
               ? <TimelineRow expandTools={preferences.expandTools} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={running} />
               : <ProcessActivity expanded={preferences.expandTools} item={item} key={`${item.itemId}:${item.presentation ?? 'activity'}`} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} />)}
           </ProcessGroup>
-        ) : group.items.map(item => <TimelineRow elapsedFormat={preferences.elapsedFormat} onOpenDelivery={onOpenDelivery} onPreviewDelivery={onPreviewDelivery} registerMessage={item.kind === 'user-message' ? registerMessage : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onCompactContext={onCompactContext} compactDisabled={compactDisabled} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />)}
-          {index === changeGroup && reviewChange && onReviewChanges ? <ConversationChangeSummary change={reviewChange} deliveries={reviewedDeliveries} onPreviewDelivery={onPreviewDelivery} key={`${threadKey}-${String(reviewChange.seq)}`} onSelect={onReviewChanges} /> : null}
+        ) : group.items.map((item, itemIndex) => item.kind === 'tool-activity' && isSubagentTool(item.title)
+          ? <div key={item.itemId} className={tw('min-w-0 px-3')}><ProcessActivity item={item} live={liveItemIds.has(item.itemId)} expanded={preferences.expandTools} loadAttachment={loadAttachment} />{itemIndex === group.items.length - 1 ? changeCards(index, true) : null}</div>
+          : <TimelineRow trailingContent={itemIndex === group.items.length - 1 ? changeCards(index, true) : undefined} elapsedFormat={preferences.elapsedFormat} onOpenDelivery={onOpenDelivery} onPreviewDelivery={onPreviewDelivery} registerMessage={item.kind === 'user-message' ? registerMessage : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onCompactContext={onCompactContext} compactDisabled={compactDisabled} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />)}
+          {group.process ? changeCards(index) : null}
         </Fragment>)}
-        {running && clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} start={clockStart.current.start} preferences={preferences} /> : null}
+        {running && clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} start={clockStart.current.start} preferences={preferences} showElapsed={!groups.some(group => group.process && group.items.some(item => liveItemIds.has(item.itemId) && (item.status === 'running' || item.reasoningStreaming)))} /> : null}
         {suggestedReply && replyFeatures && onChooseSuggestion ? <ReplySuggestions key={`${suggestedReply.taskId}:${suggestedReply.seq}`} reply={suggestedReply} service={replyFeatures} onChoose={onChooseSuggestion} /> : null}
         {readingSpace > 0 ? <div aria-hidden style={{ height: readingSpace }} /> : null}
       </div>

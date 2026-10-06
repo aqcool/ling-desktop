@@ -498,6 +498,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     else window.localStorage.setItem(selectedTaskStorageKey, selectedTaskId)
   }, [selectionRestored, selectedTaskId])
 
+  const changesRevision = timeline.map(item => item.turnChangesSeq ?? '').join(',')
   useEffect(() => {
     setSelectedChange(undefined)
     setChangeDiff(undefined)
@@ -529,7 +530,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       }
     })
     return () => { abort.abort() }
-  }, [getTaskChanges, selectedTaskId, selectedTaskStatus, timeline.length])
+  }, [getTaskChanges, selectedTaskId, selectedTaskStatus, timeline.length, changesRevision])
 
   useEffect(() => {
     if (selectedTaskId === undefined || selectedChange === undefined) {

@@ -44,7 +44,7 @@ import { createDshSubagentProjection } from './subagent-projection.js'
 import { createDshTaskModelProjection } from './task-model-projection.js'
 import { createDshTerminalProjection } from './terminal-projection.js'
 import { attachWorkspaceTerminals } from './workspace-terminal-projection.ts'
-import { createDshWorkspaceChangesProjection } from './workspace-changes-projection.js'
+import { createDshWorkspaceChangesProjection, lingWorkspaceChangesDefinition } from './workspace-changes-projection.js'
 import { createDshWorkspaceFilesProjection } from './workspace-files-projection.js'
 import { lingDeliverablesDefinition } from './deliverables-projection.js'
 import { createReplyFeaturesProjection } from './reply-features-projection.js'
@@ -129,6 +129,7 @@ export async function createLingSession(
 
 export function apply(ctx: Context): void {
   ctx.uiConversation.events.register(lingDeliverablesDefinition)
+  ctx.uiConversation.events.register(lingWorkspaceChangesDefinition)
   ctx.uiConversation.events.register(lingCompactionDefinition)
   ctx.uiConversation.events.register(lingCompactionBoundaryDefinition)
   ctx.effect(() => {
