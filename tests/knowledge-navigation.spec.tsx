@@ -68,10 +68,70 @@ async function projectView(container: HTMLElement, label: string) {
   await click(item!)
 }
 describe('knowledge navigation and project boundaries', () => {
+  it('keeps opened Wiki pages in tabs, restores positions and closes without removing saved pages', async () => {
+    const service = fixture(), original = service.request.getMockImplementation()!
+    const pages = [{ ...documents[0]!, body: '正文 A Wiki\n\n## 入口\n内容' }, { ...documents[0]!, id: '第二页', title: '第二页', body: '第二页正文\n\n## 第二页章节\n内容' }]
+    service.request.mockImplementation(async (input, signal) => {
+      if (input.type === 'snapshot') return { ok: true, value: { snapshot: { documents: pages, jobs: [], indexedFiles: 1, indexedAt: 1, settings: { ...knowledgeDefaults, provider: 'test', model: 'test' } } } }
+      if (input.type === 'read') return { ok: true, value: { document: pages.find(doc => doc.id === input.id) } }
+      return original(input, signal)
+    })
+    const container = await mount(<KnowledgeSpace service={service} scope={{ workspaceId: 'a' }} label="项目 A" onBack={vi.fn()} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
+    await click(button(container, 'A Wiki'))
+    await click(button(container, '显示页内目录'))
+    expect(container.querySelector<HTMLElement>('nav[aria-label="页内目录"]')?.textContent).toContain('A Wiki')
+    const pane = container.querySelector<HTMLDivElement>('[aria-label="知识阅读区域"]')!
+    pane.scrollTop = 260; await act(async () => pane.dispatchEvent(new Event('scroll', { bubbles: true })))
+    await click(button(container, '第二页'))
+    expect(container.querySelector<HTMLElement>('nav[aria-label="页内目录"]')?.hidden).toBe(false)
+    const tablist = container.querySelector<HTMLElement>('[role="tablist"][aria-label="阅读标签"]')!
+    expect(tablist.querySelectorAll('[role="tab"]')).toHaveLength(2)
+    expect(tablist.querySelector('[aria-selected="true"]')?.textContent).toBe('第二页')
+    await click(Array.from(tablist.querySelectorAll<HTMLElement>('[role="tab"]')).find(tab => tab.textContent === 'A Wiki')!)
+    expect(pane.scrollTop).toBe(260)
+    expect(container.querySelector<HTMLElement>('nav[aria-label="页内目录"]')?.hidden).toBe(false)
+    await act(async () => tablist.querySelector<HTMLElement>('[aria-selected="true"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+    expect(container.querySelector('article')?.textContent).toContain('第二页正文')
+    await click(button(container, '关闭标签：第二页'))
+    expect(container.querySelector('article')?.textContent).toContain('正文 A Wiki')
+    expect(pane.scrollTop).toBe(260)
+    await click(button(container, '关闭标签：A Wiki'))
+    expect(container.querySelector('[aria-label="Wiki 概览"]')).not.toBeNull()
+    expect(service.request.mock.calls.some(([input]) => input.type === 'remove')).toBe(false)
+    expect(container.querySelector('[aria-label="页面列表"]')?.textContent).toContain('第二页')
+  })
+
+  it('guards an edited page when closing its tab and returns to the overview only after discarding', async () => {
+    const service = fixture()
+    const container = await mount(<KnowledgeSpace service={service} scope={{ workspaceId: 'a' }} label="项目 A" onBack={vi.fn()} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
+    await click(button(container, 'A Wiki'))
+    await click(button(container, '文档更多操作'))
+    await click(Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === '编辑文档')!)
+    const editor = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="文档正文"]')!
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(editor, '尚未保存'); editor.dispatchEvent(new Event('input', { bubbles: true })) })
+    await click(button(container, '关闭标签：A Wiki'))
+    await click(button(document.body, '继续编辑'))
+    expect(editor.value).toBe('尚未保存')
+    expect(container.querySelector('[role="tab"]')).not.toBeNull()
+    await click(button(container, '关闭标签：A Wiki'))
+    await click(button(document.body, '放弃修改并离开'))
+    expect(container.querySelector('[aria-label="Wiki 概览"]')).not.toBeNull()
+    expect(service.request.mock.calls.some(([input]) => input.type === 'remove')).toBe(false)
+  })
+
+  it('locates Wiki Markdown anchor links inside the current article', async () => {
+    const doc = { ...documents[0]!, body: '# 页面\n\n[运行方法](#运行-方法)\n\n## 运行 方法\n正文' }
+    const container = await mount(<KnowledgeReader document={doc} tabbed pending={false} onSave={async () => undefined} onArchive={vi.fn()} onSource={vi.fn()} onWiki={vi.fn()} onOpenTask={vi.fn()} onExport={async () => undefined} />)
+    await click(Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).find(link => link.textContent === '运行方法')!)
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' })
+    expect(container.querySelector('header[aria-label="文档工具栏"] time')).not.toBeNull()
+    expect(container.querySelectorAll('h1')).toHaveLength(1)
+  })
+
   it('opens the article directory on demand and preserves it when switching between source and preview', async () => {
     const doc = { ...documents[0]!, title: '页面文件名', body: '# 页面正文标题\n\n## 入口\n正文\n\n## 使用方式\n运行方法。' }
     const container = await mount(<KnowledgeReader document={doc} pending={false} onSave={async () => undefined} onArchive={vi.fn()} onSource={vi.fn()} onWiki={vi.fn()} onOpenTask={vi.fn()} onExport={async () => undefined} />)
-    const directory = container.querySelector<HTMLElement>('nav[aria-label="本文目录"]')!
+    const directory = container.querySelector<HTMLElement>('nav[aria-label="页内目录"]')!
     expect(directory.hidden).toBe(true)
     expect(container.querySelectorAll('h1')).toHaveLength(1)
     expect(container.querySelector('h1')?.textContent).toBe('页面正文标题')
@@ -269,7 +329,8 @@ describe('knowledge navigation and project boundaries', () => {
     const service = fixture(), onBack = vi.fn()
     const container = await mount(<KnowledgeSpace service={service} scope={{ workspaceId: null, libraryId: 'library' }} library={library} label="参考资料" onBack={onBack} onSettings={vi.fn()} onOpenTask={vi.fn()} />)
     await click(button(container, '库内资料'))
-    await click(button(container, '编辑'))
+    await click(button(container, '文档更多操作'))
+    await click(Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === '编辑文档')!)
     const editor = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="文档正文"]')!
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(editor, '尚未保存'); editor.dispatchEvent(new Event('input', { bubbles: true })) })
     await click(button(container, '知识库'))

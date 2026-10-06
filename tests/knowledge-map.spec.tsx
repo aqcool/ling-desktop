@@ -33,6 +33,11 @@ async function mount(element: ReactNode) {
 }
 async function settle() { await act(async () => { await new Promise(done => setTimeout(done, 20)) }) }
 async function click(container: HTMLElement, text: string) {
+  if (text === '知识图谱' || text === '返回图谱') {
+    await click(container, '更多操作')
+    const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === text)
+    expect(item, text).toBeDefined(); await act(async () => item!.click()); return
+  }
   const button = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.getAttribute('aria-label') === text || button.textContent?.trim() === text)
   expect(button, text).toBeDefined(); await act(async () => button!.click())
 }

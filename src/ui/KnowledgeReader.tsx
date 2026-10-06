@@ -12,7 +12,6 @@ import {
   downloadKnowledge,
   knowledgeCodeLink,
   knowledgeHeadings,
-  knowledgeKinds,
   knowledgeStates,
 } from './knowledge-view.js'
 import { tw } from './tailwind.js'
@@ -30,8 +29,14 @@ export function KnowledgeReader({
   onDirtyChange,
   searchQuery = '',
   searchVisit = 0,
+  tabbed = false,
+  initialDirectory = false,
+  onDirectoryChange,
 }: {
   document: KnowledgeDocument
+  tabbed?: boolean
+  initialDirectory?: boolean
+  onDirectoryChange?: (open: boolean) => void
   searchQuery?: string
   searchVisit?: number
   onDirtyChange?: (dirty: boolean) => void
@@ -53,7 +58,7 @@ export function KnowledgeReader({
     [title, setTitle] = useState(doc.title),
     [body, setBody] = useState(doc.body),
     [version, setVersion] = useState<KnowledgeDocument>()
-  const [raw, setRaw] = useState(false), [directory, setDirectory] = useState(false)
+  const [raw, setRaw] = useState(false), [directory, setDirectory] = useState(initialDirectory), [activeHeading, setActiveHeading] = useState('')
   const directoryId = useId()
   const article = useRef<HTMLElement>(null), highlightName = `knowledge-search-${useId().replace(/[^a-z0-9]/gi, '')}`
   const isDirty = editing && (title !== doc.title || body !== doc.body)
@@ -66,6 +71,23 @@ export function KnowledgeReader({
     [headings],
   )
   const bodyHasTitle = headings[0]?.level === 1 && !content.body.split('\n').slice(0, headings[0].line - 1).join('\n').trim()
+  const directoryHeadings = useMemo(() => bodyHasTitle ? headings : [{ id: 'knowledge-document-title', title: content.title, level: 1 }, ...headings], [bodyHasTitle, headings, content.title])
+  useEffect(() => {
+    if (!directory || raw || editing || !article.current) return
+    const pane = article.current.closest<HTMLElement>('[aria-label="知识阅读区域"]')
+    if (!pane) return
+    const update = () => {
+      const top = pane.getBoundingClientRect().top + (tabbed ? 88 : 44) + 32
+      let current = directoryHeadings[0]?.id ?? ''
+      for (const heading of directoryHeadings) {
+        const element = article.current?.querySelector<HTMLElement>(`[id="${heading.id}"]`)
+        if (element && element.getBoundingClientRect().top <= top) current = heading.id
+      }
+      setActiveHeading(current)
+    }
+    update(); pane.addEventListener('scroll', update, { passive: true })
+    return () => pane.removeEventListener('scroll', update)
+  }, [directory, raw, editing, directoryHeadings, tabbed])
   useEffect(() => {
     if (!searchQuery.trim() || !article.current || editing) return
     const terms = searchQuery.trim().split(/\s+/).filter(Boolean).sort((a, b) => b.length - a.length)
@@ -98,9 +120,12 @@ export function KnowledgeReader({
     } catch { onLinkError?.('无法复制文档，请检查剪贴板权限。') }
   }
   return (
-    <div className={tw('@container min-w-0')}>
-      <header aria-label="文档工具栏" className={tw('sticky top-0 z-10 flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-[var(--panel-border)] bg-[var(--surface)] px-5 py-1.5')}>
-        <span className={tw('flex min-w-0 flex-1 items-center gap-2 text-sm font-medium')}><Icon name={doc.kind === 'wiki' ? 'book' : doc.kind === 'card' ? 'grid' : 'file'} size={16} className={tw('shrink-0 text-[var(--text-secondary)]')} /><span className={tw('truncate')}>{content.title}</span></span>
+    <div className={tw('@container min-w-0', tabbed ? '[--knowledge-anchor-offset:7rem]' : '[--knowledge-anchor-offset:4.25rem]')}>
+      <header aria-label="文档工具栏" className={tw('sticky z-10 flex min-h-11 items-center justify-between gap-3 border-b border-[var(--panel-border)] bg-[var(--surface)] px-7 py-1.5 @max-[500px]:px-4', tabbed ? 'top-11' : 'top-0')}>
+        <div className={tw('flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-caption text-[var(--text-tertiary)]')}>
+          <time dateTime={new Date(content.updatedAt).toISOString()}>最近更新：{new Date(content.updatedAt).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time>
+          {doc.state !== 'active' ? <span className={tw(doc.state === 'stale' && 'text-[var(--warning)]')}>{knowledgeStates[doc.state]}</span> : null}
+        </div>
         <div className={tw('flex items-center gap-1')}>
           {editing ? <>
             <CompactButton isDisabled={pending || !title.trim() || !body.trim()} onPress={() => {
@@ -112,27 +137,19 @@ export function KnowledgeReader({
               <CompactButton variant="tertiary" isIconOnly aria-label="预览" title="预览" aria-pressed={!raw} onPress={() => setRaw(false)} className={tw(!raw ? 'bg-[var(--surface)] shadow-sm' : 'bg-transparent')}><Icon name="eye" size={16} /></CompactButton>
               <CompactButton variant="tertiary" isIconOnly aria-label="源文" title="Markdown 源文" aria-pressed={raw} onPress={() => setRaw(true)} className={tw(raw ? 'bg-[var(--surface)] shadow-sm' : 'bg-transparent')}><Icon name="code" size={16} /></CompactButton>
             </div>
-            <CompactButton variant="tertiary" isIconOnly className={tw('bg-transparent')} aria-label="编辑" title="编辑文档" isDisabled={pending} onPress={() => { setTitle(content.title); setBody(content.body); setEditing(true) }}><Icon name="edit" size={16} /></CompactButton>
-            <CompactButton variant="tertiary" isIconOnly className={tw('bg-transparent')} aria-label="复制 Markdown" title="复制 Markdown" onPress={() => { void copyDocument() }}><Icon name="copy" size={16} /></CompactButton>
-            <CompactButton variant="tertiary" isIconOnly className={tw('bg-transparent')} aria-label="导出文档" title="导出文档" isDisabled={pending} onPress={exportDocument}><Icon name="download" size={16} /></CompactButton>
-            {headings.length ? <CompactButton variant="tertiary" isIconOnly className={tw(directory && !raw ? 'bg-[var(--surface-selected)]' : 'bg-transparent')} aria-label={directory ? '隐藏页内目录' : '显示页内目录'} title={directory ? '隐藏页内目录' : '显示页内目录'} aria-expanded={directory && !raw} aria-controls={directoryId} isDisabled={raw} onPress={() => setDirectory(value => !value)}><Icon name="listCheck" size={16} /></CompactButton> : null}
-            <KnowledgeMenu label="文档更多操作" disabled={pending} items={[{ id: 'archive', label: '归档', action: onArchive }]} />
+            <KnowledgeMenu label="文档更多操作" disabled={pending} items={[
+              { id: 'edit', label: '编辑文档', action: () => { setTitle(content.title); setBody(content.body); setEditing(true) } },
+              { id: 'copy', label: '复制 Markdown', action: () => { void copyDocument() } },
+              { id: 'export', label: '导出文档', action: exportDocument },
+              { id: 'archive', label: '归档', action: onArchive },
+            ]} />
           </>}
         </div>
       </header>
-      <div className={tw('grid min-w-0 gap-8 px-8 py-7 @max-[500px]:px-5', directory && !raw && !editing ? 'grid-cols-1 @min-[640px]:grid-cols-[minmax(0,1fr)_160px]' : 'grid-cols-1')}>
-      <article ref={article} className={tw('mx-auto w-full min-w-0 max-w-[780px]')}>
+      <div className={tw('relative grid min-w-0 grid-cols-1 items-start gap-8 px-7 py-6 @max-[500px]:px-4', directory && !raw && !editing && '@min-[800px]:grid-cols-[minmax(0,1fr)_216px]')}>
+      <article ref={article} className={tw('col-start-1 row-start-1 mx-auto w-full min-w-0 max-w-[960px]', !!headings.length && !editing && !raw && '@max-[800px]:pr-8', !!headings.length && !directory && !editing && !raw && '@min-[800px]:pr-10')}>
         <style>{`::highlight(${highlightName}) { background-color: color-mix(in srgb, var(--link) 22%, transparent); color: var(--foreground); }`}</style>
-        <header className={tw('mb-6')}>
-          <div
-            className={tw(
-              'mb-5 flex flex-wrap items-center gap-3 text-caption text-[var(--text-tertiary)]',
-            )}
-          >
-            <span>{knowledgeKinds[doc.kind]}</span>
-            <time dateTime={new Date(content.updatedAt).toISOString()}>最近更新：{new Date(content.updatedAt).toLocaleString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
-            {doc.state !== 'active' ? <span className={tw(doc.state === 'stale' && 'text-[var(--warning)]')}>{knowledgeStates[doc.state]}</span> : null}
-          </div>
+        {editing || (!bodyHasTitle && !raw) || doc.state === 'candidate' ? <header className={tw('mb-6')}>
           {editing ? (
             <CompactInput
               aria-label="文档标题"
@@ -145,8 +162,9 @@ export function KnowledgeReader({
             />
           ) : !bodyHasTitle && !raw ? (
             <h1
+              id="knowledge-document-title"
               className={tw(
-                'm-0 text-xl font-semibold leading-8 [overflow-wrap:anywhere]',
+                'm-0 text-xl font-semibold leading-8 scroll-mt-[var(--knowledge-anchor-offset)] [overflow-wrap:anywhere]',
               )}
             >
               {content.title}
@@ -166,7 +184,7 @@ export function KnowledgeReader({
                     确认保存
                   </CompactButton>
                 ) : null}
-        </header>
+        </header> : null}
         <div data-knowledge-body>
         {editing ? (
           <textarea
@@ -276,35 +294,36 @@ export function KnowledgeReader({
           </footer>
         ) : null}
       </article>
-      {headings.length ? (
+      {headings.length ? <aside hidden={raw || editing} className={tw('sticky z-5 col-start-1 row-start-1 ml-auto w-8', tabbed ? 'top-[104px]' : 'top-[60px]', directory && '@min-[800px]:col-start-2 @min-[800px]:w-full')}>
+        <div className={tw('mb-2 flex justify-end')}><CompactButton variant="tertiary" isIconOnly className={tw('size-7 rounded-md border border-[var(--panel-border)] bg-[var(--surface-secondary)]')} aria-label={directory ? '隐藏页内目录' : '显示页内目录'} title={directory ? '隐藏页内目录' : '显示页内目录'} aria-expanded={directory} aria-controls={directoryId} onPress={() => { setDirectory(!directory); onDirectoryChange?.(!directory) }}><Icon name="sort" size={15} /></CompactButton></div>
         <nav
           id={directoryId}
-          aria-label="本文目录"
+          aria-label="页内目录"
           hidden={!directory || raw || editing}
           className={tw(
-            'order-first max-h-56 self-start overflow-auto border-b border-[var(--panel-border)] pb-4 @min-[640px]:sticky @min-[640px]:top-20 @min-[640px]:order-last @min-[640px]:max-h-[calc(100vh-220px)] @min-[640px]:border-b-0 @min-[640px]:border-l @min-[640px]:pl-4',
+            'max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] p-3 @max-[800px]:absolute @max-[800px]:right-0 @max-[800px]:w-56 @max-[800px]:shadow-[var(--overlay-shadow)]',
           )}
         >
           <h2
             className={tw(
-              'mb-3 mt-0 text-xs font-medium text-[var(--text-secondary)]',
+              'mb-3 mt-0 text-xs font-medium text-[var(--foreground)]',
             )}
           >
-            本文目录
+            页内目录
           </h2>
-          <div className={tw('grid gap-2')}>
-            {headings.map((item) => (
+          <div className={tw('grid gap-1')}>
+            {directoryHeadings.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                style={{ paddingLeft: Math.max(0, item.level - 2) * 8 }}
-                onClick={() =>
-                  window.document
-                    .getElementById(item.id)
-                    ?.scrollIntoView({ block: 'start', behavior: 'auto' })
-                }
+                style={{ paddingLeft: 4 + Math.max(0, item.level - directoryHeadings[0]!.level) * 10 }}
+                aria-current={activeHeading === item.id ? 'location' : undefined}
+                onClick={() => {
+                  article.current?.querySelector<HTMLElement>(`[id="${item.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' })
+                  setActiveHeading(item.id)
+                }}
                 className={tw(
-                  'border-0 bg-transparent p-0 text-left text-xs leading-5 text-[var(--text-tertiary)] hover:text-[var(--foreground)]',
+                  'rounded border-0 bg-transparent py-1 pr-1 text-left text-xs leading-5 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] [overflow-wrap:anywhere]', activeHeading === item.id && 'bg-[var(--surface-secondary)] text-[var(--link)]',
                 )}
               >
                 {item.title}
@@ -312,7 +331,7 @@ export function KnowledgeReader({
             ))}
           </div>
         </nav>
-      ) : null}
+      </aside> : <nav id={directoryId} aria-label="页内目录" hidden />}
       </div>
     </div>
   )

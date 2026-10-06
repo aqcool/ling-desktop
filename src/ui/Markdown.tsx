@@ -106,10 +106,18 @@ export function Markdown({ source, inverted = false, chat = false, subdued = fal
     if (headingIds) for (const tag of ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const) {
       result[tag] = ({ children, node }) => {
         const Tag = tag
-        return <Tag id={headingIds.find(item => item.line === node?.position?.start.line)?.id} className={tw(headingClass, 'scroll-mt-5', tag === 'h1' ? 'text-xl' : tag === 'h2' ? 'text-lg' : 'text-base')}>{children}</Tag>
+        return <Tag id={headingIds.find(item => item.line === node?.position?.start.line)?.id} className={tw(headingClass, 'scroll-mt-[var(--knowledge-anchor-offset,1.25rem)]', tag === 'h1' ? 'text-xl' : tag === 'h2' ? 'text-lg' : 'text-base')}>{children}</Tag>
       }
     }
     if (knowledgeLinks) result.a = ({ href, children }) => {
+      if (headingIds && href?.startsWith('#')) return <a href={href} className={tw('text-[var(--md-link)] underline underline-offset-2')} onClick={event => {
+        event.preventDefault()
+        let anchor: string
+        try { anchor = decodeURIComponent(href.slice(1)) } catch { return }
+        const slug = (text: string) => text.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-')
+        const heading = Array.from(event.currentTarget.closest('[data-knowledge-body]')?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? []).find(item => item.id === anchor || slug(item.textContent ?? '') === slug(anchor))
+        heading?.scrollIntoView({ block: 'start', behavior: 'auto' })
+      }}>{children}</a>
       if (href?.startsWith('code:') || href?.startsWith('wiki:')) {
         return <button type="button" className={tw('inline border-0 bg-transparent p-0 text-left text-[var(--link)] underline underline-offset-2')} onClick={() => linkHandler.current?.(href)}>{children}</button>
       }
@@ -126,6 +134,6 @@ export function Markdown({ source, inverted = false, chat = false, subdued = fal
       : "[--md-border:var(--panel-border)] [--md-code-bg:var(--code-background)] [--md-code-text:inherit] [--md-heading:var(--foreground)] [--md-hover:var(--surface-hover)] [--md-link:var(--link)] [--md-muted:var(--text-secondary)] [--md-pre-bg:var(--surface-secondary)] [--md-pre-text:inherit] [--md-table-head-bg:var(--surface-secondary)] [--md-text:var(--foreground)]",
     subdued && "[--md-text:var(--text-secondary)] [--md-heading:var(--text-secondary)] dark:[--md-text:var(--text-secondary)] dark:[--md-heading:var(--text-secondary)]",
   )}>
-    <ReactMarkdown components={readingComponents} remarkPlugins={[remarkGfm]} urlTransform={url => onKnowledgeLink && (url.startsWith('code:') || url.startsWith('wiki:')) ? url : safeHref(url) ?? ''}>{source}</ReactMarkdown>
+    <ReactMarkdown components={readingComponents} remarkPlugins={[remarkGfm]} urlTransform={url => onKnowledgeLink && (url.startsWith('code:') || url.startsWith('wiki:') || (headingIds && url.startsWith('#'))) ? url : safeHref(url) ?? ''}>{source}</ReactMarkdown>
   </div>
 }

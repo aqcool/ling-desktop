@@ -35,7 +35,7 @@ describe('knowledge reading navigation', () => {
         onExport={async () => undefined}
       />,
     )
-    expect(html).toContain('aria-label="本文目录"')
+    expect(html).toContain('aria-label="页内目录"')
     expect(html).toContain('id="knowledge-heading-0"')
     expect(html).toContain('id="knowledge-heading-1"')
     expect(html).toContain('>start</button>')
