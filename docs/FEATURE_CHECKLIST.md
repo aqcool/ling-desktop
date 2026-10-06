@@ -128,6 +128,7 @@ for "the real service does it". Update it as work lands.
 | 能力 | UI 入口 | 数据来源 | UI | 服务 | 操作 | 恢复 | 未完成/阻塞 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 提供商目录 + 凭据状态 | `ModelSettings` | `getModelSettings` | 是 | 是 | 是 | 是 | 凭据保存 / 提供商已加载 / 调用成功分开呈现 | live：`/tmp/p2-models.mjs` 读取真实目录（DeepSeek 就绪、key 只显示状态） |
+| Codex 登录账户模型目录更新 | 提供商「刷新模型」 / 自动更新 | 账户 `/codex/models` → `lingModelCatalog` → `session.modelCatalog` | 是 | 是 | 是 | 是 | Pi 当前支持 low 至 max；不提供尚不支持的 ultra。此次实屏核对因 Mac 锁屏未完成，未发起模型推理请求 | live 2026-10-06：真实开发版重启后，两条目录 RPC 均成功，GPT-6.1-Sol、GPT-6-Astra、GPT-6-Sol、GPT-6-Luna 已进入可路由目录，无提供商失败，缓存已应用；原默认 GPT-5.6-Sol 保留。`desktop/tests/codex-catalog-auth.spec.ts` 和 `model-catalog.spec.ts` 覆盖令牌刷新、账户切换与离线保留；完整 Host check 550 项通过、1 项可选测试跳过 |
 | API Key 写入真实凭据服务 | 密码框 + 保存 | `provider.store-api-key` | 是 | 是 | 是 | 是 | key 明文永不回显 | live：`/tmp/p2-models.mjs`（保存后状态翻转）；用户自行配置真实 DeepSeek key 后真实模型调用成功 |
 | 默认模型保存（全局） | 默认卡 | `model.select-default` | 是 | 是 | 是 | 是 | — | live：`/tmp/p2-default-model.mjs`、`/tmp/p2-read-default.mjs`（刷新后仍为所选） |
 | 任务级模型 / 推理档位 | composer 模型条 | `LingModelSelection`、`LingModelEffortOption` | 是 | 是 | 是 | 是 | 与全局默认分开呈现 | live：`/tmp/scenario-task-model*.mjs`、`/tmp/scenario-effort*.mjs` |

@@ -10,6 +10,7 @@ import type { LingModelCatalogState, LingDiscoveredModel } from 'ling-desktop/ru
 import { LING_MODEL_CATALOG_HOST } from '../model-catalog-contract.ts'
 import { ModelCatalogStore } from '../model-catalog-store.ts'
 import { connectionIdentity, fetchCatalog, listable, mergeCatalog, profileModels, record, string, type CatalogConnection, type CatalogCacheEntry, type CatalogModel, type ModelProfile } from '../model-catalog.ts'
+import { codexCatalogAuth } from './codex-catalog-auth.ts'
 
 declare module '@deepseek-ai/cordis' { interface Context { lingModelCatalog: LingModelCatalogController } }
 const DAY = 24 * 60 * 60 * 1000
@@ -70,7 +71,7 @@ export class LingModelCatalogController extends TypertRemoteService {
     for (const key of entry.settingsPath) value = record(value)?.[key]
     return namespace && record(value) ? { entry, namespace, profile: record(value)! } : undefined
   }
-  private async connection(providerId: string): Promise<CatalogConnection | undefined> {
+  private async connection(providerId: string, refreshAuth = false, signal = this.lifetime.signal): Promise<CatalogConnection | undefined> {
     const context = this.profile(providerId)
     if (!context) return undefined
     const { profile, entry } = context
@@ -92,10 +93,19 @@ export class LingModelCatalogController extends TypertRemoteService {
     }
     if (!api || !baseUrl || !listable(api)) return undefined
     const headers = Object.fromEntries(Object.entries(record(profile.headers) ?? {}).filter((item): item is [string, string] => typeof item[1] === 'string'))
+    if (api === 'openai-codex-responses') {
+      // Only the configured Codex route owns these OAuth credentials. Never
+      // export a login token to an unrelated custom provider or public API.
+      if (native || providerId !== 'openai-codex' || reference) return undefined
+      const auth = await codexCatalogAuth(this.ctx, piProviders.get(providerId)!, signal, refreshAuth)
+      if (!auth) return undefined
+      return { providerId, namespace: entry.settingsNs, path: [...entry.settingsPath], baseUrl, api,
+        headers: { ...headers, 'ChatGPT-Account-Id': auth.accountId, originator: 'ling-desktop' }, apiKey: auth.access, credentialIdentity: auth.identity, native: false }
+    }
     let apiKey: string | undefined
     if (reference) apiKey = (await this.ctx.credentials.resolve(credentialRef(reference)))?.value
     else {
-      // Only the API-key path is used. OAuth catalogs remain owned by Pi.
+      // Other OAuth catalogs remain owned by their Pi provider.
       const builtin = piProviders.get(providerId)
       const credential = builtin ? await this.ctx.credentials.readRecord(parseCredentialKey(`llm-pi-ai/${providerId}`)) : undefined
       if (credential?.kind === 'grant') return undefined
@@ -121,7 +131,7 @@ export class LingModelCatalogController extends TypertRemoteService {
       newModelIds: cache?.newModelIds ?? [],
       missingModelIds: cache ? existing.filter(model => !ids.has(model.id)).map(model => model.id) : [],
       unverifiedModelIds: cache?.models.filter(model => !model.conversational && !known.has(model.id) && cache.newModelIds.includes(model.id)).map(model => model.id) ?? [],
-      ...(cache && !cache.pending ? { efforts: Object.fromEntries(cache.models.filter(model => model.efforts).map(model => [model.id, ['off', ...model.efforts!]])) } : {}),
+      ...(cache && !cache.pending ? { efforts: Object.fromEntries(cache.models.filter(model => model.efforts).map(model => [model.id, model.reasoningEfforts ? Object.keys(model.reasoningEfforts) : ['off', ...model.efforts!]])) } : {}),
     }
   }
   private existing(providerId: string, profile?: Record<string, unknown>): ModelProfile[] {
@@ -215,21 +225,21 @@ export class LingModelCatalogController extends TypertRemoteService {
     return flight
   }
   async probe(providerId: string, signal?: AbortSignal): Promise<readonly LingDiscoveredModel[]> {
-    const connection = await this.connection(providerId)
-    if (!connection) throw new Error('此连接没有可探测的模型目录。')
     const combined = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(30000), ...(signal ? [signal] : [])])
+    const connection = await this.connection(providerId, true, combined)
+    if (!connection) throw new Error('此连接没有可探测的模型目录。')
     const models = await fetchCatalog(connection, combined)
     return models.map(({ id, name, contextWindow }) => ({ id, ...(name ? { name } : {}), ...(contextWindow ? { contextWindow } : {}) }))
   }
   private async performRefresh(providerId: string, signal?: AbortSignal): Promise<LingModelCatalogState> {
     await this.store.ready
     if (!this.ctx.settings.writable) throw new Error('当前模型设置不可写。')
-    const connection = await this.connection(providerId)
-    if (!connection) throw new Error('此连接使用 Pi 内置模型目录，或尚未配置供应商凭证。')
-    const epoch = this.credentialEpoch
     const combined = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(30000), ...(signal ? [signal] : [])])
-    this.attempted.set(providerId, { identity: connectionIdentity(connection), at: Date.now() })
     try {
+      const connection = await this.connection(providerId, true, combined)
+      if (!connection) throw new Error('此连接使用 Pi 内置模型目录，或尚未配置供应商凭证。')
+      const epoch = this.credentialEpoch
+      this.attempted.set(providerId, { identity: connectionIdentity(connection), at: Date.now() })
       const models: CatalogModel[] = await fetchCatalog(connection, combined)
       combined.throwIfAborted()
       const current = await this.connection(providerId)

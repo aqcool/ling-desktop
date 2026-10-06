@@ -7,6 +7,7 @@ export interface CatalogModel {
   readonly maxTokens?: number
   readonly input?: readonly ('text' | 'image')[]
   readonly efforts?: readonly string[]
+  readonly reasoningEfforts?: Readonly<Record<string, string | null>>
   readonly systemPromptUpdate?: 'leading-only' | 'in-history'
   readonly conversational: boolean
 }
@@ -18,6 +19,8 @@ export interface CatalogConnection {
   readonly api: string
   readonly headers: Readonly<Record<string, string>>
   readonly apiKey?: string
+  /** Stable account identity for OAuth catalogs; rotating access tokens are not catalog identities. */
+  readonly credentialIdentity?: string
   readonly native: boolean
 }
 export type ModelProfile = Record<string, unknown> & { id: string }
@@ -47,16 +50,23 @@ export function profileModels(value: unknown): ModelProfile[] {
 export function connectionIdentity(connection: CatalogConnection): string {
   return createHash('sha256').update(JSON.stringify([
     connection.providerId, connection.namespace, connection.path, connection.baseUrl, connection.api,
-    Object.entries(connection.headers).sort(([a], [b]) => a.localeCompare(b)), connection.apiKey ?? '',
+    Object.entries(connection.headers).filter(([key]) => !connection.credentialIdentity || !/^(authorization|chatgpt-account-id)$/i.test(key)).sort(([a], [b]) => a.localeCompare(b)), connection.credentialIdentity ?? connection.apiKey ?? '',
   ])).digest('hex')
 }
 export function listable(api: string): boolean {
-  return ['openai-completions', 'openai-responses', 'anthropic-messages'].includes(api)
+  return ['openai-completions', 'openai-responses', 'anthropic-messages', 'openai-codex-responses'].includes(api)
 }
 export function catalogUrl(connection: CatalogConnection): URL {
   const url = new URL(connection.baseUrl)
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('服务地址不支持模型目录刷新。')
   const base = url.pathname.replace(/\/+$/, '')
+  if (connection.api === 'openai-codex-responses') {
+    url.pathname = `${base.replace(/\/codex(?:\/responses)?$/, '')}/codex/models`
+    // Catalog schema compatibility baseline, independent of LING's product version.
+    // Verified against the official Codex 0.160.0 ModelsResponse contract.
+    url.searchParams.set('client_version', '0.160.0')
+    return url
+  }
   url.pathname = connection.api === 'anthropic-messages'
     ? `${base.replace(/\/v1$/, '')}/v1/models`
     : `${base}/models`
@@ -65,7 +75,8 @@ export function catalogUrl(connection: CatalogConnection): URL {
 }
 
 function parseModel(row: unknown, idFromMap: string | undefined, connection: CatalogConnection): CatalogModel {
-  const value = record(row), id = string(value?.id) ?? idFromMap
+  const codex = connection.api === 'openai-codex-responses'
+  const value = record(row), id = string(codex ? value?.slug : value?.id) ?? idFromMap
   if (!value || !id || id.length > 1024 || /[\u0000-\u001f]/.test(id)) throw new Error('供应商返回了不完整的模型目录，已保留原目录。')
   const name = string(value.name) ?? string(value.display_name)
   const limits = record(value.limit)
@@ -74,13 +85,17 @@ function parseModel(row: unknown, idFromMap: string | undefined, connection: Cat
   const modalities = value.input_modalities ?? value.input ?? record(value.modalities)?.input
   const input = Array.isArray(modalities) && modalities.every(item => item === 'text' || item === 'image') && modalities.length
     ? [...new Set(modalities)] as ('text' | 'image')[] : undefined
-  const levels = record(value.effort)?.supported_levels
+  const levels = codex && Array.isArray(value.supported_reasoning_levels) ? value.supported_reasoning_levels.map(level => record(level)?.effort) : record(value.effort)?.supported_levels
+  // Pi exposes these portable levels. Codex ultra also delegates tasks, which
+  // the current DSH/Pi request contract cannot represent.
+  const codexEfforts = codex && Array.isArray(levels) ? levels.filter((level): level is string => ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(level))) : undefined
+  const reasoningEfforts = codexEfforts?.length ? Object.fromEntries(codexEfforts.map(level => [level === 'none' ? 'off' : level, level])) : undefined
   const efforts = Array.isArray(levels) && levels.every(level => ['low', 'medium', 'high', 'xhigh', 'max'].includes(String(level)))
     ? levels as string[] : undefined
   const update = record(record(value.api_capabilities)?.anthropic_messages)?.system_prompt_update
   const outputs = value.output_modalities ?? record(value.modalities)?.output
-  const conversational = connection.api === 'anthropic-messages' || (Array.isArray(outputs) && outputs.includes('text') && (!Array.isArray(modalities) || modalities.includes('text')))
-  return { id, conversational, ...(name ? { name: name.slice(0, 1024) } : {}), ...(contextWindow ? { contextWindow } : {}), ...(maxTokens ? { maxTokens } : {}), ...(input ? { input } : {}), ...(efforts ? { efforts } : {}), ...(update === 'in-history' || update === 'leading-only' ? { systemPromptUpdate: update } : {}) }
+  const conversational = codex || connection.api === 'anthropic-messages' || (Array.isArray(outputs) && outputs.includes('text') && (!Array.isArray(modalities) || modalities.includes('text')))
+  return { id, conversational, ...(name ? { name: name.slice(0, 1024) } : {}), ...(contextWindow ? { contextWindow } : {}), ...(maxTokens ? { maxTokens } : {}), ...(input ? { input } : {}), ...(reasoningEfforts ? { reasoningEfforts, efforts: Object.keys(reasoningEfforts) } : efforts ? { efforts } : {}), ...(update === 'in-history' || update === 'leading-only' ? { systemPromptUpdate: update } : {}) }
 }
 
 const MAX_BYTES = 4 * 1024 * 1024
@@ -124,15 +139,21 @@ export async function fetchCatalog(connection: CatalogConnection, signal: AbortS
     }
     const value = record(await boundedJson(response))
     if (value?.has_more !== undefined && typeof value.has_more !== 'boolean') throw new Error('供应商目录分页不完整，已保留原目录。')
-    const rows = Array.isArray(value?.data) ? value.data.map(row => [undefined, row] as const)
+    const codex = connection.api === 'openai-codex-responses'
+    const rows = codex && Array.isArray(value?.models) ? value.models.map(row => [undefined, row] as const)
+      : Array.isArray(value?.data) ? value.data.map(row => [undefined, row] as const)
       : record(value?.models) ? Object.entries(record(value!.models)!) : undefined
     if (!rows || !rows.length) throw new Error('供应商返回了空的模型目录，已保留原目录。')
     for (const [key, row] of rows) {
       const model = parseModel(row, key, connection)
+      if (codex && record(row)?.visibility !== 'list') continue
       models.set(model.id, model)
       if (models.size > 10000) throw new Error('供应商模型目录过大，已保留原目录。')
     }
-    if (value?.has_more !== true) return [...models.values()]
+    if (value?.has_more !== true) {
+      if (!models.size) throw new Error('供应商返回了空的模型目录，已保留原目录。')
+      return [...models.values()]
+    }
     const cursor = string(value.last_id) ?? string(record(rows.at(-1)?.[1])?.id)
     if (!cursor || cursors.has(cursor)) throw new Error('供应商目录分页不完整，已保留原目录。')
     cursors.add(cursor)
@@ -151,7 +172,7 @@ export function modelFields(model: CatalogModel, native: boolean): Record<string
     // This pinned DSH represents leading-only by absence, and accepts only
     // in-history explicitly. Keep the endpoint's full metadata in the cache.
     ...(native && model.systemPromptUpdate === 'in-history' ? { systemPromptUpdate: 'in-history' } : {}),
-    ...(!native && model.efforts?.length ? { reasoningEfforts: Object.fromEntries([['off', null], ...model.efforts.map(level => [level, level])]) } : {}),
+    ...(!native && model.reasoningEfforts ? { reasoningEfforts: model.reasoningEfforts } : !native && model.efforts?.length ? { reasoningEfforts: Object.fromEntries([['off', null], ...model.efforts.map(level => [level, level])]) } : {}),
   }
 }
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)

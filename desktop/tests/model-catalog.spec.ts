@@ -48,8 +48,24 @@ describe('configured endpoint model directory', () => {
     const fetcher = vi.fn()
     await expect(fetchCatalog(connection, AbortSignal.abort(), fetcher)).rejects.toThrow()
     expect(fetcher).not.toHaveBeenCalled()
-    await expect(fetchCatalog({ ...connection, api: 'openai-codex-responses' }, new AbortController().signal, fetcher)).rejects.toThrow('内置')
+    await expect(fetchCatalog({ ...connection, api: 'google-generative-ai' }, new AbortController().signal, fetcher)).rejects.toThrow('内置')
     expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('reads the account-scoped Codex directory, lists visible models and preserves exact supported portable efforts', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => json({ models: [
+      { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1-Sol', context_window: 272000, input_modalities: ['text', 'image'], visibility: 'list', supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(effort => ({ effort })) },
+      { slug: 'internal', visibility: 'hide' },
+    ] }))
+    const codex = { ...connection, api: 'openai-codex-responses', baseUrl: 'https://chatgpt.com/backend-api', credentialIdentity: 'account', headers: { 'ChatGPT-Account-Id': 'account' } }
+    const models = await fetchCatalog(codex, new AbortController().signal, fetcher)
+    expect(String(fetcher.mock.calls[0]![0])).toBe('https://chatgpt.com/backend-api/codex/models?client_version=0.160.0')
+    expect(new Headers(fetcher.mock.calls[0]![1]!.headers).get('ChatGPT-Account-Id')).toBe('account')
+    expect(models).toEqual([{ id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol', contextWindow: 272000, input: ['text', 'image'], conversational: true, efforts: ['low', 'medium', 'high', 'xhigh', 'max'], reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' } }])
+    expect(mergeCatalog([], models, false).models[0]).toMatchObject({ reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' } })
+    expect(mergeCatalog([], models, false).models[0]!.reasoningEfforts).not.toHaveProperty('off')
+    expect(connectionIdentity(codex)).toBe(connectionIdentity({ ...codex, apiKey: 'rotated-token' }))
+    expect(connectionIdentity(codex)).not.toBe(connectionIdentity({ ...codex, credentialIdentity: 'other-account' }))
+    await expect(fetchCatalog(codex, new AbortController().signal, vi.fn(async () => json({ models: [{ slug: 'internal', visibility: 'hide' }] })))).rejects.toThrow('空')
   })
   it('limits actual response bytes even when content-length is missing', async () => {
     await expect(fetchCatalog(connection, new AbortController().signal, vi.fn(async () => new Response('x'.repeat(4 * 1024 * 1024 + 1))))).rejects.toThrow('过大')
@@ -88,15 +104,18 @@ describe('catalog merge and offline persistence', () => {
   })
 })
 
-async function controllerFixture(options: { directory?: string; busy?: boolean; native?: boolean; pi?: boolean; readonly?: boolean } = {}) {
+async function controllerFixture(options: { directory?: string; busy?: boolean; native?: boolean; pi?: boolean; codex?: boolean; readonly?: boolean } = {}) {
   vi.useFakeTimers()
   const directory = options.directory ?? await home()
   vi.stubEnv('DSH_HOME', directory)
   const ctx = new Context(); cleanup.push(() => ctx.fiber.dispose())
-  const id = options.native ? 'deepseek-official' : options.pi ? 'openai' : 'lab'
+  const id = options.native ? 'deepseek-official' : options.codex ? 'openai-codex' : options.pi ? 'openai' : 'lab'
   const namespace = options.native ? 'llm-deepseek' : 'llm-pi-ai'
   const path = options.native ? [] : ['providers', id]
   let profile: Record<string, unknown> = options.native ? { apiKeyEnv: 'LAB_API_KEY' } : { api: 'openai-completions', baseURL: 'https://lab.example.test/v1', apiKeyEnv: 'LAB_API_KEY', ...(options.pi ? { modelOverrides: { 'gpt-5': { name: 'My GPT', contextWindow: 128000 } } } : { models: [{ id: 'old', name: 'My model', contextWindow: 1000 }] }), retryPolicy: { mode: 'normal', maxRetries: 2 } }
+  if (options.codex) profile = {}
+  const token = (accountId: string) => `header.${Buffer.from(JSON.stringify({ sub: 'user', 'https://api.openai.com/auth': { chatgpt_account_id: accountId } })).toString('base64url')}.signature`
+  let grant = { kind: 'grant', payload: { type: 'oauth', access: token('account'), refresh: 'private-refresh-token', expires: Date.now() + 3600000 } }
   let revision = 1, busy = options.busy ?? false
   const agents = { list: () => busy ? [{ status: 'running', inbox: { nextTurn: [], nextStep: [] } }] : [] }
   const mutate = vi.fn(async (_ns: string, ops: { op: string; path: string[]; value?: unknown }[], expected: number) => {
@@ -110,13 +129,36 @@ async function controllerFixture(options: { directory?: string; busy?: boolean; 
   ctx.provide('launchEnvironment', createLaunchEnvironmentSnapshot([]))
   ctx.provide('agents', agents as never)
   ctx.provide('llm', { listConfigurableProviders: listProviders } as never)
-  ctx.provide('credentials', { resolve: async () => ({ value: 'test-key', source: 'user' }), readRecord: async () => undefined } as never)
+  ctx.provide('credentials', { resolve: async () => ({ value: 'test-key', source: 'user' }), readRecord: async () => options.codex ? grant : undefined } as never)
   ctx.provide('settings', { writable: !options.readonly, describe: () => [{ ns: namespace, revision, value: options.native ? profile : { providers: { [id]: profile } } }], mutate } as never)
   const controller = new LingModelCatalogController(ctx)
-  return { controller, ctx, directory, id, mutate, profile: () => profile, setBusy(value: boolean) { busy = value }, changeEndpoint() { profile.baseURL = 'https://changed.example.test/v1'; revision++ }, dispose: async () => ctx.fiber.dispose() }
+  return { controller, ctx, directory, id, mutate, profile: () => profile, setBusy(value: boolean) { busy = value }, changeEndpoint() { profile.baseURL = 'https://changed.example.test/v1'; revision++ }, changeAccount() { grant = { ...grant, payload: { ...grant.payload, access: token('other-account') } } }, dispose: async () => ctx.fiber.dispose() }
 }
 
 describe('Host catalog application lifecycle', () => {
+  it('refreshes an existing Codex OAuth connection without relogin or exposing credentials, and supports offline cache', async () => {
+    const fixture = await controllerFixture({ codex: true })
+    const fetcher = vi.fn<typeof fetch>(async () => json({ models: [{ slug: 'gpt-6.1-sol', visibility: 'list', display_name: 'GPT-6.1-Sol', context_window: 272000, input_modalities: ['text', 'image'], supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }] }] })); vi.stubGlobal('fetch', fetcher)
+    expect((await fixture.controller.list())[0]).toMatchObject({ supported: true, source: 'builtin' })
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(await fixture.controller.refresh(fixture.id)).toMatchObject({ source: 'endpoint', pending: false, newModelIds: ['gpt-6.1-sol'], efforts: { 'gpt-6.1-sol': ['low', 'high'] } })
+    expect(fixture.profile().models).toContainEqual(expect.objectContaining({ id: 'gpt-6.1-sol', contextWindow: 272000, input: ['text', 'image'], reasoningEfforts: { low: 'low', high: 'high' } }))
+    const persisted = await readFile(join(fixture.directory, 'ling-model-catalog.json'), 'utf8')
+    expect(persisted).not.toContain('private-refresh-token'); expect(persisted).not.toContain('header.'); expect(persisted).not.toContain('account')
+    fetcher.mockImplementation(async () => { throw new Error('offline') })
+    await expect(fixture.controller.refresh(fixture.id)).rejects.toThrow('原模型目录')
+    expect((await fixture.controller.list())[0]).toMatchObject({ source: 'endpoint', supported: true })
+  })
+  it('refuses stale Codex catalog results after an account switch', async () => {
+    const fixture = await controllerFixture({ codex: true })
+    let finish!: (value: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { finish = resolve })))
+    const refreshing = fixture.controller.refresh(fixture.id)
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    fixture.changeAccount(); finish(json({ models: [{ slug: 'gpt-6.1-sol', visibility: 'list' }] }))
+    await expect(refreshing).rejects.toThrow('连接配置已变更')
+    expect(fixture.mutate).not.toHaveBeenCalled()
+  })
   it('refreshes actual built-in Pi connections, preserving model overrides, protocol settings and all existing IDs', async () => {
     const fixture = await controllerFixture({ pi: true })
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [listed] })))
