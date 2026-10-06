@@ -12,6 +12,7 @@ import type {
   LingModelSelection,
   LingModelSettings,
   LingPendingInteraction,
+  LingPendingMessage,
   LingPluginEntry,
   LingPluginManager,
   LingPresetSettings,
@@ -144,6 +145,8 @@ export interface LingShellProps {
   readonly notice: string
   readonly onNoticeRetry?: () => void
   readonly pendingInteractions: readonly LingPendingInteraction[]
+  readonly pendingMessages?: readonly LingPendingMessage[]
+  readonly onQueueAction?: (itemId: string, action: 'steer' | 'remove') => Promise<LingCommandResult>
   readonly permission?: LingTaskPermission
   readonly prompt: string
   readonly running: boolean

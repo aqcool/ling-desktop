@@ -2,13 +2,15 @@
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LingServerService, LingTaskSummary } from '../src/runtime/contract.js'
+import type { LingPendingMessage, LingRuntimeCommand, LingServerService, LingTaskSummary } from '../src/runtime/contract.js'
+import { draftStorageKey, serializeDrafts } from '../src/session-state.js'
 import { createOfflineRuntimeAdapter } from '../src/runtime/offline-adapter.js'
 import { browserNavigationEvent } from '../src/ui/browser-navigation.js'
 import { useShellSettingsRouting } from '../src/ui/shell/ShellSettings.js'
 import { useShellLayout } from '../src/ui/shell/useShellLayout.js'
 import { useTaskMonitor } from '../src/ui/shell/useTaskMonitor.js'
 import { useWorkbench } from '../src/ui/shell/useWorkbench.js'
+import { MessageQueue } from '../src/ui/MessageQueue.js'
 
 const roots = new Set<Root>()
 beforeEach(() => {
@@ -47,6 +49,82 @@ function deferred<T>() {
 }
 
 describe('shell state boundaries', () => {
+  it('keeps pending feedback visible when collapsed and retains the queue after a failed action', async () => {
+    const first: LingPendingMessage = { id: 'one', queueId: 'host-one', delivery: 'queue', status: 'pending', text: '先执行这条', attachments: [] }
+    const second: LingPendingMessage = { id: 'two', delivery: 'steer', status: 'sending', text: '另一条消息', attachments: [{ name: '截图.png', kind: 'image' }] }
+    const onAction = vi.fn(async () => ({ accepted: false as const, requestId: 'failed', reason: 'runtime-unavailable' as const, retryable: true, message: '连接中断' }))
+    const view = await mount(<MessageQueue items={[first, second]} disabled={false} onAction={onAction} />)
+    expect(view.container.textContent).toContain('待发送 · 2')
+    expect(view.container.textContent).toContain('先执行这条')
+    expect(view.container.textContent).not.toContain('另一条消息')
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-controls]')!.click() })
+    expect(view.container.textContent).toContain('另一条消息')
+    expect(view.container.textContent).toContain('正在发送…')
+    expect(view.container.textContent).toContain('截图.png')
+    expect(view.container.querySelector('button[aria-label="取消排队：另一条消息"]')).toBeNull()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="取消排队：先执行这条"]')!.click() })
+    expect(onAction).toHaveBeenCalledWith('host-one', 'remove')
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toBe('连接中断')
+    expect(view.container.textContent).toContain('先执行这条')
+    await view.render(<MessageQueue items={[]} disabled={false} onAction={onAction} />)
+    expect(view.container.textContent).toBe('')
+  })
+  it.each(['running', 'waiting-for-input'] as const)('keeps the composer active while %s and exposes accepted queue input', async status => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    window.localStorage.setItem(draftStorageKey, serializeDrafts({ a: { text: '先检查日志' } }))
+    const { App } = await import('../src/App.js')
+    let publishQueue!: (items: readonly LingPendingMessage[]) => void
+    const message: LingPendingMessage = { id: 'rpc', queueId: 'host-id', delivery: 'queue', status: 'pending', text: '先检查日志', attachments: [] }
+    const dispatch = vi.fn(async (command: LingRuntimeCommand) => {
+      if (command.type === 'task.send-message') publishQueue([message])
+      if (command.type === 'task.update-queue') publishQueue([])
+      return { accepted: true as const, requestId: command.requestId }
+    })
+    const runtime = {
+      ...createOfflineRuntimeAdapter(), dispatch,
+      async getSnapshot() { return { connection: { phase: 'ready' as const }, workspaces: [{ workspaceId: 'project', label: 'Test project' }],
+        tasks: [{ ...task('a'), status }], pendingInteractions: [], backgroundJobs: {}, subagents: {} } },
+      subscribeTaskPendingMessages(_id: string, fn: typeof publishQueue) { publishQueue = fn; fn([]); return () => {} },
+    }
+    const view = await mount(<App runtime={runtime} />)
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('.sidebar-task__main[title="a"]')!.click() })
+    const send = view.container.querySelector<HTMLButtonElement>('button[aria-label="排队发送"]')!
+    const input = view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')!
+    expect(send.disabled).toBe(false)
+    expect(input.disabled).toBe(false)
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'task.send-message', taskId: 'a', text: '先检查日志', mode: 'queue' }))
+    expect(input.value).toBe('')
+    const queue = view.container.querySelector('section[aria-label="待发送消息"]')!
+    expect(queue.textContent).toContain('先检查日志')
+    expect(queue.textContent).toContain('已排队')
+    expect(view.container.querySelector('[data-conversation-text]')?.textContent ?? '').not.toContain('先检查日志')
+    await act(async () => { queue.querySelector<HTMLButtonElement>('button[aria-label="立即插话：先检查日志"]')!.click() })
+    expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'task.update-queue', itemId: 'host-id', action: 'steer' }))
+    expect(view.container.querySelector('section[aria-label="待发送消息"]')).toBeNull()
+  })
+
+  it('switches running input to steering directly in the composer', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    window.localStorage.setItem(draftStorageKey, serializeDrafts({ a: { text: '现在改做这个' } }))
+    const { App } = await import('../src/App.js')
+    const dispatch = vi.fn(async (command: LingRuntimeCommand) => ({ accepted: true as const, requestId: command.requestId }))
+    const runtime = { ...createOfflineRuntimeAdapter(), dispatch,
+      async getSnapshot() { return { connection: { phase: 'ready' as const }, workspaces: [], tasks: [{ ...task('a'), status: 'running' as const, workspaceId: undefined }],
+        pendingInteractions: [], backgroundJobs: {}, subagents: {} } } }
+    const view = await mount(<App runtime={runtime} />)
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('.sidebar-task__main[title="a"]')!.click() })
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="运行中发送方式"]')!.click() })
+    const steer = [...document.querySelectorAll<HTMLButtonElement>('.ling-menu__item')].find(button => button.textContent?.trim() === '立即插话')!
+    await act(async () => { steer.click() })
+    expect(view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.placeholder).toContain('立即调整当前任务')
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="立即插话"]')!.click() })
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'task.send-message', text: '现在改做这个', mode: 'steer' }))
+  })
   it('composes the real shell without coupling workbench opening to monitor visibility', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
@@ -173,6 +251,19 @@ describe('shell state boundaries', () => {
     await view.unmount()
     await act(async () => { window.dispatchEvent(new CustomEvent(browserNavigationEvent, { detail: { id: 'open-2', url: 'https://example.test/' } })) })
     expect(workbench.browserNavigation?.id).toBe('open-1')
+  })
+
+  it('forwards attachment-only submissions to App instead of silently dropping them', async () => {
+    let workbench!: ReturnType<typeof useWorkbench>
+    const onSubmit = vi.fn()
+    function Harness() {
+      workbench = useWorkbench({ props: { browserOpen: false, screen: 'workspace', prompt: '', onSubmit, onBrowserToggle: vi.fn() }, workspaceLabel: 'Project' })
+      return null
+    }
+    await mount(<Harness />)
+    await act(async () => { workbench.submitWithBrowserAnnotations() })
+    // The shell does not own attachments; App checks text and attachments together.
+    expect(onSubmit).toHaveBeenCalledWith('', expect.any(Function))
   })
 
   it('ignores a late remote terminal request after switching tasks and stops polling on unmount', async () => {

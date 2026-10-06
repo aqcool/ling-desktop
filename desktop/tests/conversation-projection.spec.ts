@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createDshConversationProjection,
   projectConversation,
+  projectPendingMessages,
 } from '../src/client/conversation-projection.js'
 
 it('retains computer-use screenshots as durable attachments rather than raw base64', () => {
@@ -48,6 +49,48 @@ function stoppedTurn(turn: number, startSeq: number, endSeq: number): ChatSnapsh
 }
 
 describe('DSH Conversation projection', () => {
+  it('presents queued and steering input once across local acknowledgement and Host admission', () => {
+    const local = { pendingSubmissions: [
+      { requestId: 'rpc-1', placement: 'queued', text: '稍后执行', time: 1, attachments: [] },
+      { requestId: 'rpc-2', placement: 'steering', text: '先检查日志', time: 2, attachments: [{ type: 'image', value: { previewUrl: 'blob:local', name: '截图.png' } }] },
+      { requestId: 'initial', placement: 'transcript', text: '首次发送', time: 0, attachments: [] },
+    ] } as never
+    expect(projectPendingMessages(undefined, local)).toMatchObject([
+      { id: 'rpc-1', delivery: 'queue', status: 'sending' },
+      { id: 'rpc-2', delivery: 'steer', status: 'sending', attachments: [{ kind: 'image', name: '截图.png' }] },
+    ])
+    const queued = { id: 'message-1', source: { kind: 'user', rpcId: 'rpc-1' }, content: [{ type: 'text', text: '稍后执行' }, { type: 'file', attachment: { attachmentId: 'file', name: 'report.txt' } }] }
+    const inbox = { 'next-turn': [queued, { ...queued, id: 'internal', source: { kind: 'system' } }], 'next-step': [] } as never
+    expect(projectPendingMessages(inbox, local)).toEqual([
+      { id: 'rpc-1', queueId: 'message-1', delivery: 'queue', status: 'pending', text: '稍后执行', attachments: [{ kind: 'file', name: 'report.txt' }] },
+      expect.objectContaining({ id: 'rpc-2', status: 'sending' }),
+    ])
+    expect(projectPendingMessages({ 'next-turn': [], 'next-step': [queued] } as never, { pendingSubmissions: [] } as never)[0]).toMatchObject({ id: 'rpc-1', delivery: 'steer', status: 'pending' })
+    expect(projectPendingMessages({ 'next-turn': [], 'next-step': [] } as never, { pendingSubmissions: [] } as never)).toEqual([])
+  })
+
+  it('watches both local sending and durable inbox changes and releases both subscriptions', () => {
+    let inbox: unknown
+    let pending: unknown[] = []
+    const inboxListeners = new Set<() => void>()
+    const sessionListeners = new Set<() => void>()
+    const binding = { session: {
+      projections: { faceOf: () => ({ getSnapshot: () => inbox, subscribe: (fn: () => void) => { inboxListeners.add(fn); return () => inboxListeners.delete(fn) } }) },
+      getSnapshot: () => ({ pendingSubmissions: pending }),
+      subscribe: (fn: () => void) => { sessionListeners.add(fn); return () => sessionListeners.delete(fn) },
+    } } as never
+    const source = createDshConversationProjection({} as never).pending(binding)
+    const updates = vi.fn(() => source.getSnapshot())
+    const close = source.subscribe(updates)
+    pending = [{ requestId: 'rpc', placement: 'queued', text: '待执行', time: 1, attachments: [] }]
+    sessionListeners.forEach(fn => fn())
+    expect(updates.mock.results.at(-1)?.value).toMatchObject([{ id: 'rpc', status: 'sending' }])
+    inbox = { 'next-turn': [{ id: 'host-id', source: { kind: 'user', rpcId: 'rpc' }, content: [{ type: 'text', text: '待执行' }] }], 'next-step': [] }
+    inboxListeners.forEach(fn => fn())
+    expect(updates.mock.results.at(-1)?.value).toMatchObject([{ id: 'rpc', queueId: 'host-id', status: 'pending' }])
+    close()
+    expect(inboxListeners.size + sessionListeners.size).toBe(0)
+  })
   it('retains engine-owned turn identity and links failures to the opening question, not steering', () => {
     const user = { kind: 'user', seq: 2, time: 1000, source: { kind: 'user' }, content: [{ type: 'text', text: '检查服务' }] }
     const steering = { ...user, kind: 'steering', seq: 4, messageId: 'steer', content: [{ type: 'text', text: '先检查日志' }] }

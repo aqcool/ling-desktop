@@ -13,6 +13,7 @@ import type {
   LingLocalePreference,
   LingModelSelection,
   LingPluginEntry,
+  LingPendingMessage,
   LingPromptAttachment,
   LingProviderTestTarget,
   LingQuestionAnswer,
@@ -93,6 +94,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
   const [snapshot, setSnapshot] = useState<LingRuntimeSnapshot>()
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(initialTaskId)
   const [timeline, setTimeline] = useState<readonly LingTimelineItem[]>([])
+  const [pendingMessageState, setPendingMessageState] = useState<{ taskId: string; items: readonly LingPendingMessage[] }>()
   const [taskModel, setTaskModel] = useState<LingModelSelection>()
   const selectedTaskIdRef = useRef(selectedTaskId)
   selectedTaskIdRef.current = selectedTaskId
@@ -170,6 +172,19 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
   }, [runtime, selectedTaskId])
 
   const supportsTaskModel = runtime.subscribeTaskModel !== undefined
+  const pendingMessages = pendingMessageState && pendingMessageState.taskId === selectedTaskId ? pendingMessageState.items : []
+  useEffect(() => {
+    if (!selectedTaskId || !runtime.subscribeTaskPendingMessages) return
+    let active = true
+    const unsubscribe = runtime.subscribeTaskPendingMessages(selectedTaskId, items => {
+      if (active) setPendingMessageState({ taskId: selectedTaskId, items })
+    })
+    return () => { active = false; unsubscribe() }
+  }, [runtime, selectedTaskId])
+  const updateQueuedMessage = useCallback(async (itemId: string, action: 'steer' | 'remove'): Promise<LingCommandResult> => {
+    if (!selectedTaskId) return { accepted: false, requestId: requestId(), reason: 'invalid-command', message: '请先选择会话。', retryable: false }
+    return runtime.dispatch({ type: 'task.update-queue', requestId: requestId(), taskId: selectedTaskId, itemId, action })
+  }, [runtime, selectedTaskId])
   const supportsDirectoryPick = runtime.pickDirectory !== undefined
   const supportsExtensions = runtime.getTaskSkills !== undefined && runtime.listPlugins !== undefined
   const supportsWorkspaceFiles = runtime.listWorkspaceDirectory !== undefined && runtime.readWorkspaceDocument !== undefined
@@ -745,6 +760,8 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
   }, [runtime])
 
   return {
+    pendingMessages,
+    updateQueuedMessage,
     answerApproval,
     answerQuestion,
     authorizeProvider,

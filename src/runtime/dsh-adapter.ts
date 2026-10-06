@@ -31,6 +31,7 @@ import type {
   LingModelSelection,
   LingModelSettings,
   LingPendingInteraction,
+  LingPendingMessage,
   LingPermissionOption,
   LingPluginEntry,
   LingPromptAttachment,
@@ -100,6 +101,10 @@ export interface DshRuntimeFacades {
   readonly workspaces: Pick<IWorkspaces,
     'archiveSession' | 'create' | 'delete' | 'list' | 'rename' | 'unarchiveSession'>
   readonly conversation: {
+    pending?(binding: SessionBinding): {
+      getSnapshot(): readonly LingPendingMessage[]
+      subscribe(listener: () => void): () => void
+    }
     timeline(binding: SessionBinding): {
       getSnapshot(): readonly LingTimelineItem[]
       subscribe(listener: () => void): () => void
@@ -634,6 +639,23 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       observeTimeline(taskId, items)
       return items
     },
+    async getTaskPendingMessages(taskId) {
+      return await withSession(facades, taskId, binding => facades.conversation.pending?.(binding).getSnapshot() ?? [])
+    },
+    subscribeTaskPendingMessages(taskId, listener) {
+      const abort = new AbortController()
+      const reference = facades.sessions.retain(sessionId(taskId), { source: 'lingRenderer', signal: abort.signal })
+      let active = true
+      let unsubscribe: (() => void) | undefined
+      void reference.ready.then(binding => {
+        if (!active) return
+        const source = facades.conversation.pending?.(binding)
+        const publish = () => listener(source?.getSnapshot() ?? [])
+        unsubscribe = source?.subscribe(publish)
+        publish()
+      }).catch(() => {})
+      return () => { active = false; abort.abort(); unsubscribe?.(); reference.release() }
+    },
     async getTaskCommands(taskId) {
       const commands = facades.commands
       if (commands === undefined) return unavailableRead('指令目录暂时不可用。')
@@ -1110,6 +1132,12 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             return await sendPrompt(command.requestId, command.taskId, original.text, 'queue', [],
               { seq: original.seq, attachmentIds: original.attachments?.map(a => a.attachmentId) ?? [] }, validate)
           })
+        }
+        if (command.type === 'task.update-queue') {
+          const result = await withSession(facades, command.taskId, ({ session }) => session.updateQueue(command.itemId as Parameters<SessionBinding['session']['updateQueue']>[0], { kind: command.action }))
+          return result.ok || result.error.code === 'session/queue-item-not-found'
+            ? { accepted: true, requestId: command.requestId }
+            : rejected(command.requestId, result.error, '无法更新待发送消息。')
         }
         if (command.type === 'task.send-message') {
           return await sendPrompt(

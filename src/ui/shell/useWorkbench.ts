@@ -64,7 +64,7 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
   const submitWithBrowserAnnotations = (annotations: readonly BrowserAnnotation[] = browserAnnotations) => {
     const annotationText = browserAnnotationText(annotations)
     const combined = [prompt.trim(), annotationText].filter(Boolean).join('\n\n')
-    if (!combined) return
+    // Attachment-only prompts are valid; App owns the empty-submission check.
     onSubmit(combined, clearBrowserAnnotations)
   }
 

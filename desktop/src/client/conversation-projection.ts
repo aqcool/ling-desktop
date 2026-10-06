@@ -1,4 +1,5 @@
 import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type {
   AssistantBlock,
   ChatConversationViewNode,
@@ -9,7 +10,7 @@ import type {
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { LingTimelineAttachment, LingTimelineItem, LingServerExecution } from 'ling-desktop/runtime'
+import type { LingTimelineAttachment, LingTimelineItem, LingServerExecution, LingPendingMessage } from 'ling-desktop/runtime'
 
 import { projectCompaction } from './compaction-projection.js'
 
@@ -467,6 +468,27 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
   return items
 }
 
+export function projectPendingMessages(inbox: InboxState | undefined, session: ReturnType<SessionBinding['session']['getSnapshot']>): readonly LingPendingMessage[] {
+  const items: LingPendingMessage[] = []
+  const admitted = new Set<string>()
+  for (const [target, delivery] of [['next-turn', 'queue'], ['next-step', 'steer']] as const) {
+    for (const message of inbox?.[target] ?? []) {
+      // Only user-owned input belongs in the composer queue, never internal Agent messages.
+      if (message.source.kind !== 'user') continue
+      const rpcId = 'rpcId' in message.source ? String(message.source.rpcId) : undefined
+      if (rpcId) admitted.add(rpcId)
+      items.push({ id: rpcId ?? String(message.id), queueId: String(message.id), delivery, status: 'pending',
+        text: userText(message.content), attachments: contentAttachments(message.content).map(({ kind, name }) => ({ kind, name })) })
+    }
+  }
+  for (const submission of session.pendingSubmissions) {
+    if (submission.placement === 'transcript' || admitted.has(String(submission.requestId))) continue
+    items.push({ id: String(submission.requestId), delivery: submission.placement === 'queued' ? 'queue' : 'steer', status: 'sending',
+      text: submission.text, attachments: submission.attachments.map(attachment => ({ kind: attachment.type, name: attachment.value.name ?? (attachment.type === 'image' ? '图片' : '文件') })) })
+  }
+  return items
+}
+
 export function createDshConversationProjection(conversation: Pick<UiConversation, 'binding'>, readExecutions?: (taskId: string, callIds: readonly string[]) => Promise<readonly LingServerExecution[]>) {
   const sources = new WeakMap<SessionBinding, {
     getSnapshot(): readonly LingTimelineItem[]
@@ -474,6 +496,17 @@ export function createDshConversationProjection(conversation: Pick<UiConversatio
   }>()
 
   return {
+    pending(binding: SessionBinding) {
+      const inbox = binding.session.projections.faceOf('inbox')
+      return {
+        getSnapshot: () => projectPendingMessages(inbox.getSnapshot() as InboxState | undefined, binding.session.getSnapshot()),
+        subscribe(listener: () => void) {
+          const stopInbox = inbox.subscribe(listener)
+          const stopSession = binding.session.subscribe(listener)
+          return () => { stopInbox(); stopSession() }
+        },
+      }
+    },
     timeline(binding: SessionBinding) {
       let projected = sources.get(binding)
       if (projected === undefined) {

@@ -53,9 +53,11 @@ const sessionId = SessionId('isolated-gateway-session')
 const mutations = ['create', 'prompt', 'rename', 'fork', 'selectModel', 'updateQueue'] as const
 class FixtureModel extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
+  constructor(private readonly holdFirst?: Promise<void>) { super() }
   async resolveModel(provider: string, model: string) { return { provider, id: model, name: model } }
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
+    if (this.requests.length === 1) await this.holdFirst
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: 'isolated reply' }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: 'isolated reply' } }
@@ -63,6 +65,42 @@ class FixtureModel extends LlmAdapter {
   }
 }
 describe('LING session controller through the published SRC gateway', () => {
+  it.each(['queue', 'steer', 'promote'] as const)('admits %s input while the real Agent is generating', async delivery => {
+    const ctx = await fixture()
+    let release!: () => void
+    const model = new FixtureModel(new Promise<void>(resolve => { release = resolve }))
+    ctx.llm.registerAdapter(['fixture'], model)
+    const cwd = await mkdtemp(join(tmpdir(), 'ling-running-send-')); directories.push(cwd)
+    const created = await ctx.typertGateway.invoke({ namespace: 'session', method: 'create', args: { request: { cwd } } }) as { sessionId: SessionId }
+    const prompt = (requestId: string, text: string, mode: 'queue' | 'steer') => ctx.typertGateway.invoke({ namespace: 'session', method: 'prompt', args: { request: {
+      sessionId: created.sessionId, requestId, mode, content: [{ type: 'text', text }],
+    } } })
+    const agent = ctx.agents.get(created.sessionId)!
+    try {
+      await prompt('initial', 'initial work', 'queue')
+      await vi.waitFor(() => expect(model.requests).toHaveLength(1))
+      const mode = delivery === 'steer' ? 'steer' : 'queue'
+      await expect(prompt('during-run', 'followup while running', mode)).resolves.toEqual({ accepted: true })
+      expect(agent.status).toBe('running')
+      const pending = mode === 'steer' ? agent.inbox.nextStep : agent.inbox.nextTurn
+      expect(pending).toHaveLength(1)
+      await prompt('during-run', 'followup while running', mode)
+      expect(pending).toHaveLength(1)
+      if (delivery === 'promote') {
+        await expect(ctx.typertGateway.invoke({ namespace: 'session', method: 'updateQueue', args: { request: {
+          sessionId: created.sessionId, itemId: pending[0]!.id, action: { kind: 'steer' },
+        } } })).resolves.toEqual({ accepted: true })
+        expect(agent.inbox.nextTurn).toHaveLength(0)
+        expect(agent.inbox.nextStep).toHaveLength(1)
+      }
+      release()
+      await agent.whenIdle()
+      expect(model.requests).toHaveLength(2)
+      expect(JSON.stringify(model.requests[1]?.messages)).toContain('followup while running')
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'user/message')).toHaveLength(2)
+      expect(agent.inbox.nextTurn.length + agent.inbox.nextStep.length).toBe(0)
+    } finally { release(); await agent.whenIdle() }
+  })
   it('creates and sends through the real upstream controller and Agent loop using an isolated model', async () => {
     const ctx = await fixture()
     const model = new FixtureModel()

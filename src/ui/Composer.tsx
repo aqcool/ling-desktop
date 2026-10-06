@@ -1,4 +1,4 @@
-import { useBehavior } from './behavior-preferences.js'
+import { updateBehavior, useBehavior } from './behavior-preferences.js'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Header, type Selection } from 'react-aria-components'
@@ -895,6 +895,14 @@ export function Composer({
             <span className={tw("composer__pill composer__pill--static composer__pill--model inline-flex h-7.5 max-w-[min(15rem,35vw)] min-w-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] max-[700px]:max-w-36 max-[700px]:overflow-hidden max-[700px]:whitespace-nowrap @max-[22rem]/composer:max-w-26")}><Icon className={tw("flex-none")} name="bolt" size={14} /><span className={tw("overflow-hidden text-ellipsis whitespace-nowrap")}>{modelLabel}</span></span>
           )}
           {running ? (
+            <Menu align="end" side="top" triggerAriaLabel="运行中发送方式"
+              triggerClassName={tw('h-7.5 shrink-0 gap-1 rounded-lg px-1.5 text-xs hover:bg-[var(--surface-secondary)]')}
+              triggerLabel={<>{behavior.sendMode === 'queue' ? '排队' : '插话'}<Icon name="chevronDown" size={12} /></>}>
+              <MenuItem checked={behavior.sendMode === 'queue'} onPress={() => updateBehavior({ sendMode: 'queue' })}>排队发送</MenuItem>
+              <MenuItem checked={behavior.sendMode === 'steer'} onPress={() => updateBehavior({ sendMode: 'steer' })}>立即插话</MenuItem>
+            </Menu>
+          ) : null}
+          {running ? (
             <button aria-label="停止" className={tw("composer__stop flex items-center justify-center [width:2.1rem] [height:2.1rem] border-0 [border-radius:50%] [background:var(--danger-subtle)] [color:var(--danger)] hover:[background:var(--danger-subtle)]")} onClick={onStop} type="button">
               <Icon name="stop" size={16} />
             </button>
@@ -910,7 +918,7 @@ export function Composer({
             title={disabled ? '运行时未连接，暂时无法发送' : !canSend ? '离线语音输入尚未接入；输入内容后可发送' : running ? `${sendLabel}（Enter）` : '发送（Enter）'}
             type="button"
           >
-            <Icon name={!canSend && !disabled ? 'waveform' : running ? 'plus' : 'send'} size={16} />
+            <Icon name={!canSend && !disabled ? 'waveform' : 'send'} size={16} />
           </button>
         </div>
       </div>

@@ -277,6 +277,16 @@ export interface LingTimelineAttachment {
   readonly mediaType?: string
 }
 
+/** Pending input is separate from completed conversation history. */
+export interface LingPendingMessage {
+  readonly id: string
+  readonly queueId?: string
+  readonly delivery: 'queue' | 'steer'
+  readonly status: 'sending' | 'pending'
+  readonly text: string
+  readonly attachments: readonly { readonly kind: 'file' | 'image'; readonly name: string }[]
+}
+
 export interface LingTimelineItem {
   readonly presentedFiles?: readonly import('./reply-features.js').LingPresentedFile[]
   readonly compaction?: import('./compaction.js').LingCompactionRecord
@@ -670,6 +680,12 @@ interface LingRuntimeCommandBase {
 
 export type LingRuntimeCommand =
   | (LingRuntimeCommandBase & {
+      readonly type: 'task.update-queue'
+      readonly taskId: string
+      readonly itemId: string
+      readonly action: 'steer' | 'remove'
+    })
+  | (LingRuntimeCommandBase & {
       readonly type: 'runtime.reconnect'
     })
   | (LingRuntimeCommandBase & {
@@ -846,6 +862,8 @@ export interface LingRuntimeAdapter {
   getSnapshot(): Promise<LingRuntimeSnapshot>
   getModelSettings(signal?: AbortSignal): Promise<LingReadResult<LingModelSettings>>
   getTaskTimeline(taskId: string): Promise<readonly LingTimelineItem[]>
+  getTaskPendingMessages?(taskId: string): Promise<readonly LingPendingMessage[]>
+  subscribeTaskPendingMessages?(taskId: string, listener: (items: readonly LingPendingMessage[]) => void): () => void
   searchTasks(query: string, signal?: AbortSignal): Promise<LingReadResult<LingTaskSearchPage>>
   getTaskChanges(taskId: string, signal?: AbortSignal): Promise<LingReadResult<readonly LingTaskChanges[]>>
   getTaskCommands?(taskId: string, signal?: AbortSignal): Promise<LingReadResult<readonly LingSlashCommand[]>>

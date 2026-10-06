@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { LingPendingInteraction, LingPromptAttachment, LingRuntimeSnapshot, LingTimelineItem } from '../src/runtime/contract.js'
+import type { LingPendingInteraction, LingPendingMessage, LingPromptAttachment, LingRuntimeSnapshot, LingTimelineItem } from '../src/runtime/contract.js'
 import { createDshRuntimeAdapter, type DshRuntimeFacades } from '../src/runtime/dsh-adapter.js'
 import { toComposerWorkspaceContext } from '../src/ui/attachments.js'
 
@@ -95,6 +95,8 @@ function fixture(goalLimit = false) {
   })
   const prompt = vi.fn(async () => ({ ok: true, value: { accepted: true } }))
   const cancel = vi.fn(async () => ({ ok: true, value: { accepted: true } }))
+  const updateQueue = vi.fn(async () => ({ ok: true, value: { accepted: true } }))
+  const pendingSource = new Source<readonly LingPendingMessage[]>([])
   const renameTask = vi.fn(async () => ({ ok: true, value: { title: '新标题', seq: 4 } }))
   const loadOlder = vi.fn(async () => {})
   const runCommand = vi.fn(async () => ({ ok: true, value: { matched: true } }))
@@ -119,6 +121,7 @@ function fixture(goalLimit = false) {
       beginSubmission,
       prompt,
       cancel,
+      updateQueue,
       readAttachment,
       rename: renameTask,
       loadOlder,
@@ -274,6 +277,7 @@ function fixture(goalLimit = false) {
       unarchiveSession,
     },
     conversation: {
+      pending: vi.fn(() => pendingSource),
       timeline: vi.fn(() => timelineSource),
     },
     changes: { list: listChanges, diff: readDiff },
@@ -311,6 +315,8 @@ function fixture(goalLimit = false) {
     adapter: createDshRuntimeAdapter(facades),
     createGoal,
     beginSubmission,
+    pendingSource,
+    updateQueue,
     cancel,
     create,
     fork,
@@ -371,6 +377,33 @@ function fixture(goalLimit = false) {
 }
 
 describe('DSH runtime adapter', () => {
+  it('publishes pending messages separately from history and stops publishing after release', async () => {
+    const { adapter, pendingSource, release, timelineSource } = fixture()
+    const listener = vi.fn()
+    const close = adapter.subscribeTaskPendingMessages!('session-1', listener)
+    await Promise.resolve()
+    expect(listener).toHaveBeenLastCalledWith([])
+    const message: LingPendingMessage = { id: 'rpc', queueId: 'host-message', delivery: 'queue', status: 'pending', text: '追加消息', attachments: [] }
+    pendingSource.set([message])
+    expect(listener).toHaveBeenLastCalledWith([message])
+    expect(await adapter.getTaskPendingMessages!('session-1')).toEqual([message])
+    expect(await adapter.getTaskTimeline('session-1')).toEqual(timelineSource.getSnapshot())
+    const calls = listener.mock.calls.length
+    close(); pendingSource.set([])
+    expect(listener).toHaveBeenCalledTimes(calls)
+    expect(release).toHaveBeenCalled()
+  })
+
+  it.each(['steer', 'remove'] as const)('applies %s to the existing queue identity without resending content', async action => {
+    const { adapter, updateQueue, prompt } = fixture()
+    expect(await adapter.dispatch({ type: 'task.update-queue', requestId: 'queue-action', taskId: 'session-1', itemId: 'host-message', action })).toEqual({ accepted: true, requestId: 'queue-action' })
+    expect(updateQueue).toHaveBeenCalledWith('host-message', { kind: action })
+    expect(prompt).not.toHaveBeenCalled()
+    updateQueue.mockResolvedValueOnce({ ok: false, error: { code: 'session/queue-item-not-found' } } as never)
+    expect(await adapter.dispatch({ type: 'task.update-queue', requestId: 'already-claimed', taskId: 'session-1', itemId: 'host-message', action })).toEqual({ accepted: true, requestId: 'already-claimed' })
+    updateQueue.mockResolvedValueOnce({ ok: false, error: { code: 'transport', message: 'offline' } } as never)
+    expect(await adapter.dispatch({ type: 'task.update-queue', requestId: 'offline', taskId: 'session-1', itemId: 'host-message', action })).toMatchObject({ accepted: false })
+  })
   it('sends edited text and retained attachments through ordinary queue/steer admission', async () => {
     const { adapter, facades, timelineSource, prepareAttachments, readAttachment, prompt } = fixture()
     const prepare = vi.fn(async () => ({ ok: true as const, value: [{ type: 'file' as const, receiptId: 'original' }] }))

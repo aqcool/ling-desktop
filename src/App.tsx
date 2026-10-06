@@ -186,6 +186,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     loadOlder,
     loadTaskAttachment,
     pendingInteractions,
+    pendingMessages,
+    updateQueuedMessage,
     pickDirectory,
     promptSubagent,
     readWorkspaceDocument,
@@ -290,7 +292,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [])
 
   const running = selectedTask !== undefined
-    && (selectedTask.status === 'running' || selectedTask.status === 'queued')
+    && (selectedTask.status === 'running' || selectedTask.status === 'queued' || selectedTask.status === 'waiting-for-input')
   const taskInteractions = useMemo(
     () => pendingInteractions.filter(interaction => interaction.taskId === selectedTask?.taskId),
     [pendingInteractions, selectedTask?.taskId],
@@ -1244,6 +1246,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       mode={mode}
       notice={notice}
       pendingInteractions={taskInteractions}
+      pendingMessages={pendingMessages}
+      onQueueAction={updateQueuedMessage}
       permission={selectedTask ? permission : newTaskPermission}
       prompt={draft.text}
       running={running}
