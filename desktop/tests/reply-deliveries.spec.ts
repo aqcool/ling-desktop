@@ -71,6 +71,9 @@ describe('durable delivery projection through published Chat assembly', () => {
     const result = append('turn/end', {turn: 1, reason: {kind: 'completed'}})
     expect(result.filter(item => item.presentedFiles?.length)).toHaveLength(1)
     expect(result.find(item => item.kind === 'assistant-message')).toMatchObject({turnComplete: true, presentedFiles: [{seq: 2, index: 0, path: 'report.md', description: '最终报告'}]})
+    expect(result.find(item => item.kind === 'assistant-message')?.turnTiming).toEqual({ startedAt: new Date(1000).toISOString(), endedAt: new Date(6000).toISOString() })
+    const next = append('turn/start', { turn: 2 })
+    expect(next.find(item => item.kind === 'assistant-message')?.turnTiming).toEqual(result.find(item => item.kind === 'assistant-message')?.turnTiming)
   })
   it('keeps a delivery visible without closing text and before the next turn', () => {
     const {append} = fixture()

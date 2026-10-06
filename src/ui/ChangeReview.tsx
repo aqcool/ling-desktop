@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button } from '@heroui/react/button'
 import { Spinner } from '@heroui/react/spinner'
 import type { LingFileDiff, LingTaskChanges } from '../runtime/contract.js'
+import type { LingPresentedFile } from '../runtime/reply-features.js'
+import { deliveryForChangedFile } from './conversation-deliveries.js'
 import { Icon } from './Icon.js'
 import { FileIcon } from './FileIcon.js'
 import { tw } from './tailwind.js'
@@ -154,9 +156,11 @@ export function ChangeReview({
 }
 
 /** Compact conversation summary; file clicks use the same diff selection as the review panel. */
-export function ConversationChangeSummary({ change, onSelect }: {
+export function ConversationChangeSummary({ change, onSelect, deliveries = [], onPreviewDelivery }: {
   readonly change: LingTaskChanges
   readonly onSelect: (selection: ChangeSelection) => void
+  readonly deliveries?: readonly LingPresentedFile[]
+  readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   if (change.files.length === 0) return null
@@ -168,12 +172,15 @@ export function ConversationChangeSummary({ change, onSelect }: {
       <button className={tw("h-control-sm shrink-0 rounded-lg border border-[var(--panel-border)] bg-transparent px-3 text-xs font-medium hover:bg-[var(--surface-hover)]")} onClick={() => { onSelect({ seq: change.seq, index: 0 }) }} type="button">审阅</button>
     </div>
     <div className={tw("px-3 py-2")}>
-      {visible.map((file, index) => <button className={tw("flex min-h-control w-full min-w-0 items-center gap-3 rounded-md border-0 bg-transparent px-1 text-left text-compact hover:bg-[var(--surface-hover)]")} key={file.path} onClick={() => { onSelect({ seq: change.seq, index }) }} type="button">
+      {visible.map((file, index) => {
+        const delivery = deliveryForChangedFile(file, deliveries)
+        return <div key={file.path} className={tw('flex min-w-0 items-center gap-2')}><button className={tw("flex min-h-control min-w-0 flex-1 items-center gap-3 rounded-md border-0 bg-transparent px-1 text-left text-compact hover:bg-[var(--surface-hover)]")} onClick={() => { onSelect({ seq: change.seq, index }) }} type="button">
         <span className={tw("min-w-0 flex-1 truncate text-[var(--text-secondary)]")} title={file.path}>{file.display}</span>
         <span className={tw("flex shrink-0 gap-2 text-xs tabular-nums")}>
           {file.binary || file.oversized ? <span className={tw("text-[var(--text-tertiary)]")}>{file.binary ? '二进制' : '文件过大'}</span> : <><span className={tw("text-[var(--success)]")}>+{file.added}</span><span className={tw("text-[var(--danger)]")}>−{file.deleted}</span></>}
         </span>
-      </button>)}
+      </button>{delivery && onPreviewDelivery ? <Button size="sm" variant="ghost" aria-label={`预览 ${file.display}`} className={tw('h-control-xs min-w-0 shrink-0 rounded-md px-2 text-xs font-normal text-[var(--text-secondary)]')} onPress={() => onPreviewDelivery(change.taskId, delivery)}>预览</Button> : null}</div>
+      })}
       {change.files.length > 3 ? <button aria-expanded={expanded} className={tw("mt-1 inline-flex h-control-sm items-center gap-1 rounded-md border-0 bg-transparent px-1 text-xs font-medium hover:bg-[var(--surface-hover)]")} onClick={() => { setExpanded(value => !value) }} type="button">{expanded ? '收起' : `再显示 ${String(change.files.length - 3)} 个文件`}<Icon className={tw(expanded && "rotate-180")} name="chevronDown" size={12} /></button> : null}
     </div>
   </section>

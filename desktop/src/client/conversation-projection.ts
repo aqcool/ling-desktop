@@ -436,6 +436,7 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
       items.push({
         itemId: `${taskId}:assistant:${String(partial.turn)}:${String(partial.step)}:stream`,
         taskId,
+        turn: partial.turn,
         kind: 'assistant-message',
         text,
         detail,
@@ -465,7 +466,16 @@ export function projectConversation(taskId: string, snapshot: ChatSnapshot, exec
     if (!files.length && !item.text) items.splice(at, 1)
     else items[at] = { ...item, presentedFiles: files }
   }
-  return items
+  return items.map(item => {
+    if (item.turn === undefined) return item
+    const location = snapshot.timeline.turns.get(item.turn)
+    const timing = snapshot.legacy.turnTimings.get(item.turn)
+    const start = location?.start?.time ?? timing?.startTime
+    const end = location?.end?.time ?? timing?.endTime
+    if (start === undefined || !Number.isFinite(start)) return item
+    return { ...item, turnTiming: { startedAt: isoTime(start),
+      ...(end === undefined || !Number.isFinite(end) ? {} : { endedAt: isoTime(end) }) } }
+  })
 }
 
 export function projectPendingMessages(inbox: InboxState | undefined, session: ReturnType<SessionBinding['session']['getSnapshot']>): readonly LingPendingMessage[] {

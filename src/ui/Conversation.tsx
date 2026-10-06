@@ -5,7 +5,7 @@ import { Button } from '@heroui/react/button'
 import { Toolbar } from '@heroui/react/toolbar'
 import { Tooltip } from '@heroui/react/tooltip'
 import { createPortal } from 'react-dom'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type {
   LingAttachmentContent,
   LingReadResult,
@@ -25,6 +25,7 @@ import { toolLabel } from './tool-labels.js'
 import { ReplyAnnotationDialog, type ReplyAnnotationDraft } from './ReplyAnnotationDialog.js'
 import { sameTimelineProps } from './timeline-item-equality.js'
 import { DeliveryCards, type OpenDelivery } from './DeliveryCards.js'
+import { withoutReviewedDeliveries } from './conversation-deliveries.js'
 import { ReplySuggestions, suggestionReply } from './ReplySuggestions.js'
 import type { LingReplyFeatures, LingPresentedFile } from '../runtime/reply-features.js'
 
@@ -205,12 +206,12 @@ function ServerExecutionView({ item, live, expanded }: { item: LingTimelineItem;
   </Disclosure>
 }
 
-function ThinkingStatus({ running, start, preferences }: { running: boolean; start: number; preferences: BehaviorPreferences }) {
+function ThinkingStatus({ start, preferences }: { start: number; preferences: BehaviorPreferences }) {
   const [now, setNow] = useState(Date.now)
-  useEffect(() => { setNow(Date.now()); if (!running) return; const timer = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(timer) }, [running])
+  useEffect(() => { setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(timer) }, [])
   const phrase = preferences.thinkingPhrases[Math.floor(Math.max(0, now - start) / 4000) % preferences.thinkingPhrases.length]
-  return <div className={tw("flex min-h-control-xs items-center gap-2 px-2 text-xs text-[var(--text-tertiary)]")} role={running ? 'status' : undefined}>
-    {running ? <>{preferences.thinkingLoader === 'matrix' ? <span aria-hidden="true" className={tw('grid size-3 grid-cols-3 gap-px')}>{Array.from({ length: 9 }, (_, i) => <span className={tw('size-0.5 animate-pulse bg-current motion-reduce:animate-none')} style={{ animationDelay: `${i * 170}ms` }} key={i} />)}</span> : preferences.thinkingLoader === 'spinner' ? <Icon aria-hidden name="refresh" className={tw('animate-spin motion-reduce:animate-none')} size={12} /> : preferences.thinkingLoader === 'dots' ? <span aria-hidden="true" className={tw('flex gap-0.5')}>{[0, 1, 2].map(i => <span className={tw('size-1 animate-bounce rounded-full bg-current motion-reduce:animate-none')} style={{ animationDelay: `${i * 150}ms` }} key={i} />)}</span> : null}<span>{phrase}</span></> : null}
+  return <div className={tw("flex min-h-control-xs items-center gap-2 px-4 text-xs text-[var(--text-tertiary)]")} role="status">
+    {preferences.thinkingLoader === 'matrix' ? <span aria-hidden="true" className={tw('grid size-3 grid-cols-3 gap-px')}>{Array.from({ length: 9 }, (_, i) => <span className={tw('size-0.5 animate-pulse bg-current motion-reduce:animate-none')} style={{ animationDelay: `${i * 170}ms` }} key={i} />)}</span> : preferences.thinkingLoader === 'spinner' ? <Icon aria-hidden name="refresh" className={tw('animate-spin motion-reduce:animate-none')} size={12} /> : preferences.thinkingLoader === 'dots' ? <span aria-hidden="true" className={tw('flex gap-0.5')}>{[0, 1, 2].map(i => <span className={tw('size-1 animate-bounce rounded-full bg-current motion-reduce:animate-none')} style={{ animationDelay: `${i * 150}ms` }} key={i} />)}</span> : null}<span>{phrase}</span>
     <span className={tw('tabular-nums')}>{formatElapsed(now - start, preferences.elapsedFormat)}</span>
   </div>
 }
@@ -488,6 +489,7 @@ const TimelineRow = memo(function TimelineRow({
   compactDisabled,
   onOpenDelivery,
   onPreviewDelivery,
+  elapsedFormat = 'seconds',
 }: {
   readonly item: LingTimelineItem
   readonly showActions?: boolean
@@ -509,12 +511,15 @@ const TimelineRow = memo(function TimelineRow({
   readonly onEditRequest?: (item: LingTimelineItem) => void
   readonly onOpenDelivery?: OpenDelivery
   readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
+  readonly elapsedFormat?: BehaviorPreferences['elapsedFormat']
 }) {
   const textRef = useRef<HTMLDivElement>(null)
   const articleRef = useCallback((node: HTMLElement | null) => registerMessage?.(item.itemId, node), [item.itemId, registerMessage])
   const isUser = item.kind === 'user-message'
   const isProcess = item.kind === 'system-notice' || item.kind === 'tool-activity'
   const detailLabel = item.kind === 'tool-activity' ? '执行详情' : '思考过程'
+  const duration = item.turnTiming?.endedAt !== undefined && (showActions || item.kind === 'system-notice' && item.presentedFiles?.length)
+    ? Date.parse(item.turnTiming.endedAt) - Date.parse(item.turnTiming.startedAt) : undefined
   if (item.compaction) return <CompactionActivity item={item} disabled={compactDisabled !== false} onRetry={onCompactContext} />
   if (item.execution) return <ServerExecutionView item={item} live={live} expanded={expandTools} />
   if (isProcess && item.status === 'failed') {
@@ -538,6 +543,7 @@ const TimelineRow = memo(function TimelineRow({
       isUser && "timeline-item--user-message max-w-[min(40rem,85%)] justify-self-end px-0 mb-2 [&:not(:first-child)]:mt-[var(--conversation-turn-gap)]",
     )} data-conversation-message={item.itemId} data-message-kind={item.kind} data-status={item.status} data-task-id={item.taskId} ref={articleRef}>
       <div className={tw("timeline-item__body min-w-0 flex-1", isUser && "flex flex-col items-end")}>
+        {duration !== undefined && Number.isFinite(duration) && duration >= 0 ? <div aria-label="本轮用时" className={tw('mb-3 text-xs leading-5 tabular-nums text-[var(--text-tertiary)]')}>用时 {formatElapsed(duration, elapsedFormat)}</div> : null}
         <div className={tw("min-w-0 max-w-full", isUser && "rounded-2xl [corner-shape:squircle] bg-[var(--surface-secondary)] px-[13px] py-2.5")} >
         {item.title ? <div className={tw("mb-1 flex min-w-0 items-center gap-2 text-xs")}>
           <strong className={tw("min-w-0 truncate font-medium")} title={item.title}>{item.title ?? detailLabel}</strong>
@@ -719,8 +725,17 @@ export function Conversation({
   const [readingSpace, setReadingSpace] = useState(0)
   const clockStart = useRef<{ thread: string; start: number } | undefined>(undefined)
   const wasRunning = useRef(false)
-  if (running && (!wasRunning.current || !clockStart.current || clockStart.current.thread !== threadKey || clockStart.current.start < (Date.parse(latestUser?.createdAt ?? '') || 0))) clockStart.current = { thread: threadKey, start: Date.now() }
+  const runtimeStart = Date.parse(items.findLast(item => item.turnTiming && !item.turnTiming.endedAt)?.turnTiming?.startedAt ?? '')
+  if (running && Number.isFinite(runtimeStart)) clockStart.current = { thread: threadKey, start: runtimeStart }
+  else if (running && (!wasRunning.current || !clockStart.current || clockStart.current.thread !== threadKey)) clockStart.current = { thread: threadKey, start: Date.now() }
   wasRunning.current = running
+  const reviewChange = onReviewChanges ? latestChanges : undefined
+  const reviewedDeliveries = useMemo(() => reviewChange ? items.filter(item => item.taskId === reviewChange.taskId && item.turn === reviewChange.turn).flatMap(item => item.presentedFiles ?? []) : [], [items, reviewChange])
+  const presentedItems = useMemo(() => withoutReviewedDeliveries(items, reviewChange), [items, reviewChange])
+  const groups = useMemo(() => displayTimeline(presentedItems, running, preferences.collapseProcess), [presentedItems, running, preferences.collapseProcess])
+  const matchingChangeGroup = reviewChange ? groups.findLastIndex(group => group.items.some(item => item.taskId === reviewChange.taskId && item.turn === reviewChange.turn)) : -1
+  const changeGroup = matchingChangeGroup >= 0 || !reviewChange ? matchingChangeGroup
+    : groups.findLastIndex(group => group.items.some(item => item.taskId === reviewChange.taskId && item.seq !== undefined && item.seq <= reviewChange.seq))
   const scrollRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<ConversationSelection>()
   const [annotation, setAnnotation] = useState<ReplyAnnotationDraft>()
@@ -924,15 +939,17 @@ export function Conversation({
             </button>
           </div>
         ) : null}
-        {displayTimeline(items, running, preferences.collapseProcess).map(group => group.process ? (
+        {!groups.length && reviewChange && onReviewChanges ? <ConversationChangeSummary change={reviewChange} deliveries={reviewedDeliveries} onPreviewDelivery={onPreviewDelivery} onSelect={onReviewChanges} /> : null}
+        {groups.map((group, index) => <Fragment key={`${group.process ? 'process' : 'message'}:${group.items[0]?.itemId}`}>{group.process ? (
           <ProcessGroup items={group.items} liveIds={liveItemIds} preferences={preferences} key={`process:${group.items[0]?.itemId}`}>
             {group.items.map(item => item.execution || item.status === 'failed' && item.presentation !== 'reasoning'
               ? <TimelineRow expandTools={preferences.expandTools} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={running} />
               : <ProcessActivity expanded={preferences.expandTools} item={item} key={`${item.itemId}:${item.presentation ?? 'activity'}`} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} />)}
           </ProcessGroup>
-        ) : group.items.map(item => <TimelineRow onOpenDelivery={onOpenDelivery} onPreviewDelivery={onPreviewDelivery} registerMessage={item.kind === 'user-message' ? registerMessage : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onCompactContext={onCompactContext} compactDisabled={compactDisabled} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />))}
-        {clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} running={running} start={clockStart.current.start} preferences={preferences} /> : null}
-        {latestChanges && onReviewChanges ? <ConversationChangeSummary change={latestChanges} key={`${threadKey}-${String(latestChanges.seq)}`} onSelect={onReviewChanges} /> : null}
+        ) : group.items.map(item => <TimelineRow elapsedFormat={preferences.elapsedFormat} onOpenDelivery={onOpenDelivery} onPreviewDelivery={onPreviewDelivery} registerMessage={item.kind === 'user-message' ? registerMessage : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onCompactContext={onCompactContext} compactDisabled={compactDisabled} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />)}
+          {index === changeGroup && reviewChange && onReviewChanges ? <ConversationChangeSummary change={reviewChange} deliveries={reviewedDeliveries} onPreviewDelivery={onPreviewDelivery} key={`${threadKey}-${String(reviewChange.seq)}`} onSelect={onReviewChanges} /> : null}
+        </Fragment>)}
+        {running && clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} start={clockStart.current.start} preferences={preferences} /> : null}
         {suggestedReply && replyFeatures && onChooseSuggestion ? <ReplySuggestions key={`${suggestedReply.taskId}:${suggestedReply.seq}`} reply={suggestedReply} service={replyFeatures} onChoose={onChooseSuggestion} /> : null}
         {readingSpace > 0 ? <div aria-hidden style={{ height: readingSpace }} /> : null}
       </div>

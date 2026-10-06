@@ -307,6 +307,8 @@ export interface LingTimelineItem {
   readonly reasoningStreaming?: boolean
   /** Whether this is the last visible assistant response of a settled runtime turn. */
   readonly turnComplete?: boolean
+  /** Runtime event times; a closed turn's elapsed time must survive reloads. */
+  readonly turnTiming?: { readonly startedAt: string; readonly endedAt?: string }
   readonly attachments?: readonly LingTimelineAttachment[]
   readonly execution?: LingServerExecution
 }
