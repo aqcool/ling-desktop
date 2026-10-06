@@ -49,7 +49,6 @@ export function BehaviorSettings({ section, supportsGoalLimit = false, pluginMan
       </Group>)}
     </> : <>
       <Group title="任务与工具">
-        <Row title="运行中发送方式" description="Agent 执行期间，新输入默认排队或立即插话。"><Select title="运行中发送方式" value={preferences.sendMode} options={[["queue", "排队"], ["steer", "立即插话"]]} onChange={value => save({ sendMode: value as 'queue' | 'steer' })} /></Row>
         <Row title="问答面板静默跳过" description="仅跳过无人操作的普通问答；填写回答后停止计时。审批和计划审阅始终等待确认。"><Select title="问答面板静默跳过" value={String(preferences.questionTimeout)} options={[["0", "关闭"], ["60", "1 分钟"], ["120", "2 分钟"], ["300", "5 分钟"]]} onChange={value => save({ questionTimeout: Number(value) })} /></Row>
         <Row title="产物文件默认打开位置" description="点击回复中交付的文件时，使用右侧预览或系统默认应用。远程文件在右侧预览。"><Select title="产物文件默认打开位置" value={preferences.artifactOpen} options={[["right", "右侧工作区"], ["system", "系统默认应用"]]} onChange={value => save({ artifactOpen: value as BehaviorPreferences['artifactOpen'] })} /></Row>
         <Row title="提示建议" description="回复完成后生成最多三条后续提问，点击填入输入框。使用本轮模型，产生额外模型请求。"><Toggle title="提示建议" value={preferences.promptSuggestions} onChange={value => save({ promptSuggestions: value })} /></Row>

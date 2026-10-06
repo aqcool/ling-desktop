@@ -636,7 +636,7 @@ export function LingShell(props: LingShellProps) {
                   void broker.credentials(issueServerId).then(() => remoteIssue(issueServerId)).then(issue => setServerIssue(issue)).catch(() => setServerIssue({ title: '服务器连接已中断' })).finally(() => setServerIssuePending(false))
                 }} type="button">确认连接</button> : null}
               </div> : null}
-              <MessageQueue key={selectedTask?.taskId ?? 'new-task'} items={props.pendingMessages ?? []} disabled={connection.phase !== 'ready'} onAction={props.onQueueAction} />
+              <MessageQueue key={selectedTask?.taskId ?? 'new-task'} items={props.pendingMessages ?? []} disabled={connection.phase !== 'ready'} onAction={props.onQueueAction} onWithdraw={props.onQueueWithdraw} onReorder={props.onQueueReorder} />
               <Composer
                 attachments={attachments}
                 recordedAttachments={props.recordedAttachments}

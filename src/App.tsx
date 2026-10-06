@@ -744,7 +744,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
             requestId: attemptId,
             ...(draft.recordedAttachments?.attachments.length ? { recordedAttachments: { seq: draft.recordedAttachments.seq, attachmentIds: draft.recordedAttachments.attachments.map(a => a.attachmentId) } } : {}),
             ...(runtime.supportsGoalLimit ? { maxGoalRounds: behavior.goalRounds } : {}),
-            ...(selectedTask && running ? { mode: behavior.sendMode } : {}),
+            ...(selectedTask && running ? { mode: 'queue' as const } : {}),
             ...(payload.length > 0 ? { attachments: payload } : {}),
             ...(selectedTask === undefined && !newTaskServerId && !newTaskWithoutWorkspace && (newTaskWorkspaceId ?? workspaces[0]?.workspaceId) ? { workspaceId: newTaskWorkspaceId ?? workspaces[0]?.workspaceId } : {}),
             ...(selectedTask === undefined && newTaskServerId ? { serverId: newTaskServerId } : {}),
@@ -776,7 +776,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     } catch {
       showNotice('无法发送，请检查运行状态后重试。')
     }
-  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.sendMode, behavior.goalRounds, behavior.workMode, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
+  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.goalRounds, behavior.workMode, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
 
   const stop = useCallback(async () => {
     if (!selectedTask) return
@@ -904,6 +904,33 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     setComposerFocusKey(key => key + 1)
     showNotice('')
   }, [writeDraft, showNotice])
+
+  const withdrawQueue = useCallback(async (itemId: string): Promise<LingCommandResult> => {
+    const requestId = crypto.randomUUID()
+    const taskId = selectedTask?.taskId
+    if (!taskId || !runtime.withdrawQueuedMessage) return { accepted: false, requestId, reason: 'runtime-unavailable', message: '队列服务暂不可用。', retryable: true }
+    const before = draftsRef.current[taskId] ?? emptyDraft
+    const result = await runtime.withdrawQueuedMessage(taskId, itemId)
+    if (!result.ok) return { accepted: false, requestId, reason: result.reason, message: result.message, retryable: result.retryable }
+    setDrafts(current => {
+      const latest = current[taskId] ?? emptyDraft
+      // Editing replaces the current text, as in Qoder. Typing that arrived
+      // while the Host was responding must still survive the async operation.
+      const text = latest.text !== before.text && latest.text
+        ? [result.value.text, latest.text].filter(Boolean).join('\n') : result.value.text
+      return { ...current, [taskId]: { ...latest, text, recordedAttachments: result.value.recordedAttachments } }
+    })
+    setComposerFocusKey(key => key + 1)
+    showNotice('')
+    return { accepted: true, requestId }
+  }, [runtime, selectedTask?.taskId, showNotice])
+
+  const reorderQueue = useCallback(async (itemIds: readonly string[]): Promise<LingCommandResult> => {
+    const requestId = crypto.randomUUID()
+    if (!selectedTask || !runtime.reorderQueuedMessages) return { accepted: false, requestId, reason: 'runtime-unavailable', message: '队列服务暂不可用。', retryable: true }
+    const result = await runtime.reorderQueuedMessages(selectedTask.taskId, itemIds)
+    return result.ok ? { accepted: true, requestId } : { accepted: false, requestId, reason: result.reason, message: result.message, retryable: result.retryable }
+  }, [runtime, selectedTask])
 
   const addQuote = useCallback((text: string, preview: string) => {
     const current = draftsRef.current[draftKey] ?? emptyDraft
@@ -1248,6 +1275,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       pendingInteractions={taskInteractions}
       pendingMessages={pendingMessages}
       onQueueAction={updateQueuedMessage}
+      onQueueWithdraw={runtime.withdrawQueuedMessage ? withdrawQueue : undefined}
+      onQueueReorder={runtime.reorderQueuedMessages ? reorderQueue : undefined}
       permission={selectedTask ? permission : newTaskPermission}
       prompt={draft.text}
       running={running}

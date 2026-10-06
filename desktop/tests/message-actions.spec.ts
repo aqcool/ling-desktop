@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import TypertGatewayService from '@deepseek-ai/dsh-api-gateway'
 import { describe, expect, it, vi } from 'vitest'
-import { LingMessageActionsController, prepareRecordedAttachments } from '../src/host/message-actions-controller.ts'
+import { LingMessageActionsController, prepareRecordedAttachments, withdrawQueuedMessage, reorderQueuedMessages } from '../src/host/message-actions-controller.ts'
 import { recordedAttachmentsRequest } from '../src/message-actions-contract.ts'
 
 const request = { taskId: 'task', seq: 7, attachmentIds: ['image', 'file'] }
@@ -25,7 +25,8 @@ function fixture() {
     expect(Buffer.concat(chunks).toString()).toBe('original file')
     return { receiptId: 'receipt' }
   }) }
-  const ctx = { sessionController, attachments, fileUploads } as unknown as Context
+  const agents = { get: vi.fn(() => agent) }
+  const ctx = { sessionController, attachments, fileUploads, agents } as unknown as Context
   return { ctx, sessionController, attachments, fileUploads, original, history, agent, stream }
 }
 
@@ -79,6 +80,8 @@ describe('recorded attachment preparation', () => {
       await host.plugin(TypertRegistry)
       await host.plugin(TypertGatewayService)
       host.provide('sessionController', f.sessionController as never)
+      host.provide('agents', { get: () => f.agent } as never)
+      host.provide('lingSessionLifecycle', { withSessionOperation: async (_id: string, operation: () => Promise<unknown>) => operation() } as never)
       host.provide('attachments', f.attachments as never)
       host.provide('fileUploads', f.fileUploads as never)
       await host.plugin(LingMessageActionsController)
@@ -86,5 +89,63 @@ describe('recorded attachment preparation', () => {
       await expect(host.typertGateway.invoke({ namespace: 'lingMessageActions', method: 'prepareAttachments', args: { request: { ...request, seq: 99 } } })).rejects.toThrow('原消息')
       expect(f.sessionController.prompt).not.toHaveBeenCalled()
     } finally { await host.fiber.dispose() }
+  })
+})
+
+describe('durable queue operations', () => {
+  function queuedFixture() {
+    const f = fixture()
+    const a = { id: 'a', role: 'user', source: { kind: 'user', rpcId: 'a-rpc' }, content: f.original.data.content }
+    const b = { ...a, id: 'b', source: { kind: 'user', rpcId: 'b-rpc' }, content: [{ type: 'text', text: 'second' }] }
+    const internal = { ...b, id: 'internal', source: { kind: 'plugin', rpcId: 'internal' } }
+    const inbox = { nextTurn: [a, internal, b], nextStep: [], splice: vi.fn((target: string, start: number, count: number, inserted: typeof a[]) => {
+      expect(target).toBe('next-turn'); return inbox.nextTurn.splice(start, count, ...inserted)
+    }) }
+    const events = [{ seq: 9, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [a, internal, b] } }]
+    const updateQueue = vi.fn(async (input: { itemId: string }) => {
+      const index = inbox.nextTurn.findIndex(item => item.id === input.itemId)
+      if (index < 0) throw new Error('already consumed')
+      inbox.nextTurn.splice(index, 1)
+      return { accepted: true }
+    })
+    const ctx = { ...f.ctx, agents: { get: () => ({ inbox }) }, sessionController: { ...f.sessionController, inspect: vi.fn(async () => ({ events })), updateQueue } } as unknown as Context
+    return { ...f, ctx, inbox, events, updateQueue }
+  }
+  it('atomically reorders user occurrences and preserves internal work and attachment identities', async () => {
+    const f = queuedFixture()
+    const first = f.inbox.nextTurn[0]
+    await expect(reorderQueuedMessages(f.ctx, { taskId: 'task', itemIds: ['b', 'a'] })).resolves.toEqual({ accepted: true })
+    expect(f.inbox.nextTurn.map(item => item.id)).toEqual(['b', 'internal', 'a'])
+    expect(f.inbox.nextTurn[2]).toBe(first)
+    expect(f.inbox.splice).toHaveBeenCalledTimes(1)
+    await reorderQueuedMessages(f.ctx, { taskId: 'task', itemIds: ['b', 'a'] })
+    expect(f.inbox.splice).toHaveBeenCalledTimes(1)
+  })
+  it('rejects stale, duplicate or foreign order without altering the inbox', async () => {
+    const f = queuedFixture()
+    for (const itemIds of [['a', 'a'], ['a', 'foreign'], ['a', 'b', 'internal']]) await expect(reorderQueuedMessages(f.ctx, { taskId: 'task', itemIds })).rejects.toThrow('队列已变化')
+    expect(f.inbox.splice).not.toHaveBeenCalled()
+  })
+  it('withdraws only pending user input, retaining durable attachment references for normal resubmission', async () => {
+    const f = queuedFixture()
+    const result = await withdrawQueuedMessage(f.ctx, { taskId: 'task', itemId: 'a' })
+    expect(result).toMatchObject({ text: '检查服务', recordedAttachments: { seq: 9, attachments: [{ attachmentId: 'image', kind: 'image', name: 'screen.png' }, { attachmentId: 'file', kind: 'file', name: 'report.txt' }] } })
+    expect(f.updateQueue).toHaveBeenCalledWith({ sessionId: 'task', itemId: 'a', action: { kind: 'remove' } })
+    expect(f.inbox.nextTurn.map(item => item.id)).toEqual(['internal', 'b'])
+    expect(await prepareRecordedAttachments(f.ctx, { ...request, seq: 9 })).toHaveLength(2)
+    expect(f.sessionController.prompt).not.toHaveBeenCalled()
+  })
+  it('never recreates a consumed message and does not withdraw internal input', async () => {
+    const f = queuedFixture()
+    f.inbox.nextTurn.splice(0, 1)
+    for (const itemId of ['a', 'internal', 'missing']) await expect(withdrawQueuedMessage(f.ctx, { taskId: 'task', itemId })).rejects.toThrow('无法撤回')
+    expect(f.updateQueue).not.toHaveBeenCalled()
+  })
+  it('leaves input pending when durable attachment facts cannot be found', async () => {
+    const f = queuedFixture()
+    f.events.splice(0)
+    await expect(withdrawQueuedMessage(f.ctx, { taskId: 'task', itemId: 'a' })).rejects.toThrow('无法保留原附件')
+    expect(f.updateQueue).not.toHaveBeenCalled()
+    expect(f.inbox.nextTurn[0]?.id).toBe('a')
   })
 })

@@ -91,6 +91,10 @@ export interface DshRuntimeFacades {
   readonly computerControl?: LingComputerControlService
   readonly deleteArchivedSession?: (taskId: string) => Promise<LingReadResult<void>>
   readonly messageActions?: { prepareAttachments(taskId: string, sourceSeq: number, attachmentIds: readonly string[]): Promise<LingReadResult<Parameters<SessionBinding['session']['prompt']>[0]>> }
+  readonly messageQueue?: {
+    withdraw(taskId: string, itemId: string): Promise<LingReadResult<import('./contract.js').LingWithdrawnMessage>>
+    reorder(taskId: string, itemIds: readonly string[]): Promise<LingReadResult<void>>
+  }
   readonly servers?: LingServerService
   /** The upstream client create helper currently drops agentPreset; use the wire API. */
   readonly createSession?: (options: { workspaceId?: string; agentPreset: string }) => ReturnType<ISessions['create']>
@@ -642,6 +646,10 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
     async getTaskPendingMessages(taskId) {
       return await withSession(facades, taskId, binding => facades.conversation.pending?.(binding).getSnapshot() ?? [])
     },
+    ...(facades.messageQueue ? {
+      withdrawQueuedMessage: (taskId: string, itemId: string) => facades.messageQueue!.withdraw(taskId, itemId),
+      reorderQueuedMessages: (taskId: string, itemIds: readonly string[]) => facades.messageQueue!.reorder(taskId, itemIds),
+    } : {}),
     subscribeTaskPendingMessages(taskId, listener) {
       const abort = new AbortController()
       const reference = facades.sessions.retain(sessionId(taskId), { source: 'lingRenderer', signal: abort.signal })
@@ -1135,7 +1143,10 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
         }
         if (command.type === 'task.update-queue') {
           const result = await withSession(facades, command.taskId, ({ session }) => session.updateQueue(command.itemId as Parameters<SessionBinding['session']['updateQueue']>[0], { kind: command.action }))
-          return result.ok || result.error.code === 'session/queue-item-not-found'
+          if (!result.ok && command.action === 'steer' && result.error.code === 'session/queue-item-not-found') {
+            return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '消息已开始执行或已移除，无法插话。', retryable: false }
+          }
+          return result.ok || (command.action === 'remove' && result.error.code === 'session/queue-item-not-found')
             ? { accepted: true, requestId: command.requestId }
             : rejected(command.requestId, result.error, '无法更新待发送消息。')
         }

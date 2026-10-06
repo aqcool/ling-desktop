@@ -282,6 +282,26 @@ export function apply(ctx: Context): void {
       const result = await remote.prepareAttachments({ taskId, seq, attachmentIds: [...attachmentIds] })
       return result.ok ? { ok: true, value: result.value } : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '无法读取原附件。', retryable: true }
     } },
+    messageQueue: {
+      async withdraw(taskId, itemId) {
+        try {
+          if (!messagesMount) throw new Error('队列服务暂不可用，请重启应用。')
+          await messagesMount
+          const remote = ctx.get('remote.lingMessageActions') as unknown as LingMessageActionsRemote
+          const result = await remote.withdrawQueue({ taskId, itemId })
+          return result.ok ? result : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '无法撤回消息。', retryable: true }
+        } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '无法撤回消息。', retryable: true } }
+      },
+      async reorder(taskId, itemIds) {
+        try {
+          if (!messagesMount) throw new Error('队列服务暂不可用，请重启应用。')
+          await messagesMount
+          const remote = ctx.get('remote.lingMessageActions') as unknown as LingMessageActionsRemote
+          const result = await remote.reorderQueue({ taskId, itemIds: [...itemIds] })
+          return result.ok ? { ok: true, value: undefined } : { ok: false, reason: 'runtime-unavailable', message: result.error.message || '无法调整队列顺序。', retryable: true }
+        } catch (error) { return { ok: false, reason: 'runtime-unavailable', message: error instanceof Error ? error.message : '无法调整队列顺序。', retryable: true } }
+      },
+    },
     createSession: request => createLingSession(ctx.remote, sessions, request),
     workspaces: ctx.workspaces,
     workspaceTools: {

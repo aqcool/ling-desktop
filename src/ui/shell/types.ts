@@ -147,6 +147,8 @@ export interface LingShellProps {
   readonly pendingInteractions: readonly LingPendingInteraction[]
   readonly pendingMessages?: readonly LingPendingMessage[]
   readonly onQueueAction?: (itemId: string, action: 'steer' | 'remove') => Promise<LingCommandResult>
+  readonly onQueueWithdraw?: (itemId: string) => Promise<LingCommandResult>
+  readonly onQueueReorder?: (itemIds: readonly string[]) => Promise<LingCommandResult>
   readonly permission?: LingTaskPermission
   readonly prompt: string
   readonly running: boolean

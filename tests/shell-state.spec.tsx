@@ -49,24 +49,24 @@ function deferred<T>() {
 }
 
 describe('shell state boundaries', () => {
-  it('keeps pending feedback visible when collapsed and retains the queue after a failed action', async () => {
+  it('shows all pending input and retains the queue after a failed action', async () => {
     const first: LingPendingMessage = { id: 'one', queueId: 'host-one', delivery: 'queue', status: 'pending', text: '先执行这条', attachments: [] }
     const second: LingPendingMessage = { id: 'two', delivery: 'steer', status: 'sending', text: '另一条消息', attachments: [{ name: '截图.png', kind: 'image' }] }
     const onAction = vi.fn(async () => ({ accepted: false as const, requestId: 'failed', reason: 'runtime-unavailable' as const, retryable: true, message: '连接中断' }))
     const view = await mount(<MessageQueue items={[first, second]} disabled={false} onAction={onAction} />)
-    expect(view.container.textContent).toContain('待发送 · 2')
+    expect(view.container.textContent).toContain('2 条消息待发送')
     expect(view.container.textContent).toContain('先执行这条')
-    expect(view.container.textContent).not.toContain('另一条消息')
-    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-controls]')!.click() })
     expect(view.container.textContent).toContain('另一条消息')
     expect(view.container.textContent).toContain('正在发送…')
     expect(view.container.textContent).toContain('截图.png')
-    expect(view.container.querySelector('button[aria-label="取消排队：另一条消息"]')).toBeNull()
-    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="取消排队：先执行这条"]')!.click() })
+    expect(view.container.querySelector('button[aria-label="移除消息：另一条消息"]')).toBeNull()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="移除消息：先执行这条"]')!.click() })
     expect(onAction).toHaveBeenCalledWith('host-one', 'remove')
     expect(view.container.querySelector('[role="alert"]')?.textContent).toBe('连接中断')
     expect(view.container.textContent).toContain('先执行这条')
     await view.render(<MessageQueue items={[]} disabled={false} onAction={onAction} />)
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toBe('连接中断')
+    await view.render(<MessageQueue key="another-task" items={[]} disabled={false} onAction={onAction} />)
     expect(view.container.textContent).toBe('')
   })
   it.each(['running', 'waiting-for-input'] as const)('keeps the composer active while %s and exposes accepted queue input', async status => {
@@ -99,31 +99,46 @@ describe('shell state boundaries', () => {
     expect(input.value).toBe('')
     const queue = view.container.querySelector('section[aria-label="待发送消息"]')!
     expect(queue.textContent).toContain('先检查日志')
-    expect(queue.textContent).toContain('已排队')
+    expect(queue.textContent).toContain('1 条消息待发送')
     expect(view.container.querySelector('[data-conversation-text]')?.textContent ?? '').not.toContain('先检查日志')
     await act(async () => { queue.querySelector<HTMLButtonElement>('button[aria-label="立即插话：先检查日志"]')!.click() })
     expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'task.update-queue', itemId: 'host-id', action: 'steer' }))
     expect(view.container.querySelector('section[aria-label="待发送消息"]')).toBeNull()
   })
 
-  it('switches running input to steering directly in the composer', async () => {
+  it('defaults to queue and restores withdrawn text and attachments without resending', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-    window.localStorage.setItem(draftStorageKey, serializeDrafts({ a: { text: '现在改做这个' } }))
     const { App } = await import('../src/App.js')
+    let publishQueue!: (items: readonly LingPendingMessage[]) => void
+    const first: LingPendingMessage = { id: 'one', queueId: 'host-one', delivery: 'queue', status: 'pending', text: '原问题', attachments: [{ kind: 'image', name: '截图.png' }] }
+    const second: LingPendingMessage = { id: 'two', queueId: 'host-two', delivery: 'queue', status: 'pending', text: '第二条', attachments: [] }
+    const restored = { text: first.text, recordedAttachments: { seq: 7, attachments: [{ attachmentId: 'image', kind: 'image' as const, name: '截图.png' }] } }
     const dispatch = vi.fn(async (command: LingRuntimeCommand) => ({ accepted: true as const, requestId: command.requestId }))
-    const runtime = { ...createOfflineRuntimeAdapter(), dispatch,
-      async getSnapshot() { return { connection: { phase: 'ready' as const }, workspaces: [], tasks: [{ ...task('a'), status: 'running' as const, workspaceId: undefined }],
-        pendingInteractions: [], backgroundJobs: {}, subagents: {} } } }
+    const withdrawQueuedMessage = vi.fn(async () => { publishQueue([second]); return { ok: true as const, value: restored } })
+    const reorderQueuedMessages = vi.fn(async () => { publishQueue([second, first]); return { ok: true as const, value: undefined } })
+    const runtime = { ...createOfflineRuntimeAdapter(), dispatch, withdrawQueuedMessage, reorderQueuedMessages,
+      async getSnapshot() { return { connection: { phase: 'ready' as const }, workspaces: [], tasks: [{ ...task('a'), status: 'running' as const, workspaceId: undefined }], pendingInteractions: [], backgroundJobs: {}, subagents: {} } },
+      subscribeTaskPendingMessages(_id: string, fn: typeof publishQueue) { publishQueue = fn; fn([first, second]); return () => {} },
+    }
     const view = await mount(<App runtime={runtime} />)
     await act(async () => { view.container.querySelector<HTMLButtonElement>('.sidebar-task__main[title="a"]')!.click() })
-    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="运行中发送方式"]')!.click() })
-    const steer = [...document.querySelectorAll<HTMLButtonElement>('.ling-menu__item')].find(button => button.textContent?.trim() === '立即插话')!
-    await act(async () => { steer.click() })
-    expect(view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.placeholder).toContain('立即调整当前任务')
-    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="立即插话"]')!.click() })
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'task.send-message', text: '现在改做这个', mode: 'steer' }))
+    const input = view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')!
+    expect(view.container.querySelector('button[aria-label="运行中发送方式"]')).toBeNull()
+    expect(view.container.querySelector('button[aria-label="停止"]')).not.toBeNull()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="调整排队顺序：第二条"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })) })
+    expect(reorderQueuedMessages).toHaveBeenCalledWith('a', ['host-two', 'host-one'])
+    const rows = [...view.container.querySelectorAll('section[aria-label="待发送消息"] li')]
+    expect(rows[0]?.textContent).toContain('第二条')
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="撤回到输入框编辑：原问题"]')!.click() })
+    expect(withdrawQueuedMessage).toHaveBeenCalledWith('a', 'host-one')
+    expect(input.value).toBe('原问题')
+    expect(view.container.querySelector('section[aria-label="待发送消息"]')?.textContent).not.toContain('原问题')
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(view.container.querySelector('button[aria-label="排队发送"]')).not.toBeNull()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="排队发送"]')!.click() })
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'task.send-message', taskId: 'a', text: '原问题', mode: 'queue', recordedAttachments: { seq: 7, attachmentIds: ['image'] } }))
   })
   it('composes the real shell without coupling workbench opening to monitor visibility', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))

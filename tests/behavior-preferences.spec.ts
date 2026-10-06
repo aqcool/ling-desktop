@@ -14,7 +14,7 @@ describe('behavior preferences', () => {
   it('validates stored settings and keeps independent mode defaults', () => {
     expect(parseBehavior('{')).toEqual(parseBehavior(null))
     const settings = parseBehavior(JSON.stringify({ goalRounds: -1, sendMode: 'bad', questionTimeout: 1, toolCounts: 'false', modes: { general: { fileChanges: true, palette: 'unknown' } }, thinkingPhrases: ['  ', 3, ' 思考中 '] }))
-    expect(settings).toMatchObject({ goalRounds: 20, sendMode: 'queue', questionTimeout: 0, toolCounts: true, thinkingPhrases: ['思考中'] })
+    expect(settings).toMatchObject({ goalRounds: 20, questionTimeout: 0, toolCounts: true, thinkingPhrases: ['思考中'] })
     expect(settings.modes.general).toMatchObject({ fileChanges: true, locationControls: false, palette: 'inherit' })
     expect(settings.modes.coding.locationControls).toBe(true)
     settings.modes.coding.fileChanges = false
@@ -25,8 +25,8 @@ describe('behavior preferences', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => data.get(key), setItem: (key: string, value: string) => data.set(key, value) })
     const target = new EventTarget(); const changed = vi.fn()
     target.addEventListener('ling:behavior-changed', changed); vi.stubGlobal('window', target)
-    updateBehavior({ sendMode: 'steer' })
-    expect(parseBehavior(data.get(behaviorKey)!)).toMatchObject({ goalRounds: 50, sendMode: 'steer' })
+    updateBehavior({ goalRounds: 40 })
+    expect(parseBehavior(data.get(behaviorKey)!)).toMatchObject({ goalRounds: 40 })
     expect(changed).toHaveBeenCalledOnce()
   })
   it('formats long durations and clamps negative elapsed time', () => {

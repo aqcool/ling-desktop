@@ -126,6 +126,8 @@ const paths = {
   window: [panelFrame, 'M3 9h18'],
   waveform: ['M4 10v4', 'M8 6v12', 'M12 3v18', 'M16 7v10', 'M20 9v6'],
   trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M5 7l1 13a1 1 0 001 1h10a1 1 0 001-1l1-13', 'M9 7V4h6v3'],
+  cornerDownLeft: ['M19 4v9a2 2 0 01-2 2H5', 'M9 11l-4 4 4 4'],
+  gripVertical: ['M9 5h.01', 'M15 5h.01', 'M9 12h.01', 'M15 12h.01', 'M9 19h.01', 'M15 19h.01'],
 } as const
 
 export type IconName = keyof typeof paths

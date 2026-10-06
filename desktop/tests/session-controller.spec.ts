@@ -15,6 +15,7 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LingSessionController } from '../src/session-controller.ts'
 import { LingSessionLifecycle } from '../src/session-lifecycle.ts'
+import { LingMessageActionsController } from '../src/host/message-actions-controller.ts'
 
 const contexts: Context[] = []
 const directories: string[] = []
@@ -42,6 +43,7 @@ async function fixture() {
   ctx.provide('fileUploads', {
     registerAgentResolver: () => () => {},
     bindPrompt: () => ({ commit() {}, [Symbol.dispose]() {} }),
+    retirePrompt() {},
   } as never)
   ctx.provide('sessionQuery', {} as never)
   ctx.provide('workspaceRegistry', { list: () => [], get: () => undefined } as never)
@@ -65,6 +67,40 @@ class FixtureModel extends LlmAdapter {
   }
 }
 describe('LING session controller through the published SRC gateway', () => {
+  it('reorders and withdraws the real durable queue through LING Gateway endpoints', async () => {
+    const ctx = await fixture()
+    await ctx.plugin(LingMessageActionsController)
+    let release!: () => void
+    const model = new FixtureModel(new Promise<void>(resolve => { release = resolve }))
+    ctx.llm.registerAdapter(['fixture'], model)
+    const cwd = await mkdtemp(join(tmpdir(), 'ling-queue-actions-')); directories.push(cwd)
+    const created = await ctx.typertGateway.invoke({ namespace: 'session', method: 'create', args: { request: { cwd } } }) as { sessionId: SessionId }
+    const prompt = (requestId: string, text: string) => ctx.typertGateway.invoke({ namespace: 'session', method: 'prompt', args: { request: {
+      sessionId: created.sessionId, requestId, mode: 'queue', content: [{ type: 'text', text }],
+    } } })
+    const mutate = (method: string, request: object) => ctx.typertGateway.invoke({ namespace: 'lingMessageActions', method, args: { request: { taskId: created.sessionId, ...request } } })
+    const agent = ctx.agents.get(created.sessionId)!
+    try {
+      await prompt('base', 'base')
+      await vi.waitFor(() => expect(model.requests).toHaveLength(1))
+      await prompt('queue-first', 'first')
+      await prompt('queue-second', 'second')
+      const ids = agent.inbox.nextTurn.map(item => String(item.id))
+      expect(ids).toHaveLength(2)
+      await expect(mutate('reorderQueue', { itemIds: ids.toReversed() })).resolves.toEqual({ accepted: true })
+      expect(agent.inbox.nextTurn.map(item => String(item.id))).toEqual(ids.toReversed())
+      const history = await ctx.sessionController.inspect(created.sessionId)
+      expect(history.events.some(event => event.type === 'agent/inbox/spliced' && event.data.inserted.length === 2)).toBe(true)
+      await expect(mutate('withdrawQueue', { itemId: ids[0] })).resolves.toEqual({ text: 'first' })
+      await expect(mutate('withdrawQueue', { itemId: ids[0] })).resolves.toEqual({ text: 'first' })
+      expect(agent.inbox.nextTurn.map(item => String(item.id))).toEqual([ids[1]])
+      release()
+      await vi.waitFor(() => expect(agent.status).toBe('idle'))
+      expect(model.requests).toHaveLength(2)
+      await expect(mutate('withdrawQueue', { itemId: ids[1] })).rejects.toThrow('无法撤回')
+      expect(model.requests).toHaveLength(2)
+    } finally { release() }
+  })
   it.each(['queue', 'steer', 'promote'] as const)('admits %s input while the real Agent is generating', async delivery => {
     const ctx = await fixture()
     let release!: () => void

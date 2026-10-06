@@ -287,6 +287,15 @@ export interface LingPendingMessage {
   readonly attachments: readonly { readonly kind: 'file' | 'image'; readonly name: string }[]
 }
 
+/** A withdrawn occurrence retains durable attachment coordinates for resubmission. */
+export interface LingWithdrawnMessage {
+  readonly text: string
+  readonly recordedAttachments?: {
+    readonly seq: number
+    readonly attachments: readonly LingTimelineAttachment[]
+  }
+}
+
 export interface LingTimelineItem {
   readonly presentedFiles?: readonly import('./reply-features.js').LingPresentedFile[]
   readonly compaction?: import('./compaction.js').LingCompactionRecord
@@ -865,6 +874,8 @@ export interface LingRuntimeAdapter {
   getModelSettings(signal?: AbortSignal): Promise<LingReadResult<LingModelSettings>>
   getTaskTimeline(taskId: string): Promise<readonly LingTimelineItem[]>
   getTaskPendingMessages?(taskId: string): Promise<readonly LingPendingMessage[]>
+  withdrawQueuedMessage?(taskId: string, itemId: string): Promise<LingReadResult<LingWithdrawnMessage>>
+  reorderQueuedMessages?(taskId: string, itemIds: readonly string[]): Promise<LingReadResult<void>>
   subscribeTaskPendingMessages?(taskId: string, listener: (items: readonly LingPendingMessage[]) => void): () => void
   searchTasks(query: string, signal?: AbortSignal): Promise<LingReadResult<LingTaskSearchPage>>
   getTaskChanges(taskId: string, signal?: AbortSignal): Promise<LingReadResult<readonly LingTaskChanges[]>>

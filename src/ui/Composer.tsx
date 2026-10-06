@@ -1,4 +1,4 @@
-import { updateBehavior, useBehavior } from './behavior-preferences.js'
+import { useBehavior } from './behavior-preferences.js'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Header, type Selection } from 'react-aria-components'
@@ -158,7 +158,7 @@ export function Composer({
   getWorkspaceSkills,
 }: ComposerProps) {
   const behavior = useBehavior()
-  const sendLabel = behavior.sendMode === 'queue' ? '排队发送' : '立即插话'
+  const sendLabel = '排队发送'
   const draft = composerDraftPresentation(rawValue)
   const [slashCommands, setSlashCommands] = useState<readonly LingSlashCommand[]>([])
   const [slashSkills, setSlashSkills] = useState<readonly LingSkill[]>([])
@@ -724,7 +724,7 @@ export function Composer({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onScroll={event => { if (skillPrefixRef.current) skillPrefixRef.current.style.transform = `translateY(${-event.currentTarget.scrollTop}px)` }}
-            placeholder={running ? (behavior.sendMode === 'queue' ? '输入消息，当前轮次结束后发送…' : '输入消息，立即调整当前任务…') : '描述你要完成的任务…'}
+            placeholder={running ? '输入消息，当前轮次结束后发送…' : '描述你要完成的任务…'}
             ref={textareaRef}
             rows={1}
             title="Enter 发送，Shift+Enter 换行"
@@ -894,31 +894,18 @@ export function Composer({
           ) : (
             <span className={tw("composer__pill composer__pill--static composer__pill--model inline-flex h-7.5 max-w-[min(15rem,35vw)] min-w-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] max-[700px]:max-w-36 max-[700px]:overflow-hidden max-[700px]:whitespace-nowrap @max-[22rem]/composer:max-w-26")}><Icon className={tw("flex-none")} name="bolt" size={14} /><span className={tw("overflow-hidden text-ellipsis whitespace-nowrap")}>{modelLabel}</span></span>
           )}
-          {running ? (
-            <Menu align="end" side="top" triggerAriaLabel="运行中发送方式"
-              triggerClassName={tw('h-7.5 shrink-0 gap-1 rounded-lg px-1.5 text-xs hover:bg-[var(--surface-secondary)]')}
-              triggerLabel={<>{behavior.sendMode === 'queue' ? '排队' : '插话'}<Icon name="chevronDown" size={12} /></>}>
-              <MenuItem checked={behavior.sendMode === 'queue'} onPress={() => updateBehavior({ sendMode: 'queue' })}>排队发送</MenuItem>
-              <MenuItem checked={behavior.sendMode === 'steer'} onPress={() => updateBehavior({ sendMode: 'steer' })}>立即插话</MenuItem>
-            </Menu>
-          ) : null}
-          {running ? (
-            <button aria-label="停止" className={tw("composer__stop flex items-center justify-center [width:2.1rem] [height:2.1rem] border-0 [border-radius:50%] [background:var(--danger-subtle)] [color:var(--danger)] hover:[background:var(--danger-subtle)]")} onClick={onStop} type="button">
-              <Icon name="stop" size={16} />
-            </button>
-          ) : null}
           <span className={tw("composer__voice-unavailable flex [width:1.55rem] [height:1.65rem] items-center justify-center [color:var(--text-tertiary)] cursor-help @max-[22rem]/composer:[width:1.2rem]")} title="离线语音输入尚未接入" aria-label="离线语音输入尚未接入">
             <Icon name="mic" size={16} />
           </span>
           <button
-            aria-label={!canSend && !disabled ? '语音输入尚未接入' : running ? sendLabel : '发送'}
+            aria-label={running && !canSend ? '停止' : !canSend && !disabled ? '语音输入尚未接入' : running ? sendLabel : '发送'}
             className={tw("composer__send flex h-7.5 w-7.5 flex-none items-center justify-center rounded-lg bg-[var(--action)] text-[var(--action-foreground)] disabled:cursor-default disabled:bg-[var(--action)] disabled:text-[var(--action-foreground)] text-[var(--action-foreground)]", disabled && "disabled:bg-[var(--surface-tertiary)]")}
-            disabled={!canSend}
-            onClick={onSubmit}
-            title={disabled ? '运行时未连接，暂时无法发送' : !canSend ? '离线语音输入尚未接入；输入内容后可发送' : running ? `${sendLabel}（Enter）` : '发送（Enter）'}
+            disabled={disabled || (!canSend && !running)}
+            onClick={running && !canSend ? onStop : onSubmit}
+            title={disabled ? '运行时未连接，暂时无法发送' : running && !canSend ? '停止当前任务' : !canSend ? '离线语音输入尚未接入；输入内容后可发送' : running ? `${sendLabel}（Enter）` : '发送（Enter）'}
             type="button"
           >
-            <Icon name={!canSend && !disabled ? 'waveform' : 'send'} size={16} />
+            <Icon name={running && !canSend ? 'stop' : !canSend && !disabled ? 'waveform' : 'send'} size={16} />
           </button>
         </div>
       </div>

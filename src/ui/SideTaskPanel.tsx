@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { LingCommandResult, LingModelSelection, LingModelSettings, LingRuntimeAdapter, LingTaskMode, LingTaskPermission } from '../runtime/contract.js'
+import type { LingCommandResult, LingModelSelection, LingModelSettings, LingReadResult, LingRuntimeAdapter, LingTaskMode, LingTaskPermission, LingWithdrawnMessage } from '../runtime/contract.js'
 import { useLingRuntime } from '../runtime/use-ling-runtime.js'
 import { Composer, isComposerCommand } from './Composer.js'
 import { Conversation } from './Conversation.js'
@@ -9,6 +9,7 @@ import { releaseComposerAttachment, toComposerAttachment, toComposerQuote, type 
 import { useBehavior } from './behavior-preferences.js'
 import { rememberCreatedTaskMode } from './task-work-modes.js'
 import { tw } from './tailwind.js'
+import { MessageQueue } from './MessageQueue.js'
 
 export interface SideTaskState {
   readonly error?: string
@@ -21,6 +22,7 @@ export interface SideTaskState {
   readonly permissionPreset?: string
   readonly prompt: string
   readonly attachments: readonly ComposerAttachment[]
+  readonly recordedAttachments?: LingWithdrawnMessage['recordedAttachments']
 }
 
 /** Each pane retains its own task binding; none of these actions selects the main conversation. */
@@ -45,7 +47,7 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
   useEffect(() => { if (state.taskId) task.selectTask(state.taskId) }, [state.taskId, task.selectTask])
   useEffect(() => { setError(state.error ?? '') }, [state.error])
   const id = task.selectedTask?.taskId ?? state.taskId
-  const running = task.selectedTask?.status === 'running' || task.selectedTask?.status === 'queued'
+  const running = task.selectedTask?.status === 'running' || task.selectedTask?.status === 'queued' || task.selectedTask?.status === 'waiting-for-input'
   const model = (id ? task.taskModel : state.model) ?? modelSettings?.defaultSelection
   const modelLabel = modelSettings?.providers.find(provider => provider.providerId === model?.provider)?.models.find(option => option.id === model?.model)?.name ?? model?.model ?? '选择模型'
 
@@ -77,17 +79,17 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
   }
   const send = async () => {
     const draft = latest.current.state
-    if (readingFiles || (!draft.prompt.trim() && !draft.attachments.length)) return
+    if (readingFiles || (!draft.prompt.trim() && !draft.attachments.length && !draft.recordedAttachments?.attachments.length)) return
     const result = await act(async () => {
       if (id && draft.prompt.trim().startsWith('/')) {
         const commands = await task.getTaskCommands(id)
         if (!commands.ok) return { accepted: false, requestId: 'side-command', ...commands }
         if (isComposerCommand(draft.prompt, commands.value)) {
-          if (draft.attachments.length) return { accepted: false, requestId: 'side-command', reason: 'invalid-command', message: '指令不支持附件，请移除附件后重试。', retryable: false }
+          if (draft.attachments.length || draft.recordedAttachments?.attachments.length) return { accepted: false, requestId: 'side-command', reason: 'invalid-command', message: '指令不支持附件，请移除附件后重试。', retryable: false }
           return task.runCommand(id, draft.prompt.trim(), behavior.goalRounds)
         }
       }
-      return task.submit(draft.prompt, { workspaceId: draft.workspaceId, agentPreset: draft.agentPreset, model: draft.model, permissionPreset: draft.permissionPreset, mode: behavior.sendMode, maxGoalRounds: runtime.supportsGoalLimit ? behavior.goalRounds : undefined, attachments: draft.attachments.map(item => item.attachment) })
+      return task.submit(draft.prompt, { workspaceId: draft.workspaceId, agentPreset: draft.agentPreset, model: draft.model, permissionPreset: draft.permissionPreset, mode: 'queue', maxGoalRounds: runtime.supportsGoalLimit ? behavior.goalRounds : undefined, attachments: draft.attachments.map(item => item.attachment), ...(draft.recordedAttachments?.attachments.length ? { recordedAttachments: { seq: draft.recordedAttachments.seq, attachmentIds: draft.recordedAttachments.attachments.map(a => a.attachmentId) } } : {}) })
     })
     if (result?.accepted) {
       if (!id) {
@@ -95,8 +97,21 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
         catch { setError('消息已发送，但任务所属模式未能保存。') }
       }
       for (const attachment of draft.attachments) releaseComposerAttachment(attachment)
-      latest.current.onUpdate({ prompt: '', attachments: [], ...(result.output?.taskId ? { taskId: result.output.taskId } : {}) })
+      latest.current.onUpdate({ prompt: '', attachments: [], recordedAttachments: undefined, ...(result.output?.taskId ? { taskId: result.output.taskId } : {}) })
     }
+  }
+  const queueResult = <T,>(result: LingReadResult<T>): LingCommandResult => {
+    const requestId = crypto.randomUUID()
+    return result.ok ? { accepted: true, requestId } : { accepted: false, requestId, reason: result.reason, message: result.message, retryable: result.retryable }
+  }
+  const withdraw = async (itemId: string) => {
+    const before = latest.current.state.prompt
+    const result = await runtime.withdrawQueuedMessage!(id!, itemId)
+    if (result.ok) {
+      const current = latest.current.state.prompt
+      onUpdate({ prompt: current !== before && current ? [result.value.text, current].filter(Boolean).join('\n') : result.value.text, recordedAttachments: result.value.recordedAttachments })
+    }
+    return queueResult(result)
   }
   const addFiles = async (files: File[]) => {
     setReadingFiles(true)
@@ -112,7 +127,10 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
     <InteractionPanel interactions={task.pendingInteractions.filter(item => item.taskId === id)} onApprove={(key, decision) => act(() => task.answerApproval(key, decision))} onAnswer={(key, answers) => act(() => task.answerQuestion(key, answers))} onCancel={key => act(() => task.cancelInteraction(key))} />
     <div className={tw('shrink-0 px-3 pb-2')}>
       {error ? <p role="alert" className={tw('my-2 text-xs text-[var(--danger)]')}>{error}</p> : null}
-      <Composer value={state.prompt} onChange={prompt => onUpdate({ prompt })} running={running} hasTask={Boolean(id)} disabled={state.pending || busy || readingFiles || task.connection.phase !== 'ready'} attachments={state.attachments} onAddFiles={files => { void addFiles(files) }} onRemoveAttachment={key => { const attachment = state.attachments.find(item => item.id === key); if (attachment) releaseComposerAttachment(attachment); onUpdate({ attachments: state.attachments.filter(item => item.id !== key) }) }} onSubmit={() => { void send() }} onStop={() => { if (id) void act(() => task.cancelTask(id)) }} modelLabel={modelLabel} modelSettings={modelSettings} taskScoped taskModel={model ?? modelSettings?.defaultSelection} onSelectModel={selection => { if (id) void act(() => task.selectTaskModel(id, selection)); else onUpdate({ model: selection }) }} onOpenModelSettings={onOpenModels} permission={permission} onSelectPermission={value => { if (id) void act(() => task.runCommand(id, `/permission ${value}`)); else onUpdate({ permissionPreset: value }) }} mode={mode} onPlanModeToggle={active => { if (id) void act(() => task.runCommand(id, active ? '/plan' : '/plan off')); else onUpdate({ prompt: active ? '/plan ' : '' }) }} onGoalAction={(action, goal) => { if (id) void act(() => task.runGoalAction(id, action, goal)) }} taskId={id} getTaskCommands={task.getTaskCommands} getTaskSkills={task.getTaskSkills} getWorkspaceSkills={runtime.getWorkspaceSkills} workspaceId={state.workspaceId} agentPreset={state.agentPreset} />
+      <MessageQueue key={id ?? 'new'} items={task.pendingMessages} disabled={task.connection.phase !== 'ready'} onAction={task.updateQueuedMessage}
+        onWithdraw={id && runtime.withdrawQueuedMessage ? withdraw : undefined}
+        onReorder={id && runtime.reorderQueuedMessages ? async itemIds => queueResult(await runtime.reorderQueuedMessages!(id, itemIds)) : undefined} />
+      <Composer recordedAttachments={state.recordedAttachments?.attachments} onRemoveRecordedAttachment={key => onUpdate({ recordedAttachments: state.recordedAttachments ? { ...state.recordedAttachments, attachments: state.recordedAttachments.attachments.filter(item => item.attachmentId !== key) } : undefined })} value={state.prompt} onChange={prompt => onUpdate({ prompt })} running={running} hasTask={Boolean(id)} disabled={state.pending || busy || readingFiles || task.connection.phase !== 'ready'} attachments={state.attachments} onAddFiles={files => { void addFiles(files) }} onRemoveAttachment={key => { const attachment = state.attachments.find(item => item.id === key); if (attachment) releaseComposerAttachment(attachment); onUpdate({ attachments: state.attachments.filter(item => item.id !== key) }) }} onSubmit={() => { void send() }} onStop={() => { if (id) void act(() => task.cancelTask(id)) }} modelLabel={modelLabel} modelSettings={modelSettings} taskScoped taskModel={model ?? modelSettings?.defaultSelection} onSelectModel={selection => { if (id) void act(() => task.selectTaskModel(id, selection)); else onUpdate({ model: selection }) }} onOpenModelSettings={onOpenModels} permission={permission} onSelectPermission={value => { if (id) void act(() => task.runCommand(id, `/permission ${value}`)); else onUpdate({ permissionPreset: value }) }} mode={mode} onPlanModeToggle={active => { if (id) void act(() => task.runCommand(id, active ? '/plan' : '/plan off')); else onUpdate({ prompt: active ? '/plan ' : '' }) }} onGoalAction={(action, goal) => { if (id) void act(() => task.runGoalAction(id, action, goal)) }} taskId={id} getTaskCommands={task.getTaskCommands} getTaskSkills={task.getTaskSkills} getWorkspaceSkills={runtime.getWorkspaceSkills} workspaceId={state.workspaceId} agentPreset={state.agentPreset} />
       <div className={tw("mt-2 flex h-control-xs items-center gap-1.5 px-1 text-xs text-[var(--text-tertiary)]")}><Icon name="folder" size={14} /><span className={tw('truncate')}>{state.workspaceLabel}</span></div>
     </div>
   </section>
