@@ -6,6 +6,7 @@ import { LingAuthorizationController } from './host/authorization-controller.ts'
 import { LingServersController } from './host/server-controller.ts'
 import { LingWorkspaceTerminalsController } from './host/workspace-terminal-controller.ts'
 import { LingMessageActionsController } from './host/message-actions-controller.ts'
+import { LingChangeHistoryController } from './host/change-history-controller.ts'
 import { LingComputerControlController } from './host/computer-control-controller.ts'
 import { LingAutomationController } from './host/automation-controller.ts'
 import { LingSessionDeleteController } from './host/session-delete-controller.ts'
@@ -27,6 +28,7 @@ export function apply(ctx: Context): void {
   ctx.plugin(LingServersController)
   ctx.plugin(LingWorkspaceTerminalsController)
   ctx.plugin(LingMessageActionsController)
+  ctx.plugin(LingChangeHistoryController)
   ctx.plugin(LingComputerControlController)
   ctx.plugin(LingKnowledgeController)
   ctx.plugin(LingAutomationController)

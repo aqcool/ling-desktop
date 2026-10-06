@@ -82,4 +82,20 @@ describe('conversation turn results', () => {
     expect(html).not.toContain('aria-label="打开 app.ts"')
     expect(html).not.toContain('已处理')
   })
+
+  it('matches absolute deliveries to relative recorded changes only inside that turn’s workspace', () => {
+    const file = { path: 'src/app.ts', display: 'src/app.ts', added: 3, deleted: 1 }
+    const recorded = { ...changes, workspacePath: '/workspace/', files: [file] }
+    const deliveries = [{ seq: 3, index: 0, path: '/workspace/src/app.ts' },
+      { seq: 3, index: 1, path: '/other/src/app.ts' }, { seq: 3, index: 2, path: '../other/src/app.ts' }]
+    expect(withoutReviewedDeliveries([{ ...answer, presentedFiles: deliveries }], recorded)[0]?.presentedFiles).toEqual(deliveries.slice(1))
+    expect(deliveryForChangedFile(file, deliveries, recorded.workspacePath)).toBe(deliveries[0])
+    const html = renderToStaticMarkup(<Conversation connection={{ phase: 'ready' }} demo={false} hasOlder={false}
+      items={[question, { ...answer, presentedFiles: [deliveries[0]!] }]} changes={[recorded]} loadingOlder={false}
+      onLoadOlder={() => {}} onReconnect={() => {}} running={false} threadKey="task" onReviewChanges={() => {}}
+      onOpenDelivery={async () => ({ ok: true, value: undefined })} onPreviewDelivery={() => {}} />)
+    expect(html).not.toContain('aria-label="打开 app.ts"')
+    expect(html).toContain('aria-label="预览 src/app.ts"')
+    expect(deliveryForChangedFile({ ...file, path: 'src\\app.ts', display: 'src\\app.ts' }, [{ seq: 3, index: 0, path: 'C:\\work\\src\\app.ts' }], 'C:\\work')).toBeDefined()
+  })
 })

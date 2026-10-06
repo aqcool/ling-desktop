@@ -493,6 +493,8 @@ export interface LingChangedFile {
 
 export interface LingTaskChanges {
   readonly taskId: string
+  /** The workspace used for this turn, for matching absolute delivery paths. */
+  readonly workspacePath?: string
   readonly turn: number
   readonly seq: number
   readonly files: readonly LingChangedFile[]

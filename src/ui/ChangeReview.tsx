@@ -174,7 +174,7 @@ export function ConversationChangeSummary({ change, onSelect, deliveries = [], o
     </div>
     <div className={tw("px-3 py-2")}>
       {visible.map((file, index) => {
-        const delivery = deliveryForChangedFile(file, deliveries)
+        const delivery = deliveryForChangedFile(file, deliveries, change.workspacePath)
         return <div key={file.path} className={tw('flex min-w-0 items-center gap-2')}><button className={tw("flex min-h-control min-w-0 flex-1 items-center gap-3 rounded-md border-0 bg-transparent px-1 text-left text-compact hover:bg-[var(--surface-hover)]")} onClick={() => { onSelect({ seq: change.seq, index }) }} type="button">
         <span className={tw("min-w-0 flex-1 truncate text-[var(--text-secondary)]")} title={file.path}>{file.display}</span>
         <span className={tw("flex shrink-0 gap-2 text-xs tabular-nums")}>

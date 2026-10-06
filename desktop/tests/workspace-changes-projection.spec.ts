@@ -27,6 +27,19 @@ function binding() {
 }
 
 describe('DSH workspace changes projection', () => {
+  it('uses the LING durable Remote and propagates missing/error results without guessing counts', async () => {
+    const fetcher = vi.fn()
+    const remote = { summary: vi.fn(async () => ({ ok: true as const, value: { turn: 1, workspacePath: '/workspace', files: [], total: 0, added: 0, deleted: 0 } })),
+      diff: vi.fn(async () => ({ ok: true as const, value: null })) }
+    const projection = createDshWorkspaceChangesProjection({ binding: () => ({ target: () => ({ getSnapshot: () => chatSnapshot() }) }) } as never, fetcher, async () => remote)
+    const signal = new AbortController().signal
+    expect(await projection.list(binding(), signal)).toMatchObject([{ turn: 1, seq: 8, workspacePath: '/workspace' }])
+    expect(remote.summary).toHaveBeenCalledWith({ taskId: 'session-1', seq: 8 }, signal)
+    expect(await projection.diff(binding(), 8, 0, signal)).toBeUndefined()
+    remote.summary.mockResolvedValueOnce({ ok: false, error: { message: 'storage unavailable' } } as never)
+    await expect(projection.list(binding(), signal)).rejects.toThrow('storage unavailable')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
   it('owns workspace announcements even when no upstream UI definition is mounted', async () => {
     const event = { seq: 8, type: 'workspace/changes', data: { turn: 1 } }
     expect(lingWorkspaceChangesDefinition.match(event as never)).toEqual({ id: '8', role: 'start' })

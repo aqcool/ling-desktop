@@ -29,6 +29,9 @@ export class LingSessionStorage extends JsonlSessionPersistence {
     this.cleanup = this.cleanDeletedData()
     ctx.effect(async () => { await this.cleanup; return () => {} }, 'LING deleted session cleanup')
   }
+  storedSessionDirectory(header: Pick<SessionHeader, 'id' | 'cwd'>): string {
+    return sessionDirectory(resolve(this.config.root), header)
+  }
   async cleanDeletedData(): Promise<void> {
     this.deletionRoot = join(await realpath(dirname(resolve(this.config.root))), 'ling-deleted-session-data')
     await mkdir(this.deletionRoot, { recursive: true, mode: 0o700 })

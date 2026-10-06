@@ -17,6 +17,7 @@ import type { LingGitRequest, LingGitResult, LingReadResult, LingWorkspaceToolRe
 import { LING_SKILLS_REMOTE, type LingSkillsRemote } from '../skill-contract.ts'
 import { LING_SESSION_DELETE_REMOTE, type LingSessionDeleteRemote } from '../session-delete-contract.ts'
 import { LING_MESSAGE_ACTIONS_REMOTE, type LingMessageActionsRemote } from '../message-actions-contract.ts'
+import { LING_CHANGE_HISTORY_REMOTE, type LingChangeHistoryRemote } from '../change-history-contract.ts'
 import { LING_COMPUTER_CONTROL_REMOTE, type LingComputerControlRemote } from '../computer-control-contract.ts'
 import { LING_AUTOMATION_REMOTE, type LingAutomationRemote } from '../automation-contract.ts'
 import { LING_HOOKS_REMOTE, type LingHooksRemote } from '../hooks-contract.ts'
@@ -144,7 +145,14 @@ export function apply(ctx: Context): void {
   const sessions = ctx.sessions as unknown as ISessions
   const interactions = createDshInteractionProjection(ctx.uiSession)
   const attachments = createDshAttachmentPreparation(ctx.fileUpload)
-  const changes = createDshWorkspaceChangesProjection(ctx.uiConversation)
+  const changesMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_CHANGE_HISTORY_REMOTE) : undefined
+  if (changesMount) ctx.effect(async () => await changesMount, 'LING change history Remote')
+  const changes = createDshWorkspaceChangesProjection(ctx.uiConversation, globalThis.fetch, changesMount ? async () => {
+    await changesMount
+    const service = ctx.get('remote.lingChangeHistory') as unknown as LingChangeHistoryRemote | undefined
+    if (!service) throw new Error('本地文件变更服务暂不可用。')
+    return service
+  } : undefined)
   const authorizationMount = typeof ctx.remote.$mount === 'function'
     ? ctx.remote.$mount(LING_AUTHORIZATION_REMOTE)
     : undefined

@@ -1,6 +1,7 @@
 import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ConversationNodeDefinition, UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { LingChangeHistoryRemote } from '../change-history-contract.ts'
 import type {
   LingChangedFile,
   LingDiffHunk,
@@ -73,6 +74,7 @@ function taskChanges(taskId: string, seq: number, value: unknown): LingTaskChang
   const summary = object(value)
   if (summary === undefined
     || !positiveInteger(summary['turn'])
+    || (summary['workspacePath'] !== undefined && typeof summary['workspacePath'] !== 'string')
     || !Array.isArray(summary['files'])
     || !nonNegativeInteger(summary['total'])
     || !nonNegativeInteger(summary['added'])
@@ -82,6 +84,7 @@ function taskChanges(taskId: string, seq: number, value: unknown): LingTaskChang
   return {
     taskId,
     seq,
+    ...(typeof summary['workspacePath'] === 'string' ? { workspacePath: summary['workspacePath'] } : {}),
     turn: summary['turn'],
     files: files as LingChangedFile[],
     total: summary['total'],
@@ -163,6 +166,7 @@ function endpoint(path: string, values: Record<string, string | number>): string
 export function createDshWorkspaceChangesProjection(
   conversation: Pick<UiConversation, 'binding'>,
   fetcher: typeof fetch = globalThis.fetch,
+  history?: () => Promise<LingChangeHistoryRemote>,
 ) {
   return {
     async list(binding: SessionBinding, signal: AbortSignal): Promise<readonly LingTaskChanges[]> {
@@ -170,6 +174,14 @@ export function createDshWorkspaceChangesProjection(
       if (snapshot === undefined) return []
       const taskId = String(binding.sessionId)
       const summaries = await Promise.all(coordinates(snapshot).map(async item => {
+        if (history) {
+          const result = await (await history()).summary({ taskId, seq: item.seq }, signal)
+          if (!result.ok) throw new Error(result.error.message)
+          if (result.value === null) return undefined
+          const summary = taskChanges(taskId, item.seq, result.value)
+          if (!summary || summary.turn !== item.turn) throw new Error('Invalid changes summary response')
+          return summary
+        }
         const response = await fetcher(endpoint('/api/changes.summary', {
           sessionId: taskId,
           seq: item.seq,
@@ -191,6 +203,14 @@ export function createDshWorkspaceChangesProjection(
       signal: AbortSignal,
     ): Promise<LingFileDiff | undefined> {
       const taskId = String(binding.sessionId)
+      if (history) {
+        const result = await (await history()).diff({ taskId, seq, index }, signal)
+        if (!result.ok) throw new Error(result.error.message)
+        if (result.value === null) return undefined
+        const diff = fileDiff(result.value)
+        if (!diff) throw new Error('Invalid changes diff response')
+        return diff
+      }
       const response = await fetcher(endpoint('/api/changes.diff', { sessionId: taskId, seq, index }), { signal })
       if (response.status === 404) return undefined
       if (!response.ok) throw new Error(`Changes diff request failed: ${response.status}`)
