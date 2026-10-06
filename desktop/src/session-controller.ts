@@ -3,27 +3,29 @@ import { SessionController } from '@deepseek-ai/dsh-api-session-controller'
 import type {} from './session-lifecycle.ts'
 export class LingSessionController extends SessionController {
   static override inject = [...SessionController.inject, 'lingSessionLifecycle']
-  override resolveAgent(...args: Parameters<SessionController['resolveAgent']>) {
-    return this.ctx.lingSessionLifecycle.withSessionOperation(args[0], () => super.resolveAgent(...args))
+  // SRC reflection uses these parameter names as wire fields, including `signal`.
+  // Keep the upstream signatures explicit; rest arguments cannot cross the gateway.
+  override resolveAgent(sessionId: Parameters<SessionController['resolveAgent']>[0]) {
+    return this.ctx.lingSessionLifecycle.withSessionOperation(sessionId, () => super.resolveAgent(sessionId))
   }
-  override create(...args: Parameters<SessionController['create']>) {
-    const id = args[0].sessionId
-    return id === undefined ? super.create(...args) : this.ctx.lingSessionLifecycle.withSessionOperation(id, () => super.create(...args))
+  override create(request: Parameters<SessionController['create']>[0]) {
+    const id = request.sessionId
+    return id === undefined ? super.create(request) : this.ctx.lingSessionLifecycle.withSessionOperation(id, () => super.create(request))
   }
-  override prompt(...args: Parameters<SessionController['prompt']>) {
-    return this.ctx.lingSessionLifecycle.withSessionOperation(args[0].sessionId, () => super.prompt(...args))
+  override prompt(request: Parameters<SessionController['prompt']>[0], signal: Parameters<SessionController['prompt']>[1]) {
+    return this.ctx.lingSessionLifecycle.withSessionOperation(request.sessionId, () => super.prompt(request, signal))
   }
-  override rename(...args: Parameters<SessionController['rename']>) {
-    return this.ctx.lingSessionLifecycle.withSessionOperation(args[0].sessionId, () => super.rename(...args))
+  override rename(request: Parameters<SessionController['rename']>[0]) {
+    return this.ctx.lingSessionLifecycle.withSessionOperation(request.sessionId, () => super.rename(request))
   }
-  override fork(...args: Parameters<SessionController['fork']>) {
-    return this.ctx.lingSessionLifecycle.withSessionOperation(args[0].sessionId, () => super.fork(...args))
+  override fork(request: Parameters<SessionController['fork']>[0]) {
+    return this.ctx.lingSessionLifecycle.withSessionOperation(request.sessionId, () => super.fork(request))
   }
-  override selectModel(...args: Parameters<SessionController['selectModel']>) {
-    return this.ctx.lingSessionLifecycle.withSessionOperation(args[0].sessionId, () => super.selectModel(...args))
+  override selectModel(request: Parameters<SessionController['selectModel']>[0]) {
+    return this.ctx.lingSessionLifecycle.withSessionOperation(request.sessionId, () => super.selectModel(request))
   }
-  override updateQueue(...args: Parameters<SessionController['updateQueue']>) {
-    return this.ctx.lingSessionLifecycle.withSessionOperation(args[0].sessionId, () => super.updateQueue(...args))
+  override updateQueue(request: Parameters<SessionController['updateQueue']>[0]) {
+    return this.ctx.lingSessionLifecycle.withSessionOperation(request.sessionId, () => super.updateQueue(request))
   }
 }
 export default LingSessionController
