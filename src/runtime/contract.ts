@@ -111,6 +111,23 @@ export interface LingModelOption {
   readonly description?: string
   readonly efforts?: readonly LingModelEffortOption[]
   readonly defaultEffort?: string
+  readonly catalogNew?: boolean
+  readonly catalogMissing?: boolean
+  readonly catalogUnverified?: boolean
+}
+
+export interface LingModelCatalogState {
+  readonly providerId: string
+  readonly supported: boolean
+  readonly source: 'builtin' | 'endpoint'
+  readonly updatedAt?: number
+  readonly refreshing: boolean
+  readonly pending: boolean
+  readonly error?: string
+  readonly newModelIds: readonly string[]
+  readonly missingModelIds: readonly string[]
+  readonly unverifiedModelIds: readonly string[]
+  readonly efforts?: Readonly<Record<string, readonly string[]>>
 }
 
 export type LingProviderCredentialState = 'configured' | 'missing' | 'not-required' | 'unknown'
@@ -163,6 +180,7 @@ export interface LingModelProvider {
   readonly canTest?: boolean
   readonly draft?: LingCustomProviderDraft
   readonly models: readonly LingModelOption[]
+  readonly catalog?: LingModelCatalogState
   readonly error?: string
 }
 
@@ -939,6 +957,7 @@ export interface LingRuntimeAdapter {
   setTaskSubagentsOpen?(taskId: string, open: boolean): void
   refreshTaskSubagents?(taskId: string): Promise<LingReadResult<void>>
   testProvider?(target: LingProviderTestTarget, signal?: AbortSignal): Promise<LingReadResult<readonly LingDiscoveredModel[]>>
+  refreshProviderModels?(providerId: string, signal?: AbortSignal): Promise<LingReadResult<LingModelCatalogState>>
   authorizeProvider?(
     providerId: string,
     interaction: LingAuthorizationInteraction,

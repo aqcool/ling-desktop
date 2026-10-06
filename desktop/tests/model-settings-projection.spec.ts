@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDshModelSettingsProjection } from '../src/client/model-settings-projection.js'
+import type { LingModelCatalogRemote } from '../src/model-catalog-contract.ts'
 
 const answer = <Value>(value: Value) => ({ ok: true as const, value })
 
@@ -7,6 +8,7 @@ interface FixtureOptions {
   readonly baseLayer?: boolean
   readonly noCredentialRef?: boolean
   readonly writable?: boolean
+  readonly catalogService?: LingModelCatalogRemote
 }
 
 function remoteFixture(options: FixtureOptions = {}) {
@@ -79,7 +81,8 @@ function remoteFixture(options: FixtureOptions = {}) {
     $on: vi.fn((_event, _listener) => remove),
   }
   return {
-    projection: createDshModelSettingsProjection(remote as never),
+    projection: createDshModelSettingsProjection(remote as never, undefined, options.catalogService ? async () => options.catalogService! : undefined),
+    profile,
     modelCatalog: remote.session.modelCatalog,
     describe,
     discoverModels,
@@ -92,6 +95,24 @@ function remoteFixture(options: FixtureOptions = {}) {
 }
 
 describe('DSH model settings projection', () => {
+  it('uses the Host endpoint probe and refresh, and presents catalog state alongside resolved models', async () => {
+    const state = { providerId: 'openai', supported: true, source: 'endpoint' as const, updatedAt: 1, refreshing: false, pending: false, newModelIds: ['gpt-5'], missingModelIds: [], unverifiedModelIds: ['gpt-5'] }
+    const catalogService: LingModelCatalogRemote = { list: vi.fn(async () => answer([state])), refresh: vi.fn(async () => answer(state)), probe: vi.fn(async () => answer([{ id: 'actual-endpoint-model' }])) }
+    const { projection, discoverModels, replace } = remoteFixture({ catalogService })
+    await expect(projection.testProvider({ providerId: 'openai' })).resolves.toEqual(answer([{ id: 'actual-endpoint-model' }]))
+    expect(discoverModels).not.toHaveBeenCalled()
+    await expect(projection.refreshProviderModels('openai')).resolves.toEqual(answer(state))
+    const snapshot = await projection.getSnapshot()
+    expect(snapshot.ok && snapshot.value.providers[1]).toMatchObject({ catalog: state, models: [{ id: 'gpt-5', catalogNew: true, catalogUnverified: true }] })
+    expect(snapshot.ok && snapshot.value.defaultSelection).toEqual({ provider: 'openai', model: 'gpt-5' })
+    expect(replace).not.toHaveBeenCalled()
+  })
+  it('preserves discovered and manually configured capabilities when editing a connection or model label', async () => {
+    const { projection, profile, mutate } = remoteFixture()
+    profile.models = [{ id: 'gpt-5', name: 'GPT-5', contextWindow: 128000, maxTokens: 32000, input: ['text', 'image'], reasoningEfforts: { off: null, high: 'high' }, compat: { supportsStore: false } }]
+    await projection.updateCustomProvider({ providerId: 'openai', baseUrl: 'https://api.openai.test/v2', protocol: 'openai-responses', models: [{ id: 'gpt-5', name: 'My label' }] })
+    expect(mutate.mock.calls[0]).toContainEqual(expect.arrayContaining([{ op: 'set', path: ['providers', 'openai', 'models'], value: [{ ...(profile.models as Record<string, unknown>[])[0], name: 'My label' }] }]))
+  })
   it('narrows native DeepSeek choices using the exact Pi model map', async () => {
     const { projection, modelCatalog } = remoteFixture()
     const catalog = (await modelCatalog()).value

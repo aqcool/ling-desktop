@@ -171,8 +171,26 @@ This storage is specific to the current application profile, with no cloud sync.
 
 Terminal HTTP(S) links, including wrapped links and OSC 8 links, follow the
 appearance preference for the built-in or system browser. Network settings test
-configured providers through DSH's model-discovery API. Proxy policy remains
+configured providers through their actual model-list endpoint. Proxy policy remains
 owned by the DSH launch environment, rather than an inactive renderer control.
+
+## Model directory updates
+
+LING keeps DSH/Pi as the model execution adapter. The Host refreshes configured
+API-key OpenAI-compatible and Anthropic-compatible model directories daily while
+the app is open; each provider also has a **Refresh models** action. Native
+DeepSeek uses its official model-list endpoint. OAuth and other protocols retain
+their bundled Pi directory. Refreshes use the configured gateway and credentials,
+not an alternative public endpoint.
+
+The local catalog cache preserves the last successful result when offline or
+when a response is empty, malformed or incomplete. Refresh adds models and updates
+only metadata that LING previously supplied; explicit overrides, manually added
+models, hidden models and the default selection remain intact. Missing models are
+marked without deletion. Unknown new IDs without declared chat capabilities stay
+disabled until explicitly enabled. Model changes acquired during an active task
+are cached and applied when tasks and queues are idle, including after restart.
+The cache contains model metadata and a connection fingerprint, never API keys.
 
 ## General and mode preferences
 

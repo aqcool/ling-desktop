@@ -14,11 +14,13 @@ import { LingKnowledgeController } from './host/knowledge-controller.ts'
 import { LingReplyController } from './host/reply-controller.ts'
 import { LingHooksController } from './host/hooks-controller.ts'
 import { LingWorkspaceDocumentsController } from './host/workspace-document-controller.ts'
+import { LingModelCatalogController } from './host/model-catalog-controller.ts'
 
 /** The LING bundle anchors its client projections in the DSH profile. */
 export const name = 'ling-desktop-host'
 
 export function apply(ctx: Context): void {
+  ctx.plugin(LingModelCatalogController)
   ctx.plugin(LingWorkspaceDocumentsController)
   ctx.plugin(LingHooksController)
   ctx.plugin(LingReplyController)

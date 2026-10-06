@@ -203,6 +203,7 @@ export interface LingShellProps {
   readonly onModelEnabledChange: (selection: LingModelSelection, enabled: boolean) => Promise<string | undefined>
   readonly onModelSelect: (selection: LingModelSelection) => Promise<LingCommandResult>
   readonly onModelSettingsRefresh: () => void
+  readonly onProviderModelsRefresh?: (providerId: string) => Promise<LingReadResult<import('../../runtime/contract.js').LingModelCatalogState>>
   readonly onProviderAuthorize: (
     providerId: string,
     interaction: LingAuthorizationInteraction,

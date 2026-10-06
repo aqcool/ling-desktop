@@ -38,6 +38,7 @@ interface ShellSettingsProps {
     | 'onModelDefaultSelect'
     | 'onModelEnabledChange'
     | 'onModelSettingsRefresh'
+    | 'onProviderModelsRefresh'
     | 'onProviderAuthorize'
     | 'onProviderCreate'
     | 'onProviderDelete'
@@ -110,6 +111,7 @@ export function ShellSettings({
             onDeleteProvider={props.onProviderDelete}
             onAuthorizeProvider={props.onProviderAuthorize}
             onRefresh={props.onModelSettingsRefresh}
+            onRefreshProviderModels={props.onProviderModelsRefresh}
             onSaveApiKey={props.onProviderSaveApiKey}
             onSelectDefault={props.onModelDefaultSelect}
             onModelEnabledChange={props.onModelEnabledChange}

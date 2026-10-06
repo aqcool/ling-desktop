@@ -17,11 +17,13 @@ import type {
   LingModelProvider,
   LingModelSelection,
   LingModelSettings,
+  LingModelCatalogState,
   LingProviderTestTarget,
   LingReadResult,
 } from 'ling-desktop/runtime'
 import type { LingAuthorizationEntryView } from '../authorization-contract.ts'
 import { DEEPSEEK_MODELS } from '@earendil-works/pi-ai/providers/deepseek.models'
+import type { LingModelCatalogRemote } from '../model-catalog-contract.ts'
 
 const DEFAULT_MODEL_NAMESPACE = 'agent-default-model'
 const CUSTOM_PROVIDER_NAMESPACE = 'llm-pi-ai'
@@ -195,15 +197,17 @@ function writableCredentialReference(context: ProviderContext): string | undefin
   return context.credentialRef ?? (context.entry.configurable ? derivedCredentialRef(context.entry.provider) : undefined)
 }
 
-function modelsByProvider(catalog: ModelCatalog, directory: ProviderDirectory): ReadonlyMap<string, readonly LingModelOption[]> {
+function modelsByProvider(catalog: ModelCatalog, directory: ProviderDirectory, states?: ReadonlyMap<string, LingModelCatalogState>): ReadonlyMap<string, readonly LingModelOption[]> {
   return new Map(catalog.groups.map(group => [
     group.id,
     group.models.map(model => {
       // Pi routes already resolve profile overrides in DSH. Only narrow the native
       // DeepSeek adapter's shared effort list with an exact Pi catalog match.
       const nativeDeepSeek = directory.entries.some(entry => entry.provider === group.id && entry.settingsNs === 'llm-deepseek')
-      const piModel = nativeDeepSeek ? Object.values(DEEPSEEK_MODELS).find(entry => entry.id === model.id) : undefined
+      const advertised = nativeDeepSeek ? states?.get(group.id)?.efforts?.[model.id] : undefined
+      const piModel = nativeDeepSeek && !advertised ? Object.values(DEEPSEEK_MODELS).find(entry => entry.id === model.id) : undefined
       const efforts = (model.reasoning?.efforts ?? []).filter(effort => {
+        if (advertised) return advertised.includes(String(effort.id))
         if (!piModel) return true
         if (!piModel.reasoning) return false
         const mapped = (piModel.thinkingLevelMap as Readonly<Record<string, string | null>> | undefined)?.[effort.id]
@@ -389,6 +393,13 @@ function normalizeDraft(draft: LingCustomProviderDraft): LingReadResult<Normaliz
 function profileModels(models: NormalizedDraft['models']): JsonValue[] {
   return models.map(model => jsonRecord({ id: model.id, ...(model.name === undefined ? {} : { name: model.name }) }))
 }
+function profileModelsFromProfile(value: unknown): (Record<string, JsonValue> & { id: string })[] {
+  const models = recordOf(value)?.models
+  return Array.isArray(models) ? models.flatMap(model => {
+    const row = recordOf(model), id = stringField(row, 'id')
+    return row && id ? [{ ...row, id } as Record<string, JsonValue> & { id: string }] : []
+  }) : []
+}
 
 function discoveryOf(
   models: readonly { readonly id: string; readonly name?: string; readonly contextWindow?: number }[],
@@ -403,6 +414,7 @@ function discoveryOf(
 export function createDshModelSettingsProjection(
   remote: ClientRemote,
   authorization?: { list(): Promise<LingReadResult<readonly LingAuthorizationEntryView[]>> },
+  catalogService?: () => Promise<LingModelCatalogRemote>,
 ) {
   const emitters = new Set<() => void>()
   let disposeEvents: (() => void) | undefined
@@ -414,10 +426,11 @@ export function createDshModelSettingsProjection(
 
   return {
     async getSnapshot(_signal?: AbortSignal): Promise<LingReadResult<LingModelSettings>> {
-      const [directory, catalog, authorizationDirectory] = await Promise.all([
+      const [directory, catalog, authorizationDirectory, catalogDirectory] = await Promise.all([
         readDirectory(remote),
         remote.session.modelCatalog(),
         authorization?.list(),
+        catalogService?.().then(service => service.list(_signal)).catch(() => undefined),
       ])
       if (!directory.ok) return directory
       if (!catalog.ok) return remoteFailure(catalog.error)
@@ -429,43 +442,55 @@ export function createDshModelSettingsProjection(
         ? undefined
         : await remote.credentials.describe(references)
       const credentialValues = credentials?.ok ? credentials.value : {}
-      const models = modelsByProvider(catalog.value, directory.value)
       const authorizations = new Map(
         authorizationDirectory?.ok === true
           ? authorizationDirectory.value.map(entry => [entry.providerId, entry] as const)
           : [],
       )
+      const catalogStates = new Map(catalogDirectory?.ok ? catalogDirectory.value.map(state => [state.providerId, state] as const) : [])
+      const models = modelsByProvider(catalog.value, directory.value, catalogStates)
       return {
         ok: true,
         value: {
           writable: directory.value.settings.writable,
           defaultSelection: selectionFromCatalog(catalog.value),
-          providers: contexts.map(context => toProvider(
-            context,
-            models.get(context.entry.provider) ?? [],
-            credentialValues,
-            directory.value.settings.writable,
-            authorizations,
-          )),
+          providers: contexts.map(context => {
+            const state = catalogStates.get(context.entry.provider)
+            const provider = toProvider(context, models.get(context.entry.provider) ?? [], credentialValues, directory.value.settings.writable, authorizations)
+            if (!state) return provider
+            return { ...provider, catalog: state, models: provider.models.map(model => ({
+              ...model,
+              ...(state.newModelIds.includes(model.id) ? { catalogNew: true } : {}),
+              ...(state.missingModelIds.includes(model.id) ? { catalogMissing: true } : {}),
+              ...(state.unverifiedModelIds.includes(model.id) ? { catalogUnverified: true } : {}),
+            })) }
+          }),
         },
       }
     },
+    async refreshProviderModels(providerId: string, signal?: AbortSignal): Promise<LingReadResult<LingModelCatalogState>> {
+      if (!catalogService) return rejected('runtime-unavailable', '模型目录刷新暂不可用。', true)
+      const result = await (await catalogService()).refresh(providerId, signal)
+      emit()
+      return result.ok ? { ok: true, value: result.value } : remoteFailure(result.error)
+    },
     async validateSelection(selection: LingModelSelection): Promise<LingReadResult<void>> {
-      const [directory, catalog] = await Promise.all([readDirectory(remote), remote.session.modelCatalog()])
+      const [directory, catalog, states] = await Promise.all([readDirectory(remote), remote.session.modelCatalog(), catalogService?.().then(service => service.list()).catch(() => undefined)])
       if (!directory.ok) return directory
       if (!catalog.ok) return remoteFailure(catalog.error)
-      return validateModelEffort(modelsByProvider(catalog.value, directory.value), selection)
+      return validateModelEffort(modelsByProvider(catalog.value, directory.value, new Map(states?.ok ? states.value.map(state => [state.providerId, state]) : [])), selection)
     },
     async selectDefault(selection: LingModelSelection): Promise<LingReadResult<void>> {
       if (!validSelection(selection)) return rejected('invalid-command', '请选择有效的模型。')
-      const [directory, catalog] = await Promise.all([
+      const [directory, catalog, states] = await Promise.all([
         readDirectory(remote),
         remote.session.modelCatalog(),
+        catalogService?.().then(service => service.list()).catch(() => undefined),
       ])
       if (!directory.ok) return directory
       if (!catalog.ok) return remoteFailure(catalog.error)
       if (!directory.value.settings.writable) return rejected('permission-denied', '当前设置不可写。')
-      const valid = validateModelEffort(modelsByProvider(catalog.value, directory.value), selection)
+      const valid = validateModelEffort(modelsByProvider(catalog.value, directory.value, new Map(states?.ok ? states.value.map(state => [state.providerId, state]) : [])), selection)
       if (!valid.ok) return valid
       const namespace = directory.value.namespaces.get(DEFAULT_MODEL_NAMESPACE)
       if (namespace === undefined) return rejected('runtime-unavailable', '默认模型设置不可用。', true)
@@ -544,11 +569,12 @@ export function createDshModelSettingsProjection(
       const profile = customProfile(context)
       if (profile === undefined) return rejected('invalid-command', '该提供商暂不支持在这里修改。')
       const stored = context.profile
+      const existingModels = new Map(profileModelsFromProfile(stored).map(model => [model.id, model]))
       const reference = credentialRef(stored) ?? derivedCredentialRef(value.providerId)
       const ops: SettingsPathOpView[] = [
         { op: 'set', path: [...profile.path, 'api'], value: value.protocol },
         { op: 'set', path: [...profile.path, 'baseURL'], value: value.baseUrl },
-        { op: 'set', path: [...profile.path, 'models'], value: profileModels(value.models) },
+        { op: 'set', path: [...profile.path, 'models'], value: value.models.map(model => ({ ...existingModels.get(model.id), id: model.id, ...(model.name ? { name: model.name } : {}) })) },
       ]
       if (value.displayName === undefined) {
         if (stringField(stored, 'displayName') !== undefined) ops.push({ op: 'unset', path: [...profile.path, 'displayName'] })
@@ -591,6 +617,10 @@ export function createDshModelSettingsProjection(
     async testProvider(target: LingProviderTestTarget, signal?: AbortSignal): Promise<LingReadResult<readonly LingDiscoveredModel[]>> {
       const providerId = target.providerId?.trim()
       if (providerId !== undefined && providerId.length > 0) {
+        if (catalogService) {
+          const result = await (await catalogService()).probe(providerId, signal)
+          return result.ok ? { ok: true, value: result.value } : remoteFailure(result.error)
+        }
         const directory = await readDirectory(remote)
         if (!directory.ok) return directory
         const context = providerContext(directory.value, providerId)

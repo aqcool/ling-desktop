@@ -34,4 +34,14 @@ describe('model visibility', () => {
     expect(replacementDefaultModel(settings, [...hidden, modelVisibilityKey({ provider: 'one', model: 'other' })])).toEqual({ provider: 'two', model: 'shared' })
     expect(replacementDefaultModel(settings, [...hidden, modelVisibilityKey({ provider: 'one', model: 'other' }), modelVisibilityKey({ provider: 'two', model: 'shared' })])).toBeUndefined()
   })
+
+  it('keeps newly discovered models with unknown capabilities off until enabled, preserving the current default and hidden states', () => {
+    const fresh: LingModelSettings = { ...settings, providers: settings.providers.map((provider, index) => index === 0 ? { ...provider, models: provider.models.map(model => ({ ...model, catalogUnverified: true })) } : provider) }
+    const current = modelVisibilityKey({ provider: 'one', model: 'shared' })
+    const other = modelVisibilityKey({ provider: 'one', model: 'other' })
+    expect(withModelVisibility(fresh, [])!.providers[0]!.models.map(model => model.enabled)).toEqual([true, false])
+    expect(withModelVisibility(fresh, [], [other])!.providers[0]!.models.map(model => model.enabled)).toEqual([true, true])
+    expect(withModelVisibility(fresh, [current, other], [other])!.providers[0]!.models.map(model => model.enabled)).toEqual([false, false])
+    expect(replacementDefaultModel(fresh, [current])).toEqual({ provider: 'two', model: 'shared' })
+  })
 })

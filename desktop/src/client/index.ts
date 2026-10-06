@@ -24,6 +24,7 @@ import { LING_HOOKS_REMOTE, type LingHooksRemote } from '../hooks-contract.ts'
 import { LING_WORKSPACE_DOCUMENTS_REMOTE, type LingWorkspaceDocumentsRemote } from '../workspace-document-contract.ts'
 import { LING_KNOWLEDGE_REMOTE, type LingKnowledgeRemote } from '../knowledge-contract.ts'
 import { LING_AUTHORIZATION_REMOTE } from '../authorization-contract.ts'
+import { LING_MODEL_CATALOG_REMOTE, type LingModelCatalogRemote } from '../model-catalog-contract.ts'
 import { LING_SERVERS_REMOTE } from '../server-contract.ts'
 import type { LingServersRemote } from '../server-contract.ts'
 import type { LingAuthorizationRemote } from '../authorization-contract.ts'
@@ -183,7 +184,14 @@ export function apply(ctx: Context): void {
     const result = await service?.executions(taskId, callIds)
     return result?.ok ? result.value : []
   })
-  const models = createDshModelSettingsProjection(ctx.remote, authorization)
+  const modelCatalogMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_MODEL_CATALOG_REMOTE) : undefined
+  if (modelCatalogMount) ctx.effect(async () => await modelCatalogMount, 'LING model catalog Remote')
+  const models = createDshModelSettingsProjection(ctx.remote, authorization, modelCatalogMount ? async () => {
+    await modelCatalogMount
+    const service = ctx.get('remote.lingModelCatalog') as unknown as LingModelCatalogRemote | undefined
+    if (!service) throw new Error('本地模型目录服务暂不可用。')
+    return service
+  } : undefined)
   const taskModels = createDshTaskModelProjection(ctx.remote, sessions, models.validateSelection)
   const directoryPicker = createDshDirectoryPicker(ctx.remote)
   const commands = createDshSlashCommandProjection(ctx.remote)

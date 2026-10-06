@@ -25,6 +25,7 @@ import type {
   LingContextBreakdown,
   LingContextPressure,
   LingCustomProviderDraft,
+  LingModelCatalogState,
   LingDiscoveredModel,
   LingFileDiff,
   LingLocalePreference,
@@ -149,6 +150,7 @@ export interface DshRuntimeFacades {
     updateCustomProvider(provider: LingCustomProviderDraft): Promise<LingReadResult<void>>
     deleteProvider(providerId: string): Promise<LingReadResult<void>>
     testProvider(target: LingProviderTestTarget, signal?: AbortSignal): Promise<LingReadResult<readonly LingDiscoveredModel[]>>
+    refreshProviderModels?(providerId: string, signal?: AbortSignal): Promise<LingReadResult<LingModelCatalogState>>
     subscribe(listener: () => void): () => void
   }
   readonly authorization?: {
@@ -619,6 +621,11 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       } catch {
         return unavailableRead('无法测试该提供商。')
       }
+    },
+    async refreshProviderModels(providerId, signal = new AbortController().signal) {
+      if (!facades.models?.refreshProviderModels) return unavailableRead('模型目录刷新暂不可用。')
+      try { return await facades.models.refreshProviderModels(providerId, signal) }
+      catch { return unavailableRead('无法刷新供应商模型目录，原目录保持可用。') }
     },
     ...(facades.authorization === undefined ? {} : {
       async authorizeProvider(providerId, interaction, signal) {

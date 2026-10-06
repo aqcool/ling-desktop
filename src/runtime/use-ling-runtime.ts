@@ -665,6 +665,10 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
   const getModelSettings = useCallback((signal?: AbortSignal) => {
     return runtime.getModelSettings(signal)
   }, [runtime])
+  const refreshProviderModels = useCallback((providerId: string) => {
+    if (!runtime.refreshProviderModels) return Promise.resolve({ ok: false as const, reason: 'runtime-unavailable' as const, retryable: true, message: '模型目录刷新暂不可用。' })
+    return runtime.refreshProviderModels(providerId)
+  }, [runtime])
 
   const selectDefaultModel = useCallback((selection: LingModelSelection): Promise<LingCommandResult> => {
     return runtime.dispatch({
@@ -775,6 +779,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     deleteWorkspace,
     forkTask,
     getModelSettings,
+    refreshProviderModels,
     getLocalePreference,
     getTaskAgentPresets,
     getTaskChanges,

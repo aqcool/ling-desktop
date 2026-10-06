@@ -15,6 +15,7 @@ import type {
   LingCustomProviderDraft,
   LingDiscoveredModel,
   LingModelProvider,
+  LingModelCatalogState,
   LingModelSelection,
   LingModelSettings,
   LingProviderTestTarget,
@@ -422,12 +423,22 @@ function ProviderMark({ provider }: { readonly provider: LingModelProvider }) {
   return <span aria-hidden="true" className={tw("grid size-control-lg shrink-0 place-items-center rounded-lg border border-[var(--panel-border)]/60 bg-[var(--surface)] text-[var(--foreground)]")}><ProviderIcon providerId={provider.providerId} /></span>
 }
 
-function ProviderCard({ provider, models, defaultSelection, writable, selecting, onSelectDefault, onModelEnabledChange, onConnect, onRequestDelete }: {
+function catalogCaption(provider: LingModelProvider): string {
+  const catalog = provider.catalog
+  if (!catalog) return ''
+  if (catalog.pending) return '目录已更新，任务空闲后应用'
+  if (catalog.updatedAt) return `更新于 ${new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(catalog.updatedAt)}`
+  return catalog.supported ? '尚未刷新供应商目录' : '使用内置模型目录'
+}
+
+function ProviderCard({ provider, models, defaultSelection, writable, selecting, refreshing, onRefresh, onSelectDefault, onModelEnabledChange, onConnect, onRequestDelete }: {
   readonly provider: LingModelProvider
   readonly models: LingModelProvider['models']
   readonly defaultSelection: LingModelSelection
   readonly writable: boolean
   readonly selecting: boolean
+  readonly refreshing?: boolean
+  readonly onRefresh?: () => void
   readonly onSelectDefault: (selection: LingModelSelection) => void
   readonly onModelEnabledChange: (selection: LingModelSelection, enabled: boolean) => void
   readonly onConnect: () => void
@@ -440,17 +451,20 @@ function ProviderCard({ provider, models, defaultSelection, writable, selecting,
       <h2 className={tw("m-0 min-w-0 truncate text-sm font-medium")}>{providerName(provider)}</h2>
       <span className={tw("text-xs text-[var(--text-tertiary)]")}>{models.length}</span>
       <div className={tw("ml-auto flex shrink-0 items-center gap-1")}>
+        {provider.catalog?.supported && onRefresh ? <Button aria-label={`刷新${provider.displayName}模型目录`} className={tw("h-control-sm min-h-control-sm gap-1.5 px-2 text-xs text-[var(--text-secondary)]")} isPending={refreshing || provider.catalog.refreshing} onPress={onRefresh} size="sm" variant="ghost"><Icon name="refresh" size={13} />刷新模型</Button> : null}
         <Button aria-label={`管理${provider.displayName}连接`} className={tw("h-control-sm min-h-control-sm px-2 text-xs text-[var(--text-secondary)]")} onPress={onConnect} size="sm" variant="ghost">管理连接</Button>
         {provider.canDelete ? <Button aria-label={`删除${providerName(provider)}`} className={tw("h-control-sm min-h-control-sm px-2 text-xs text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]")} isDisabled={!writable} onPress={() => { onRequestDelete(provider) }} size="sm" variant="ghost">删除</Button> : null}
       </div>
     </div>
+    {provider.catalog ? <p className={tw("mb-3 mt-0 text-xs text-[var(--text-tertiary)]")} title={provider.catalog.error}>{provider.catalog.error ?? catalogCaption(provider)}</p> : null}
     <div className={tw("overflow-hidden rounded-xl border border-[var(--panel-border)]/70 bg-[var(--surface)]")}>
       {models.map(model => {
         const selected = defaultSelection.provider === provider.providerId && defaultSelection.model === model.id
         return <div className={tw("model-provider__row flex min-h-[60px] items-center justify-between gap-3 border-b border-[var(--panel-border)]/50 px-4 py-3 transition-colors hover:bg-[var(--surface-secondary)] last:border-0")} key={model.id}>
           <div className={tw("min-w-0", model.enabled === false && "text-[var(--text-tertiary)]")}>
-            <span className={tw("block truncate text-compact font-medium")} title={model.id}>{model.name}</span>
+            <span className={tw("flex min-w-0 items-center gap-2 text-compact font-medium")}><span className={tw("truncate")} title={model.id}>{model.name}</span>{model.catalogNew ? <span className={tw("shrink-0 rounded bg-[var(--surface-secondary)] px-1.5 py-0.5 text-caption font-normal text-[var(--text-secondary)]")}>新</span> : null}</span>
             {model.name !== model.id ? <span className={tw("mt-0.5 block truncate text-xs text-[var(--text-tertiary)]")} title={model.id}>{model.id}</span> : null}
+            {model.catalogUnverified || model.catalogMissing ? <span className={tw("mt-0.5 block text-xs font-normal text-[var(--text-tertiary)]")} title={model.catalogUnverified ? '接口仅返回模型标识，未声明对话能力；启用后按此连接的协议使用。' : '最新完整目录中未列出此模型，已保留配置。'}>{model.catalogUnverified ? '能力待确认' : '最新目录未列出'}</span> : null}
           </div>
           <div className={tw("flex shrink-0 items-center gap-2")}>
             {selected ? <span aria-label={`${model.name}是默认模型`} className={tw("model-provider__default--selected inline-flex h-control-xs shrink-0 items-center gap-1 rounded-md bg-[var(--plan-mode-background)] px-2 text-caption font-medium text-[var(--focus)] dark:text-[var(--plan-mode-foreground)]")}><Icon name="check" size={14} />默认</span> : model.enabled !== false ? <Button aria-label={connected ? `将${model.name}设为默认模型` : `连接${provider.displayName}以使用${model.name}`} className={tw("h-control-sm min-h-control-sm shrink-0 px-2 text-xs")} isDisabled={!writable || selecting} onPress={() => { if (connected) onSelectDefault({ provider: provider.providerId, model: model.id }); else onConnect() }} size="sm" variant="ghost">{connected ? '设为默认' : '连接'}</Button> : null}
@@ -712,6 +726,7 @@ export function ModelSettings({
   onCreateCustomProvider,
   onDeleteProvider,
   onRefresh,
+  onRefreshProviderModels,
   onAuthorizeProvider,
   onSaveApiKey,
   onSelectDefault,
@@ -726,6 +741,7 @@ export function ModelSettings({
   readonly onCreateCustomProvider: (provider: LingCustomProviderDraft) => Promise<LingCommandResult>
   readonly onDeleteProvider: (providerId: string) => Promise<LingCommandResult>
   readonly onRefresh: () => void
+  readonly onRefreshProviderModels?: (providerId: string) => Promise<LingReadResult<LingModelCatalogState>>
   readonly onAuthorizeProvider?: (
     providerId: string,
     interaction: LingAuthorizationInteraction,
@@ -748,6 +764,17 @@ export function ModelSettings({
   const [connectionId, setConnectionId] = useState<string>()
   const [deleteTarget, setDeleteTarget] = useState<LingModelProvider>()
   const [showAllProviders, setShowAllProviders] = useState(false)
+  const [refreshingProviders, setRefreshingProviders] = useState<ReadonlySet<string>>(new Set())
+  const refreshProvider = async (providerId: string) => {
+    if (!onRefreshProviderModels || refreshingProviders.has(providerId)) return
+    setRefreshingProviders(previous => new Set([...previous, providerId]))
+    setSelectionMessage(undefined)
+    try {
+      const result = await onRefreshProviderModels(providerId)
+      if (!result.ok) setSelectionMessage(result.message)
+    } catch { setSelectionMessage('模型目录刷新失败，原目录保持可用。') }
+    finally { setRefreshingProviders(previous => { const next = new Set(previous); next.delete(providerId); return next }) }
+  }
   const allProviders = settings?.providers ?? []
   const hasOfficialDeepSeek = allProviders.some(provider => provider.providerId === 'deepseek-official')
   // The dormant Pi catalog entry shares the official route's API key name.
@@ -807,7 +834,7 @@ export function ModelSettings({
     <section className={tw("model-settings w-full min-w-0 max-w-3xl pb-8")} aria-label="模型设置">
       <div className={tw("mb-5 flex items-center justify-between gap-3")}>
         <h1 className={tw("m-0 text-xl font-semibold text-[var(--foreground)]")}>模型</h1>
-        <Button isIconOnly aria-label="刷新模型设置" className={tw("size-8 min-w-8")} isPending={loading} onPress={onRefresh} size="sm" variant="ghost"><Icon name="refresh" size={16} /></Button>
+        <Button isIconOnly aria-label="重新读取模型设置" className={tw("size-8 min-w-8")} isPending={loading} onPress={onRefresh} size="sm" variant="ghost"><Icon name="refresh" size={16} /></Button>
       </div>
       <nav aria-label="模型设置分类" className={tw("mb-5 flex w-fit gap-0.5 rounded-lg bg-[var(--surface-secondary)] p-1")}>
         {(['models', 'providers'] as const).map(tab => <Button aria-pressed={view === tab} className={tw("h-control-sm min-h-control-sm rounded-md px-4 text-xs", view === tab ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm" : "bg-transparent text-[var(--text-secondary)] shadow-none")} key={tab} onPress={() => { setView(tab); setSearch('') }} size="sm" variant="ghost">{tab === 'models' ? '模型' : '提供商'}</Button>)}
@@ -822,10 +849,11 @@ export function ModelSettings({
       {[message, selectionMessage].filter(Boolean).map((text, index) => <p className={tw("model-settings__error mb-4 text-xs text-[var(--danger)]")} key={index} role="status">{text}</p>)}
       {settings && !settings.writable ? <p className={tw("mb-4 text-xs text-[var(--text-tertiary)]")}>当前模型配置为只读。</p> : null}
       {settings && !selectionKnown ? <p className={tw("model-settings__warning mb-4 text-xs text-[var(--warning)]")} role="status">当前默认模型已不可用，请选择新的默认模型。</p> : null}
+      {settings && providers.find(provider => provider.providerId === settings.defaultSelection.provider)?.catalog?.missingModelIds.includes(settings.defaultSelection.model) ? <p className={tw("mb-4 text-xs text-[var(--warning)]")} role="status">供应商最新目录未列出当前默认模型，已保留你的选择。可以刷新确认或手动选择其他模型。</p> : null}
       {loading && !settings ? <p className={tw("py-10 text-center text-sm text-[var(--text-tertiary)]")} role="status">正在读取模型设置…</p> : null}
       {!settings && !loading ? <p className={tw("py-10 text-center text-sm text-[var(--text-tertiary)]")}>暂时无法读取模型配置</p> : null}
       {settings && view === 'models' ? <div className={tw("grid gap-7")}>
-        {visibleProviders.map(({ provider, models }) => <ProviderCard key={provider.providerId} provider={provider} models={models} defaultSelection={settings.defaultSelection} selecting={selecting || updatingVisibility} writable={settings.writable} onConnect={() => { setConnectionId(provider.providerId) }} onRequestDelete={setDeleteTarget} onSelectDefault={selection => { void changeSelection(selection) }} onModelEnabledChange={(selection, enabled) => { void changeVisibility(selection, enabled) }} />)}
+        {visibleProviders.map(({ provider, models }) => <ProviderCard key={provider.providerId} provider={provider} models={models} defaultSelection={settings.defaultSelection} selecting={selecting || updatingVisibility} writable={settings.writable} refreshing={refreshingProviders.has(provider.providerId)} onRefresh={onRefreshProviderModels ? () => { void refreshProvider(provider.providerId) } : undefined} onConnect={() => { setConnectionId(provider.providerId) }} onRequestDelete={setDeleteTarget} onSelectDefault={selection => { void changeSelection(selection) }} onModelEnabledChange={(selection, enabled) => { void changeVisibility(selection, enabled) }} />)}
         {!visibleProviders.length ? <div className={tw("flex flex-col items-center gap-3 py-10 text-sm text-[var(--text-tertiary)]")}><span>{query ? '没有找到匹配的模型' : '还没有可用模型'}</span>{!query ? <Button onPress={() => { setView('providers') }} size="sm" variant="secondary">连接提供商</Button> : null}</div> : null}
       </div> : null}
       {settings && view === 'providers' ? <div className={tw("grid gap-7")}>
@@ -838,6 +866,7 @@ export function ModelSettings({
               {entries.map(provider => <div className={tw("flex min-h-[64px] items-center justify-between gap-3 border-b border-[var(--panel-border)]/50 px-4 py-3 transition-colors hover:bg-[var(--surface-secondary)] last:border-0")} key={provider.providerId}>
                 <div className={tw("flex min-w-0 items-center gap-3")}><ProviderMark provider={provider} /><div className={tw("min-w-0")}><span className={tw("block truncate text-compact font-medium")}>{providerName(provider)}</span><span className={tw("mt-0.5 block truncate text-xs text-[var(--text-tertiary)]")} title={provider.providerId}>{providers.some(other => other.providerId !== provider.providerId && providerName(other).toLocaleLowerCase() === providerName(provider).toLocaleLowerCase()) ? `${provider.providerId} · ` : ''}{provider.error ? '连接异常' : group.connected ? `${provider.models.length ? `${provider.models.length} 个模型` : '暂无模型'} · ${provider.authorization?.configured ? '账号登录' : provider.credential === 'configured' ? 'API Key' : '运行环境'}` : provider.authorization ? '账号登录' : provider.canStoreApiKey ? 'API Key' : providerStatus(provider)}</span></div></div>
                 <div className={tw("flex shrink-0 items-center gap-1")}>
+                  {group.connected && provider.catalog?.supported && onRefreshProviderModels ? <Button isIconOnly aria-label={`刷新${providerName(provider)}模型目录`} className={tw("size-8 min-w-8")} isPending={refreshingProviders.has(provider.providerId) || provider.catalog.refreshing} onPress={() => { void refreshProvider(provider.providerId) }} size="sm" variant="ghost"><Icon name="refresh" size={14} /></Button> : null}
                   <Button aria-label={`${group.connected ? '管理' : '连接'}${providerName(provider)}`} className={tw("h-control-sm min-h-control-sm rounded-lg px-3 text-xs")} onPress={() => { setConnectionId(provider.providerId) }} size="sm" variant={group.connected ? 'ghost' : 'outline'}>{group.connected ? '管理' : '连接'}</Button>
                   {group.connected && provider.canDelete ? <Button aria-label={`删除${providerName(provider)}`} className={tw("h-control-sm min-h-control-sm px-2 text-xs text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_8%,var(--surface))]")} isDisabled={!settings.writable} onPress={() => { setDeleteTarget(provider) }} size="sm" variant="ghost">删除</Button> : null}
                 </div>

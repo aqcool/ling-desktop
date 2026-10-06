@@ -27,7 +27,7 @@ import type {
 import { useLingRuntime } from './runtime/use-ling-runtime.js'
 import { readyServerHome } from './runtime/server-preflight.js'
 import { resendMessage } from './runtime/message-resend.js'
-import { modelVisibilityKey, readDisabledModels, replacementDefaultModel, saveDisabledModels, withModelVisibility } from './model-visibility.js'
+import { modelVisibilityKey, readConfirmedModels, readDisabledModels, replacementDefaultModel, saveConfirmedModels, saveDisabledModels, withModelVisibility } from './model-visibility.js'
 import {
   browserStorageKey,
   draftStorageKey,
@@ -132,9 +132,10 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const submitAttempts = useRef(new Map<string, { draft: Draft; text: string; run: RetryRunner }>())
   const [modelSettings, setModelSettings] = useState<LingModelSettings>()
   const [disabledModelKeys, setDisabledModelKeys] = useState<readonly string[]>(readDisabledModels)
+  const [confirmedModelKeys, setConfirmedModelKeys] = useState<readonly string[]>(readConfirmedModels)
   const visibleModelSettings = useMemo(
-    () => withModelVisibility(modelSettings, disabledModelKeys),
-    [modelSettings, disabledModelKeys],
+    () => withModelVisibility(modelSettings, disabledModelKeys, confirmedModelKeys),
+    [modelSettings, disabledModelKeys, confirmedModelKeys],
   )
   const [modelSettingsLoading, setModelSettingsLoading] = useState(false)
   const [modelSettingsMessage, setModelSettingsMessage] = useState<string>()
@@ -166,6 +167,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     deleteWorkspace,
     forkTask,
     getModelSettings,
+    refreshProviderModels,
     getLocalePreference,
     getTaskAgentPresets,
     getTaskChanges,
@@ -1045,15 +1047,20 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       ? disabledModelKeys.filter(candidate => candidate !== key)
       : [...new Set([...disabledModelKeys, key])]
     if (!enabled && modelSettings?.defaultSelection.provider === selection.provider && modelSettings.defaultSelection.model === selection.model) {
-      const fallback = replacementDefaultModel(modelSettings, next)
+      const fallback = replacementDefaultModel(modelSettings, next, confirmedModelKeys)
       if (!fallback) return '请先启用并连接另一个模型，再停用当前默认模型。'
       const result = await saveDefaultModel(fallback)
       if (!result.accepted) return result.message
     }
     if (!saveDisabledModels(next)) return '无法保存模型启用状态。'
+    if (enabled && modelSettings?.providers.find(provider => provider.providerId === selection.provider)?.models.find(model => model.id === selection.model)?.catalogUnverified) {
+      const confirmed = [...new Set([...confirmedModelKeys, key])]
+      if (!saveConfirmedModels(confirmed)) { saveDisabledModels(disabledModelKeys); return '无法保存模型启用状态。' }
+      setConfirmedModelKeys(confirmed)
+    }
     setDisabledModelKeys(next)
     return undefined
-  }, [disabledModelKeys, modelSettings, saveDefaultModel])
+  }, [disabledModelKeys, confirmedModelKeys, modelSettings, saveDefaultModel])
 
   const taskModelScoped = selectedTask !== undefined && supportsTaskModel
 
@@ -1344,6 +1351,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       onModelEnabledChange={changeModelEnabled}
       onModelSelect={selectComposerModel}
       onModelSettingsRefresh={() => { void refreshModelSettings() }}
+      onProviderModelsRefresh={async providerId => { const result = await refreshProviderModels(providerId); await refreshModelSettings(); return result }}
       onNewTask={startNewTask}
       onNewTaskInWorkspace={startNewTaskInWorkspace}
       onNewTaskOnServer={startNewTaskOnServer}
