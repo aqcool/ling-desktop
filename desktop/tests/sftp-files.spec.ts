@@ -155,14 +155,18 @@ describe('save and archive safety', () => {
   it('atomically replaces a verified text file and preserves its permission bits', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ling-sftp-save-')); cleanups.push(() => rm(root, { recursive: true, force: true }))
     const path = join(root, 'hello'); await writeFile(path, 'before', { mode: 0o640 })
-    const channel = { createReadStream, createWriteStream,
-      lstat: (path: string, done: (error: Error | null, value?: unknown) => void) => { void lstat(path).then(value => done(null, value), done) },
-      unlink: (path: string, done: (error?: Error | null) => void) => { void rm(path).then(() => done(), done) },
-      ext_openssh_rename: (path: string, target: string, done: (error?: Error | null) => void) => { void rename(path, target).then(() => done(), done) },
+    // SFTP always uses POSIX paths, even when the fixture's filesystem is Windows.
+    const localPath = (remote: string) => join(root, remote.replace(/^\/+/, ''))
+    const channel = {
+      createReadStream: (remote: string, options?: Parameters<typeof createReadStream>[1]) => createReadStream(localPath(remote), options),
+      createWriteStream: (remote: string, options?: Parameters<typeof createWriteStream>[1]) => createWriteStream(localPath(remote), options),
+      lstat: (remote: string, done: (error: Error | null, value?: unknown) => void) => { void lstat(localPath(remote)).then(value => done(null, value), done) },
+      unlink: (remote: string, done: (error?: Error | null) => void) => { void rm(localPath(remote)).then(() => done(), done) },
+      ext_openssh_rename: (remote: string, target: string, done: (error?: Error | null) => void) => { void rename(localPath(remote), localPath(target)).then(() => done(), done) },
     } as unknown as SFTPWrapper
     const files = new SftpFiles(channel)
     const version = createHash('sha256').update('before').digest('hex')
-    expect(await files.save(path, 'after', version)).toBe(createHash('sha256').update('after').digest('hex'))
+    expect(await files.save('/hello', 'after', version)).toBe(createHash('sha256').update('after').digest('hex'))
     expect(await readFile(path, 'utf8')).toBe('after')
     if (process.platform !== 'win32') expect((await lstat(path)).mode & 0o777).toBe(0o640)
     expect(await readdir(root)).toEqual(['hello'])

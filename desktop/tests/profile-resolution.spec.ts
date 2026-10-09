@@ -28,8 +28,8 @@ it('finds transitive plugins behind pnpm links without writing the user profile'
     const generation = await createProfileResolutionGeneration({ installAnchor: join(app, 'package.json'), home })
     const entries = new Map(generation.entries.map(entry => [entry.name, entry]))
     expect([...entries.keys()].sort()).toEqual(['fixture-app', 'fixture-bundle', 'fixture-helper', 'fixture-plugin'])
-    expect(entries.get('fixture-plugin')?.packageDir).toBe(realpathSync(plugin))
-    expect(entries.get('fixture-helper')?.declarer).toBe(join(realpathSync(plugin), 'package.json'))
+    expect(realpathSync.native(entries.get('fixture-plugin')!.packageDir)).toBe(realpathSync.native(plugin))
+    expect(realpathSync.native(entries.get('fixture-helper')!.declarer!)).toBe(realpathSync.native(join(plugin, 'package.json')))
     expect(existsSync(home)).toBe(false)
   } finally {
     rmSync(root, { recursive: true, force: true })

@@ -97,7 +97,7 @@ describe('catalog merge and offline persistence', () => {
     const path = join(directory, 'ling-model-catalog.json')
     expect(await readFile(path, 'utf8')).not.toContain('private-key')
     expect(await readFile(path, 'utf8')).not.toContain('gateway.example')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     await writeFile(path, 'not-json')
     const corrupt = new ModelCatalogStore(directory); await corrupt.ready
     expect(corrupt.get('lab')).toBeUndefined()
