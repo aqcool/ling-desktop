@@ -1,6 +1,6 @@
 {
   "name": "ling-desktop-host",
-  "version": "0.0.0-dev.7",
+  "version": "0.0.0-dev.8",
   "private": true,
   "description": "LING-owned local DSH host and renderer integration",
   "license": "MIT",
