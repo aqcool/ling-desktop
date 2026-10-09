@@ -85,6 +85,7 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 }
 
 export interface DshRuntimeFacades {
+  readonly evolution?: import('./evolution.js').LingEvolutionService
   readonly hooks?: import('./hooks.js').LingHooksService
   readonly replyFeatures?: import('./reply-features.js').LingReplyFeatures
   readonly automation?: import('./automation.js').LingAutomationService
@@ -762,6 +763,7 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
     extensionSettings: facades.extensions?.settings,
     pluginManager: facades.extensions?.manager,
     knowledge: facades.knowledge,
+    evolution: facades.evolution,
     replyFeatures: facades.replyFeatures,
     automation: facades.automation,
     hooks: facades.hooks,

@@ -1241,6 +1241,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       automation={runtime.automation}
       hooks={runtime.hooks}
       knowledge={runtime.knowledge}
+      evolution={runtime.evolution}
       sideTaskRuntime={runtime}
       computerControl={runtime.computerControl}
       serverManager={runtime.serverManager}

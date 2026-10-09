@@ -77,6 +77,7 @@ export interface DialogState {
 }
 
 export interface LingShellProps {
+  readonly evolution?: import('../../runtime/evolution.js').LingEvolutionService
   readonly replyFeatures?: LingReplyFeatures
   readonly automation?: import('../../runtime/automation.js').LingAutomationService
   readonly hooks?: import('../../runtime/hooks.js').LingHooksService

@@ -56,16 +56,22 @@ describe('task monitor content', () => {
   it('omits empty groups and unavailable placeholders in both presentations', () => {
     for (const presentation of ['fixed', 'floating'] as const) {
       const html = renderPanel({ presentation })
-      for (const label of ['任务回顾', '任务目标', '子智能体', '后台进程', '侧边聊天', '技能与 MCP', '产出', '网页查阅', '来源', '速记', '记忆更新', '演示画面', '暂无']) {
+      for (const label of ['任务回顾', '任务目标', '子智能体', '后台进程', '侧边聊天', '技能与 MCP', '产出', '网页查阅', '速记', '记忆更新', '演示画面', '暂无', '环境信息', '提交或推送']) {
         expect(html).not.toContain(label)
       }
-      expect(html).toContain('环境信息')
+      expect(html).toContain('来源')
+      expect(html).toContain('aria-label="添加来源"')
     }
     expect(renderPanel({ changes: [{ taskId: 't', turn: 1, seq: 1, files: [], total: 0, added: 0, deleted: 0 }] })).not.toContain('产出')
   })
 
   it('keeps populated groups while respecting their display preferences', () => {
-    const timeline: PanelProps['timeline'] = [{ itemId: 'i', taskId: 't', kind: 'tool-activity', text: '- `review`: skill https://example.com', createdAt: '2026-09-30', status: 'completed', attachments: [{ attachmentId: 'a', name: 'source.txt', kind: 'file' }] }]
+    const base = { taskId: 't', createdAt: '2026-09-30', status: 'completed' as const }
+    const timeline: PanelProps['timeline'] = [
+      { ...base, itemId: 'question', kind: 'user-message', text: '请参考 https://example.com/template', attachments: [{ attachmentId: 'a', name: 'source.txt', kind: 'file' }] },
+      { ...base, itemId: 'skill', kind: 'tool-activity', title: 'skill', text: '已加载', tool: { input: '{"name":"review"}' } },
+      { ...base, itemId: 'web', kind: 'tool-activity', title: 'web_fetch', text: 'Fetched https://example.com/review (HTTP 200)\n\nPage content' },
+    ]
     const changes: PanelProps['changes'] = [{ taskId: 't', turn: 1, seq: 1, files: [{ path: 'a.ts', display: 'a.ts', added: 1, deleted: 0 }], total: 1, added: 1, deleted: 0 }]
     const html = renderPanel({ timeline, changes })
     for (const label of ['技能与 MCP', '产出', '网页查阅', '来源', 'source.txt']) expect(html).toContain(label)
@@ -80,24 +86,32 @@ describe('task monitor content', () => {
     expect(html).not.toContain('查看当前会话摘要')
   })
 
-  it('shows notes only for the selected task when it contains saved notes', () => {
+  it('keeps the notes entry available for creating a first note in the selected task', () => {
     const selectedTask = { taskId: 't', title: 'Task', status: 'completed', archived: false, updatedAt: '2026-09-30' } as const
-    let notes = '[]'
-    vi.stubGlobal('localStorage', { length: 1, key: () => 'ling.task-notes.v1:t', getItem: (key: string) => key === 'ling.task-notes.v1:t' ? notes : null })
-    expect(renderPanel({ selectedTask })).not.toContain('打开任务速记')
-    notes = JSON.stringify([{ id: 'n', text: 'Saved note', updatedAt: '2026-09-30' }])
     expect(renderPanel({ selectedTask })).toContain('打开任务速记')
-    expect(renderPanel({ selectedTask: { ...selectedTask, taskId: 'other' } })).not.toContain('打开任务速记')
+    expect(renderPanel()).not.toContain('打开任务速记')
+    expect(renderPanel({ selectedTask, preferences: { ...defaultMonitorPreferences, quickNotes: false } })).not.toContain('打开任务速记')
   })
 
   it('uses workspace Git counts instead of task history and never treats unavailable stats as zero', () => {
     const changes: PanelProps['changes'] = [{ taskId: 't', turn: 1, seq: 1, files: [], total: 0, added: 999, deleted: 888 }]
-    const html = renderPanel({ changes, gitLineChanges: { added: 12, deleted: 3 } })
+    const environment = { selectedTask: { taskId: 't', workspaceId: 'w', title: 'Task', status: 'completed' as const, archived: false, updatedAt: '2026-10-08' }, workspaces: [{ workspaceId: 'w', label: 'Project' }] }
+    const html = renderPanel({ ...environment, changes, gitLineChanges: { added: 12, deleted: 3 } })
     expect(html).toContain('+12')
     expect(html).toContain('−3')
     expect(html).not.toContain('+999')
     expect(html).not.toContain('−888')
-    expect(renderPanel({ changes })).not.toContain('审阅未提交更改')
-    expect(renderPanel({ gitLineChanges: { added: 0, deleted: 0 } })).toContain('+0')
+    expect(renderPanel({ ...environment, changes })).not.toContain('审阅未提交更改')
+    expect(renderPanel({ ...environment, gitLineChanges: { added: 0, deleted: 0 } })).toContain('+0')
+  })
+
+  it('uses the actual remote environment and hides unavailable Git actions', () => {
+    const html = renderPanel({ environmentRemote: true, environmentLabel: 'SSH Production' })
+    expect(html).toContain('环境信息')
+    expect(html).toContain('SSH Production')
+    expect(html).toContain('data-icon="globe"')
+    expect(html).not.toContain('本地')
+    expect(html).not.toContain('提交或推送')
+    expect(renderPanel({ environmentRemote: true, environmentLabel: 'SSH Production', onGitOpen: () => {} })).toContain('提交或推送')
   })
 })

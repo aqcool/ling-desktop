@@ -1,9 +1,22 @@
-LING Desktop local application packages.
+LING Desktop 本地桌面应用预发布版。
 
-- macOS: Apple Silicon (arm64) and Intel (x64) DMG.
-- Windows: x64 NSIS installer.
-- Linux: x64 AppImage and Debian package.
+## 更新内容
 
-Every package passed its native headless build, tests, dependency audit and relocated-runtime smoke. Qualification reports and SHA256SUMS accompany the installers.
+- 新增本地任务自进化建议，支持候选持久化、逐条创建或忽略，并避免覆盖已有技能。
+- 对齐任务监控的建议弹层、实际技能与 MCP 调用、产出和来源列表；完善摘要阅读、键盘操作及窄窗口布局。
+- 改善知识库与 Wiki 的独立阅读页、多标签导航、搜索和交互知识图谱，索引遵循 Git 忽略规则。
+- 增加 SSH 工作区 SFTP 文件管理；完善 Office 预览、图片与 JSON 处理及 ZIP 校验。
+- 修正消息队列、追加指令和按回合交付展示，文件变更记录支持宿主重启恢复。
+- 修复提供商模型目录刷新（含 Codex OAuth）、渲染故障恢复和原生诊断，完善工作区外观及文件工具栏。
 
-These builds are unsigned on Windows and ad-hoc signed on macOS, without Apple notarization. OS installation warnings may appear. Automatic in-app updates are not enabled. Existing user profiles are retained.
+自进化只处理升级后后续完成的本地回合，不回填历史回合；SSH 绑定任务暂未接入技能建议生成与创建。任务监控中的浏览记录当前覆盖内建 `web_search` / `web_fetch`。
+
+## 下载与验证
+
+- macOS：Apple Silicon（arm64）和 Intel（x64）DMG。
+- Windows：x64 NSIS 安装程序。
+- Linux：x64 AppImage 和 Debian 安装包。
+
+所有安装包均通过对应原生平台的无图形界面构建、测试、依赖审计和迁移路径运行验证。下载文件包含各平台的验证报告及 `SHA256SUMS`。
+
+Windows 安装包未签名；macOS 使用 ad-hoc 签名，尚未进行 Apple 公证，安装时可能出现系统提示。尚未启用应用内自动更新；已有用户配置保留。

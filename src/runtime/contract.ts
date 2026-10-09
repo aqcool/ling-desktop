@@ -11,6 +11,7 @@ export type LingConnectionPhase = 'offline' | 'connecting' | 'ready' | 'failed'
 export * from './knowledge.js'
 export * from './automation.js'
 export * from './hooks.js'
+export type { LingEvolutionService, LingEvolutionSuggestion } from './evolution.js'
 
 export interface LingRuntimeConnection {
   readonly phase: LingConnectionPhase
@@ -315,6 +316,8 @@ export interface LingWithdrawnMessage {
 }
 
 export interface LingTimelineItem {
+  /** A runtime-declared skill invocation, distinct from the available catalog. */
+  readonly skillInvocation?: { readonly name: string }
   readonly presentedFiles?: readonly import('./reply-features.js').LingPresentedFile[]
   readonly compaction?: import('./compaction.js').LingCompactionRecord
   readonly itemId: string
@@ -884,6 +887,7 @@ export type LingReadResult<Value> =
 export type LingRuntimeAdapterKind = 'dsh' | 'offline' | 'offline-demo'
 
 export interface LingRuntimeAdapter {
+  readonly evolution?: import('./evolution.js').LingEvolutionService
   readonly hooks?: import('./hooks.js').LingHooksService
   readonly replyFeatures?: import('./reply-features.js').LingReplyFeatures
   readonly automation?: import('./automation.js').LingAutomationService

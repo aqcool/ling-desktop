@@ -65,3 +65,4 @@ export type {
 
 export * from './compaction.js'
 export type { LingPresentedFile, LingReplyFeatures } from './reply-features.js'
+export type { LingEvolutionService, LingEvolutionSuggestion } from './evolution.js'

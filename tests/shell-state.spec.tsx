@@ -2,6 +2,7 @@
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { App } from '../src/App.js'
 import type { LingPendingMessage, LingRuntimeCommand, LingServerService, LingTaskSummary } from '../src/runtime/contract.js'
 import { draftStorageKey, serializeDrafts } from '../src/session-state.js'
 import { createOfflineRuntimeAdapter } from '../src/runtime/offline-adapter.js'
@@ -74,7 +75,6 @@ describe('shell state boundaries', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
     window.localStorage.setItem(draftStorageKey, serializeDrafts({ a: { text: '先检查日志' } }))
-    const { App } = await import('../src/App.js')
     let publishQueue!: (items: readonly LingPendingMessage[]) => void
     const message: LingPendingMessage = { id: 'rpc', queueId: 'host-id', delivery: 'queue', status: 'pending', text: '先检查日志', attachments: [] }
     const dispatch = vi.fn(async (command: LingRuntimeCommand) => {
@@ -110,7 +110,6 @@ describe('shell state boundaries', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-    const { App } = await import('../src/App.js')
     let publishQueue!: (items: readonly LingPendingMessage[]) => void
     const first: LingPendingMessage = { id: 'one', queueId: 'host-one', delivery: 'queue', status: 'pending', text: '原问题', attachments: [{ kind: 'image', name: '截图.png' }] }
     const second: LingPendingMessage = { id: 'two', queueId: 'host-two', delivery: 'queue', status: 'pending', text: '第二条', attachments: [] }
@@ -144,7 +143,6 @@ describe('shell state boundaries', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-    const { App } = await import('../src/App.js')
     const runtime = {
       ...createOfflineRuntimeAdapter(),
       async getSnapshot() {

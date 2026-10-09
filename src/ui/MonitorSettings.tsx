@@ -15,7 +15,7 @@ const groups: readonly { title: string; rows: readonly { key: SwitchKey; title: 
     { key: 'subagents', title: '子智能体', description: '显示后台子智能体的运行状态和入口。' },
     { key: 'processes', title: '后台进程', description: '显示后台命令和长时间运行进程。' },
     { key: 'sideChats', title: '侧边聊天', description: '显示从当前任务分出的侧边聊天。' },
-    { key: 'skills', title: 'Skill 与 MCP', description: '显示任务使用的 Skill、MCP 和其他运行时能力。' },
+    { key: 'skills', title: 'Skill 与 MCP', description: '显示任务使用的技能、MCP，以及可创建或忽略的自进化建议。' },
   ] },
   { title: '结果与来源', rows: [
     { key: 'outputs', title: '产出', description: '显示任务产生的文件和其他结果。' },

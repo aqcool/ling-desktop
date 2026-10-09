@@ -1,3 +1,4 @@
+import { useId, useState } from 'react'
 import type {
   KnowledgeDocument,
   LingKnowledgeService,
@@ -39,14 +40,14 @@ export function TaskRecapCard({
   document: KnowledgeDocument
   onOpen: (id: string) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const previewId = useId()
   const date = new Date(document.updatedAt)
   return (
-    <button
-      type="button"
-      aria-label="查看当前会话摘要"
-      onClick={() => onOpen(document.id)}
+    <section
+      aria-label="当前会话摘要"
       className={tw(
-        'mb-4 grid w-full min-w-0 gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--field-background)] p-3.5 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
+        'mb-4 grid w-full min-w-0 gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--field-background)] p-3.5 text-left shadow-[var(--field-shadow)]',
       )}
     >
       <Icon
@@ -64,14 +65,43 @@ export function TaskRecapCard({
           })}
         </time>
       </span>
-      <span
+      <div
+        id={previewId}
         className={tw(
-          'line-clamp-8 break-words text-compact leading-[var(--line-copy)] text-[var(--text-secondary)]',
+          'relative break-words text-compact leading-[var(--line-copy)] text-[var(--text-secondary)]',
+          !expanded && 'h-36 overflow-hidden',
         )}
       >
-        {recapText(document.body) || document.title}
-      </span>
-    </button>
+        <p className={tw('m-0')}>{recapText(document.body) || document.title}</p>
+        {!expanded ? (
+          <span
+            aria-hidden="true"
+            className={tw('pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-[linear-gradient(to_bottom,transparent,var(--field-background))]')}
+          />
+        ) : null}
+      </div>
+      <div className={tw('flex items-center justify-between gap-2 text-caption text-[var(--text-tertiary)]')}>
+        <button
+          type="button"
+          aria-label={expanded ? '收起摘要' : '展开摘要'}
+          aria-controls={previewId}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className={tw('flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')}
+        >
+          {expanded ? '收起' : '展开'}
+          <Icon name="chevronDown" size={12} className={tw(expanded && 'rotate-180')} />
+        </button>
+        <button
+          type="button"
+          aria-label="查看当前会话摘要"
+          onClick={() => onOpen(document.id)}
+          className={tw('rounded px-1 py-0.5 transition-colors hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')}
+        >
+          完整摘要
+        </button>
+      </div>
+    </section>
   )
 }
 

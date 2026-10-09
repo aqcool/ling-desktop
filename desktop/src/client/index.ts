@@ -15,6 +15,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { mountLingRenderer } from 'ling-desktop/client'
 import type { LingGitRequest, LingGitResult, LingReadResult, LingWorkspaceToolRequest, LingWorkspaceTools } from 'ling-desktop/runtime'
 import { LING_SKILLS_REMOTE, type LingSkillsRemote } from '../skill-contract.ts'
+import { LING_EVOLUTION_REMOTE, type LingEvolutionRemote } from '../evolution-contract.ts'
+import { createEvolutionProjection } from './evolution-projection.js'
 import { LING_SESSION_DELETE_REMOTE, type LingSessionDeleteRemote } from '../session-delete-contract.ts'
 import { LING_MESSAGE_ACTIONS_REMOTE, type LingMessageActionsRemote } from '../message-actions-contract.ts'
 import { LING_CHANGE_HISTORY_REMOTE, type LingChangeHistoryRemote } from '../change-history-contract.ts'
@@ -219,6 +221,9 @@ export function apply(ctx: Context): void {
   const terminals = createDshTerminalProjection(ctx.remote, ctx.webTerminals)
   attachWorkspaceTerminals(ctx, terminals.service)
   const skillsMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_SKILLS_REMOTE) : undefined
+  const evolutionMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_EVOLUTION_REMOTE) : undefined
+  if (evolutionMount) ctx.effect(async () => await evolutionMount, 'LING self-evolution Remote')
+  const evolution = evolutionMount ? createEvolutionProjection(() => ctx.get('remote.lingEvolution') as unknown as LingEvolutionRemote | undefined, evolutionMount) : undefined
   const deleteMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_SESSION_DELETE_REMOTE) : undefined
   if (deleteMount) ctx.effect(async () => await deleteMount, 'LING session delete Remote')
   const messagesMount = typeof ctx.remote.$mount === 'function' ? ctx.remote.$mount(LING_MESSAGE_ACTIONS_REMOTE) : undefined
@@ -251,6 +256,7 @@ export function apply(ctx: Context): void {
   ctx.effect(installStylesheet, 'LING renderer stylesheet')
   ctx.slots.register({ name: 'root', priority: -1 }, createLingRootApp(() => ({
     replyFeatures,
+    evolution,
     hooks: { async request(request, signal) {
       try {
         if (!hooksMount) throw new Error('Hooks 服务暂不可用，请重启应用。')

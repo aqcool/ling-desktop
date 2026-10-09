@@ -309,6 +309,10 @@ function projectNode(taskId: string, stops: TurnStops, node: ConversationNode): 
         kind: 'system-notice',
         title: node.producer.label ?? '上下文',
         text: contentText(node.content),
+        ...(node.source && typeof node.source === 'object'
+          && 'kind' in node.source && node.source.kind === 'skill-invocation'
+          && 'name' in node.source && typeof node.source.name === 'string' && node.source.name.trim()
+          ? { skillInvocation: { name: node.source.name } } : {}),
       }
     case 'model-retry':
       return {

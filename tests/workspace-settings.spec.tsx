@@ -2,6 +2,7 @@
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { App } from '../src/App.js'
 import type { LingCommandResult, LingRuntimeAdapter } from '../src/runtime/contract.js'
 import { createOfflineRuntimeAdapter } from '../src/runtime/offline-adapter.js'
 import { WorkspaceEditDialog, type WorkspaceDraft } from '../src/ui/WorkspaceCreateDialog.js'
@@ -57,7 +58,6 @@ function sidebarFixture() {
 
 describe('workspace settings', () => {
   it('opens the full editor from the real app and saves the name, icon and color without altering the directory', async () => {
-    const { App } = await import('../src/App.js')
     let title = draft.name
     const dispatch = vi.fn<LingRuntimeAdapter['dispatch']>(async command => {
       if (command.type === 'workspace.rename') title = command.title

@@ -49,6 +49,19 @@ function stoppedTurn(turn: number, startSeq: number, endSeq: number): ChatSnapsh
 }
 
 describe('DSH Conversation projection', () => {
+  it('preserves explicit skill invocation without treating a catalog as usage', () => {
+    const context = { kind: 'context', seq: 1, time: 1000, content: [{ type: 'text', text: '技能说明' }], producer: { label: '技能' }, form: null }
+    const nodes = [
+      { ...context, source: { kind: 'skill-invocation', name: 'frontend-design' } },
+      { ...context, seq: 2, source: { kind: 'skill-catalog', entries: [{ name: 'unused-skill' }] } },
+      { ...context, seq: 3, source: { kind: 'skill-invocation', name: 42 } },
+    ]
+    const result = projectConversation('task', snapshot({ nodes: nodes as never }))
+    expect(result[0]?.skillInvocation).toEqual({ name: 'frontend-design' })
+    expect(result[1]?.skillInvocation).toBeUndefined()
+    expect(result[2]?.skillInvocation).toBeUndefined()
+  })
+
   it('previews actual tool input and preserves the output separately', () => {
     const call = { kind: 'tool-result', seq: 4, time: 3500, callId: 'shell', callTime: 1000,
       call: { name: 'bash', argsRaw: JSON.stringify({ command: 'ls -la src', timeout: 30 }) },

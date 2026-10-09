@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { LingBackgroundJob, LingGitSnapshot, LingSkill, LingSubagentCatalog, LingTaskSchedule, LingTimelineItem } from '../../runtime/contract.js'
+import { useMemo, useRef, useState } from 'react'
+import type { LingBackgroundJob, LingGitSnapshot, LingSubagentCatalog, LingTaskSchedule } from '../../runtime/contract.js'
+import type { LingPresentedFile } from '../../runtime/reply-features.js'
 import { ChangeReview } from '../ChangeReview.js'
+import { FileIcon } from '../FileIcon.js'
 import { Icon } from '../Icon.js'
+import { Menu, MenuItem } from '../Menu.js'
 import { MonitorSection } from '../MonitorSection.js'
 import { PromptDialog } from '../PromptDialog.js'
-import { openTaskNotes, readTaskNotes, taskNotesEvent } from '../TaskNotes.js'
+import { openTaskNotes } from '../TaskNotes.js'
 import { TaskRecap } from '../TaskRecap.js'
+import { TaskSkills } from '../TaskSkills.js'
 import { useBehavior } from '../behavior-preferences.js'
 import { requestBrowserNavigation } from '../browser-navigation.js'
+import { deliveryForChangedFile } from '../conversation-deliveries.js'
 import type { MonitorPreferences } from '../monitor-preferences.js'
+import { projectTaskMonitorContent } from '../task-monitor-content.js'
 import { tw } from '../tailwind.js'
 import type { LingShellProps, WorkbenchTab } from './types.js'
 
@@ -155,27 +161,9 @@ function ScheduleList(props: {
   )
 }
 
-const monitorRowClassName = "flex min-h-7 min-w-0 items-center gap-2 text-compact text-[var(--foreground)]"
-const monitorIconClassName = "grid size-5 shrink-0 place-items-center rounded bg-[var(--surface-secondary)] text-[var(--text-secondary)]"
-
-function taskSkillNames(items: readonly LingTimelineItem[]): readonly string[] {
-  const names = new Set<string>()
-  for (const item of items) {
-    for (const match of item.text.matchAll(/-\s+`([^`]+)`\s*:/g)) names.add(match[1] ?? '')
-  }
-  return [...names].filter(Boolean)
-}
-
-function taskWebLinks(items: readonly LingTimelineItem[]): readonly string[] {
-  const links = new Set<string>()
-  for (const item of items) {
-    if (item.kind !== 'tool-activity') continue
-    for (const match of `${item.text} ${item.detail ?? ''}`.matchAll(/https?:\/\/[^\s<>()[\]"']+/g)) {
-      links.add((match[0] ?? '').replace(/[.,;:!?]+$/, ''))
-    }
-  }
-  return [...links]
-}
+const monitorRowClassName = "flex min-h-8 min-w-0 items-center gap-2 text-compact text-[var(--foreground)]"
+const monitorIconClassName = "grid size-6 shrink-0 place-items-center rounded bg-[var(--surface-secondary)] text-[var(--text-secondary)]"
+const monitorButtonClassName = `${monitorRowClassName} w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]`
 
 export function EnvironmentPanel({
   preferences,
@@ -188,6 +176,9 @@ export function EnvironmentPanel({
   onGitReview,
   recapRemoteTaskId,
   onOpenRecap,
+  onPreviewDelivery,
+  environmentLabel,
+  environmentRemote = false,
   ...props
 }: Pick<
   LingShellProps,
@@ -198,13 +189,14 @@ export function EnvironmentPanel({
   | 'changes'
   | 'changesLoading'
   | 'changesMessage'
-  | 'extensions'
+  | 'evolution'
   | 'knowledge'
   | 'loadAttachment'
   | 'mode'
   | 'onAddFiles'
   | 'onChangeDiffClose'
   | 'onChangeSelect'
+  | 'onPromptChange'
   | 'onSubagentInterrupt'
   | 'onSubagentPrompt'
   | 'schedules'
@@ -212,6 +204,7 @@ export function EnvironmentPanel({
   | 'schedulesMessage'
   | 'selectedChange'
   | 'selectedTask'
+  | 'prompt'
   | 'subagents'
   | 'supportsSubagents'
   | 'timeline'
@@ -221,6 +214,9 @@ export function EnvironmentPanel({
   readonly onEnvironmentPinToggle?: () => void
   readonly recapRemoteTaskId?: string
   readonly onOpenRecap?: (id: string) => void
+  readonly onPreviewDelivery?: (taskId: string, file: LingPresentedFile) => void
+  readonly environmentLabel?: string
+  readonly environmentRemote?: boolean
   readonly onGitOpen?: () => void
   readonly onGitReview?: () => void
   readonly workspaceBranch?: string | null
@@ -232,22 +228,19 @@ export function EnvironmentPanel({
 }) {
   const behavior = useBehavior()
   const { selectedTask, workspaces } = props
-  const subscribeNotes = useCallback((refresh: () => void) => {
-    window.addEventListener(taskNotesEvent, refresh)
-    window.addEventListener('storage', refresh)
-    return () => { window.removeEventListener(taskNotesEvent, refresh); window.removeEventListener('storage', refresh) }
-  }, [])
-  const readNoteCount = () => {
-    try { return selectedTask ? readTaskNotes(selectedTask.taskId).filter(note => !note.archived).length : 0 }
-    catch { return 0 }
-  }
-  const noteCount = useSyncExternalStore(subscribeNotes, readNoteCount, readNoteCount)
-  const [skills, setSkills] = useState<readonly LingSkill[]>([])
   const activeWorkspace = workspaces.find(workspace => workspace.workspaceId === selectedTask?.workspaceId)
-  const attachments = props.timeline.flatMap(item => (item.attachments ?? []).map(attachment => ({ ...attachment, taskId: item.taskId })))
+  const content = useMemo(() => projectTaskMonitorContent(props.timeline, selectedTask?.taskId), [props.timeline, selectedTask?.taskId])
+  const changes = props.changes.filter(change => !selectedTask || change.taskId === selectedTask.taskId)
+  const deliveryOutputs = content.outputs.filter(output => output.kind === 'delivery')
+  const changedRows = changes.flatMap(change => change.files.map((file, index) => ({ change, file, index,
+    delivery: deliveryForChangedFile(file, deliveryOutputs.filter(output => output.taskId === change.taskId).map(output => output.file), change.workspacePath),
+  })))
+  const reviewedDeliveryFiles = new Set(changedRows.flatMap(row => row.delivery ? [row.delivery] : []))
+  const standaloneOutputs = content.outputs.filter(output => output.kind !== 'delivery' || !reviewedDeliveryFiles.has(output.file))
   const sourceInput = useRef<HTMLInputElement>(null)
   const [sourceError, setSourceError] = useState<string>()
   const [downloading, setDownloading] = useState<string>()
+  const [sourceUrlOpen, setSourceUrlOpen] = useState(false)
   const downloadSource = async (taskId: string, attachmentId: string, name: string) => {
     setSourceError(undefined); setDownloading(attachmentId)
     try {
@@ -260,56 +253,74 @@ export function EnvironmentPanel({
     } catch (cause) { setSourceError(cause instanceof Error ? cause.message : '附件下载失败。') }
     finally { setDownloading(undefined) }
   }
-  const visibleSkillNames = skills.length > 0 ? skills.map(skill => skill.name) : taskSkillNames(props.timeline)
-  const webLinks = taskWebLinks(props.timeline)
   const goal = props.mode?.goal
   const hasSubagents = props.supportsSubagents && selectedTask && props.subagents?.state === 'ready'
     && (props.subagents.subagents.length > 0 || props.subagents.unreadable.length > 0)
   const fixed = presentation === 'fixed'
-
-  useEffect(() => {
-    const readSkills = props.extensions?.readSkills
-    setSkills([])
-    if (!selectedTask || !readSkills) return
-    const controller = new AbortController()
-    void readSkills(selectedTask.taskId, controller.signal).then(result => {
-      if (!controller.signal.aborted) setSkills(result.ok ? result.value : [])
-    }).catch(() => { if (!controller.signal.aborted) setSkills([]) })
-    return () => { controller.abort() }
-  }, [props.extensions?.readSkills, selectedTask?.taskId])
 
   return <div className={tw('task-monitor min-w-0', fixed && 'pt-2')}>
     {!fixed ? <div className={tw("sticky top-0 z-2 flex h-10 items-center justify-between bg-[var(--surface)]")}>
       <h2 className={tw("m-0 text-compact font-medium text-[var(--text-secondary)]")}>任务监控</h2>
       <button aria-pressed={props.environmentPinned} aria-label={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} className={tw("grid size-control-xs place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] aria-pressed:text-[var(--foreground)]")} onClick={props.onEnvironmentPinToggle} title={props.environmentPinned ? '取消固定任务监控' : '固定任务监控'} type="button"><Icon active={props.environmentPinned} name="pin" size={14} /></button>
     </div> : null}
+    {sourceError ? <p role="alert" className={tw('m-0 pb-2 text-xs text-[var(--danger)]')}>{sourceError}</p> : null}
     {preferences.recap && selectedTask && onOpenRecap ? <TaskRecap key={`${recapRemoteTaskId ?? selectedTask.workspaceId}:${selectedTask.taskId}`} service={props.knowledge} workspaceId={selectedTask.workspaceId} remoteTaskId={recapRemoteTaskId} taskId={selectedTask.taskId} onOpen={onOpenRecap} /> : null}
     {preferences.goal && goal ? <MonitorSection title="任务目标"><p className={tw("mb-2 mt-0 break-words text-compact leading-6")}>{goal.objective}</p><span className={tw("text-caption text-[var(--text-tertiary)]")}>{goal.phase === 'complete' ? '已完成' : goal.phase === 'paused' ? '已暂停' : goal.phase === 'blocked' ? '已阻塞' : '进行中'} · 第 {goal.roundsStarted} / {goal.maxGoalRounds} 轮</span></MonitorSection> : null}
     {preferences.plan && (props.mode?.planActive || props.mode?.planPending) ? <MonitorSection title="计划"><div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="listCheck" size={14} /></span><span>{props.mode.planPending ? '等待确认' : '按计划执行'}</span></div></MonitorSection> : null}
-    {behavior.modes[behavior.workMode].monitorEnvironment ? <MonitorSection title="环境信息">
+    {behavior.modes[behavior.workMode].monitorEnvironment && (activeWorkspace || environmentRemote) ? <MonitorSection title="环境信息">
       <div className={tw("grid gap-0.5")}>
         {gitLineChanges ? <button aria-label="审阅未提交更改" className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} disabled={!onGitReview} onClick={onGitReview} type="button"><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>未提交</span> : null}<span className={tw('flex gap-1.5 tabular-nums', !fixed && 'ml-auto')}><span className={tw("text-[var(--success)]")}>+{gitLineChanges.added.toLocaleString()}</span><span className={tw("text-[var(--danger)]")}>−{gitLineChanges.deleted.toLocaleString()}</span></span></button> : null}
-        <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="desktop" size={14} /></span><span>本地</span>{!fixed ? <span className={tw("ml-auto min-w-0 truncate text-[var(--text-secondary)]")} title={activeWorkspace?.label}>{activeWorkspace?.label ?? '未指定'}</span> : null}</div>
+        <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name={environmentRemote ? 'globe' : 'desktop'} size={14} /></span><span className={tw('min-w-0 truncate')} title={environmentRemote ? environmentLabel : activeWorkspace?.label}>{environmentRemote ? environmentLabel ?? '远程服务器' : '本地'}</span>{!environmentRemote && !fixed ? <span className={tw('ml-auto min-w-0 truncate text-[var(--text-secondary)]')} title={activeWorkspace?.label}>{activeWorkspace?.label}</span> : null}</div>
         {workspaceBranch ? <div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="branch" size={14} /></span>{!fixed ? <span className={tw("text-[var(--text-secondary)]")}>分支</span> : null}<span className={tw('min-w-0 truncate text-[var(--foreground)]', !fixed && 'ml-auto')} title={workspaceBranch}>{workspaceBranch}</span></div> : null}
-        <button className={tw(monitorRowClassName, 'w-full border-0 bg-transparent p-0 text-left disabled:text-[var(--text-tertiary)]')} disabled={!onGitOpen} onClick={onGitOpen} title="Git：查看更改、提交或推送" type="button"><span className={tw(monitorIconClassName)}><Icon name="gitCommit" size={14} /></span><span>提交或推送</span></button>
+        {onGitOpen ? <button className={tw(monitorButtonClassName)} onClick={onGitOpen} title="Git：查看更改、提交或推送" type="button"><span className={tw(monitorIconClassName)}><Icon name="gitCommit" size={14} /></span><span>提交或推送</span></button> : null}
       </div>
     </MonitorSection> : null}
     {preferences.subagents && hasSubagents ? <MonitorSection title="子智能体"><SubagentList catalog={props.subagents} onInterrupt={props.onSubagentInterrupt} onPrompt={props.onSubagentPrompt} /></MonitorSection> : null}
     {preferences.processes && props.backgroundJobs.length > 0 ? <MonitorSection title="后台进程"><BackgroundJobList jobs={props.backgroundJobs} /></MonitorSection> : null}
     {preferences.sideChats && sideChats.length > 0 ? <MonitorSection title="侧边聊天">{sideChats.map(chat => <button className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')} key={chat.id} onClick={() => { onSelectSideChat(chat.id) }} type="button"><span className={tw(monitorIconClassName)}><Icon name="sideChat" size={14} /></span><span className={tw("min-w-0 truncate")}>{chat.label}</span><Icon className={tw("ml-auto shrink-0 text-[var(--text-tertiary)]")} name="external" size={12} /></button>)}</MonitorSection> : null}
     {props.schedules?.length ? <MonitorSection title="定时提醒"><ScheduleList loading={props.schedulesLoading} message={props.schedulesMessage} schedules={props.schedules} /></MonitorSection> : null}
-    {preferences.skills && visibleSkillNames.length > 0 ? <MonitorSection accessory={<span className={tw("shrink-0 text-caption text-[var(--text-tertiary)]")} title="当前任务可用的技能">可用 {visibleSkillNames.length}</span>} title="技能与 MCP">
-      <ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{visibleSkillNames.map(name => <li className={tw(monitorRowClassName)} key={name}><span className={tw(monitorIconClassName)}><Icon name="hammer" size={14} /></span><span className={tw("min-w-0 truncate")} title={name}>{name}</span></li>)}</ul>
+    {preferences.skills ? <TaskSkills service={selectedTask ? props.evolution : undefined} taskId={selectedTask?.taskId ?? props.timeline[0]?.taskId ?? ''} resources={content.resources} refreshKey={`${props.timeline.at(-1)?.itemId ?? ''}:${props.timeline.at(-1)?.status ?? ''}:${props.timeline.at(-1)?.turnComplete ?? ''}`} /> : null}
+    {preferences.outputs && (changedRows.length > 0 || standaloneOutputs.length > 0) ? <MonitorSection title="产出">
+      {props.selectedChange ? <ChangeReview changes={changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} /> : <>
+        {props.changesMessage ? <p role="status" className={tw('m-0 py-1 text-xs text-[var(--text-secondary)]')}>{props.changesMessage}</p> : null}
+        <ul className={tw('m-0 grid min-w-0 grid-cols-1 list-none gap-1 p-0')}>
+          {changedRows.map(({ change, file, index, delivery }) => <li key={`${change.seq}:${index}`} className={tw('flex min-w-0 items-center gap-1')}>
+            <button type="button" aria-label={`审阅 ${file.display}`} className={tw(monitorButtonClassName, 'min-w-0 flex-1')} onClick={() => props.onChangeSelect({ seq: change.seq, index })}>
+              <span className={tw(monitorIconClassName)}><FileIcon path={file.path} simpleIcon={file.binary || file.oversized ? 'file' : 'code'} size={14} /></span>
+              <span className={tw('min-w-0 flex-1 truncate')} title={file.path}>{file.display}</span>
+              <span className={tw('flex shrink-0 gap-1.5 text-caption tabular-nums')}>
+                {file.binary || file.oversized ? <span className={tw('text-[var(--text-tertiary)]')}>{file.binary ? '二进制' : '文件过大'}</span> : <><span className={tw('text-[var(--success)]')}>+{file.added}</span><span className={tw('text-[var(--danger)]')}>−{file.deleted}</span></>}
+              </span>
+            </button>
+            {delivery && onPreviewDelivery ? <button type="button" aria-label={`预览 ${file.display}`} title={`预览 ${file.display}`} className={tw('grid size-6 shrink-0 place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')} onClick={() => onPreviewDelivery(change.taskId, delivery)}><Icon name="external" size={12} /></button> : null}
+          </li>)}
+          {standaloneOutputs.map(output => <li key={output.id}>
+            {output.kind === 'delivery' ? <button type="button" aria-label={`预览 ${output.name}`} disabled={!onPreviewDelivery} className={tw(monitorButtonClassName)} onClick={() => onPreviewDelivery?.(output.taskId, output.file)}>
+              <span className={tw(monitorIconClassName)}><FileIcon path={output.file.path} size={14} /></span><span className={tw('min-w-0 truncate')} title={output.file.description ? `${output.file.path}\n${output.file.description}` : output.file.path}>{output.name}</span>
+            </button> : <button type="button" aria-label={`下载 ${output.attachment.name}`} disabled={Boolean(downloading)} className={tw(monitorButtonClassName)} onClick={() => { void downloadSource(output.taskId, output.attachment.attachmentId, output.attachment.name) }}>
+              <span className={tw(monitorIconClassName)}><FileIcon path={output.attachment.name} mediaType={output.attachment.mediaType} simpleIcon={output.attachment.kind === 'image' ? 'image' : 'file'} size={14} /></span><span className={tw('min-w-0 truncate')} title={output.attachment.name}>{output.attachment.name}</span>
+            </button>}
+          </li>)}
+        </ul>
+      </>}
     </MonitorSection> : null}
-    {preferences.outputs && props.changes.some(change => change.files.length > 0) ? <MonitorSection title="产出" initiallyOpen={props.selectedChange !== undefined}>
-      <ChangeReview changes={props.changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} />
-    </MonitorSection> : null}
-    {preferences.web && webLinks.length > 0 ? <MonitorSection initiallyOpen={false} title="网页查阅"><ul className={tw("m-0 grid list-none gap-0.5 p-0")}>{webLinks.slice(0, 8).map(link => <li key={link}><button type="button" onClick={() => requestBrowserNavigation(link)} className={tw(monitorRowClassName, 'w-full rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName)}><Icon name="globe" size={14} /></span><span className={tw("min-w-0 truncate")} title={link}>{link}</span></button></li>)}</ul></MonitorSection> : null}
-    {preferences.sources && attachments.length > 0 ? <MonitorSection accessory={<button aria-label="添加来源" className={tw("grid size-control-xs place-items-center rounded border-0 bg-transparent p-0 text-[var(--text-tertiary)]")} onClick={() => sourceInput.current?.click()} title="添加附件到输入框" type="button"><Icon name="plus" size={14} /></button>} title="来源" initiallyOpen={false}>
+    {preferences.web && content.webLinks.length > 0 ? <MonitorSection title="网页查阅"><ul className={tw('m-0 grid min-w-0 grid-cols-1 list-none gap-1 p-0')}>{content.webLinks.map(link => <li key={link.id}><button type="button" onClick={() => requestBrowserNavigation(link.url)} className={tw(monitorButtonClassName)}><span className={tw(monitorIconClassName)}><Icon name="globe" size={14} /></span><span className={tw('min-w-0 truncate')} title={`${link.label}\n${link.url}`}>{link.url.replace(/^https?:\/\//, '')}</span></button></li>)}</ul></MonitorSection> : null}
+    {preferences.sources ? <MonitorSection accessory={<Menu triggerAriaLabel="添加来源" triggerClassName="size-6 rounded text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)]" triggerLabel={<Icon name="plus" size={14} />}>
+      <MenuItem icon="paperclip" onPress={() => sourceInput.current?.click()}>添加附件</MenuItem>
+      <MenuItem icon="link" onPress={() => setSourceUrlOpen(true)}>添加网页链接</MenuItem>
+    </Menu>} title="来源">
       <input ref={sourceInput} type="file" multiple hidden onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; if (files.length) props.onAddFiles(files) }} />
-      {sourceError ? <p role="alert" className={tw('text-xs text-[var(--danger)]')}>{sourceError}</p> : null}
-      <ul className={tw("m-0 grid list-none gap-1 p-0")}>{attachments.map((attachment, index) => <li className={tw(monitorRowClassName)} key={`${attachment.attachmentId}-${index}`}><button type="button" disabled={Boolean(downloading)} onClick={() => { void downloadSource(attachment.taskId, attachment.attachmentId, attachment.name) }} className={tw('flex w-full min-w-0 items-center gap-2 rounded-md border-0 bg-transparent p-0 text-left hover:bg-[var(--surface-hover)]')}><span className={tw(monitorIconClassName, 'text-[var(--focus)]')}><Icon name={attachment.kind === 'image' ? 'image' : 'file'} size={14} /></span><span className={tw("min-w-0 truncate")} title={attachment.name}>{attachment.name}</span><Icon name="download" size={12} className={tw('ml-auto shrink-0')} /></button></li>)}</ul>
+      <ul className={tw('m-0 grid min-w-0 grid-cols-1 list-none gap-1 p-0')}>{content.sources.map(source => <li key={source.id}>
+        {source.kind === 'url' ? <button type="button" onClick={() => requestBrowserNavigation(source.url)} className={tw(monitorButtonClassName)}><span className={tw(monitorIconClassName)}><Icon name="globe" size={14} /></span><span className={tw('min-w-0 truncate')} title={source.url}>{source.label}</span></button> : <button type="button" aria-label={`下载 ${source.attachment.name}`} disabled={Boolean(downloading)} onClick={() => { void downloadSource(source.taskId, source.attachment.attachmentId, source.attachment.name) }} className={tw(monitorButtonClassName)}><span className={tw(monitorIconClassName, 'text-[var(--focus)]')}><FileIcon path={source.attachment.name} mediaType={source.attachment.mediaType} simpleIcon={source.attachment.kind === 'image' ? 'image' : 'file'} size={14} /></span><span className={tw('min-w-0 truncate')} title={source.attachment.name}>{source.attachment.name}</span></button>}
+      </li>)}</ul>
     </MonitorSection> : null}
-    {preferences.quickNotes && (behavior.quickNotes || behavior.replyAnnotations) && selectedTask && noteCount > 0 ? <button className={tw("flex h-control-lg w-full items-center justify-between border-0 bg-transparent p-0 text-left text-compact text-[var(--text-tertiary)]")} onClick={() => openTaskNotes(selectedTask.taskId)} title="打开任务速记" type="button"><span>Quick Notes</span><Icon name="external" size={13} /></button> : null}
+    {sourceUrlOpen ? <PromptDialog open title="添加网页链接" label="网页链接" placeholder="https://example.com" confirmLabel="添加" description="链接会加入输入框，随下一条消息作为任务来源发送。" onCancel={() => setSourceUrlOpen(false)} onConfirm={async value => {
+      let url: URL
+      try { url = new URL(value) } catch { return { accepted: false, message: '请输入有效的 HTTP 或 HTTPS 网页链接。' } }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return { accepted: false, message: '请输入 HTTP 或 HTTPS 网页链接。' }
+      props.onPromptChange(`${props.prompt}${props.prompt && !props.prompt.endsWith('\n') ? '\n' : ''}${url.href}`)
+      return { accepted: true }
+    }} /> : null}
+    {preferences.quickNotes && (behavior.quickNotes || behavior.replyAnnotations) && selectedTask ? <button className={tw('flex h-control-lg w-full items-center justify-between border-0 bg-transparent p-0 text-left text-compact text-[var(--text-tertiary)] hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]')} onClick={() => openTaskNotes(selectedTask.taskId)} title="打开任务速记" type="button"><span>Quick Notes</span><Icon name="external" size={13} /></button> : null}
   </div>
 }
