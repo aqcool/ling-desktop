@@ -12,6 +12,9 @@ import { useShellLayout } from '../src/ui/shell/useShellLayout.js'
 import { useTaskMonitor } from '../src/ui/shell/useTaskMonitor.js'
 import { useWorkbench } from '../src/ui/shell/useWorkbench.js'
 import { MessageQueue } from '../src/ui/MessageQueue.js'
+import { useTaskMode } from '../src/ui/use-task-mode.js'
+import { useShellRemote } from '../src/ui/shell/useShellRemote.js'
+import type { LingReadResult, LingTaskMode } from '../src/runtime/contract.js'
 
 const roots = new Set<Root>()
 beforeEach(() => {
@@ -45,11 +48,57 @@ function task(id: string): LingTaskSummary {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(finish => { resolve = finish })
-  return { promise, resolve }
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((finish, fail) => { resolve = finish; reject = fail })
+  return { promise, resolve, reject }
 }
 
 describe('shell state boundaries', () => {
+  it('does not show another conversation goal while mode reads finish out of order', async () => {
+    const old = deferred<LingReadResult<LingTaskMode>>()
+    const read = vi.fn((id: string) => id === 'a' ? old.promise : Promise.resolve({ ok: true as const, value: {} }))
+    let state!: ReturnType<typeof useTaskMode>
+    function Harness({ id }: { id: string }) { state = useTaskMode(id, 'completed', read); return null }
+    const view = await mount(<Harness id="a" />)
+    await view.render(<Harness id="b" />)
+    await act(async () => { old.resolve({ ok: true, value: { goal: { goalId: 'old', revision: 1, objective: 'Only task a', phase: 'complete', roundsStarted: 0, maxGoalRounds: 256 } } }) })
+    expect(state.mode?.goal).toBeUndefined()
+    expect(read).toHaveBeenCalledWith('b')
+  })
+
+  it('serializes SSH health checks across timeline updates and clears a recovered connection', async () => {
+    vi.useFakeTimers()
+    const pending = deferred<{ home: string }>()
+    const probe = vi.fn().mockImplementationOnce(() => pending.promise).mockResolvedValue({ home: '/home/test' })
+    vi.stubGlobal('__LING_SERVER_BROKER__', {
+      status: vi.fn(async () => ({ trusted: true, credential: 'key' })),
+      probe, inspect: vi.fn(async () => ({ algorithm: 'ed25519', sha256: 'known' })),
+    })
+    const service = {
+      list: async () => ({ ok: true, value: [] }),
+      taskBinding: async () => ({ ok: true, value: undefined }),
+      operationsBinding: async () => ({ ok: true, value: { serverId: 'server' } }),
+    } as unknown as LingServerService
+    let state!: ReturnType<typeof useShellRemote>
+    function Harness({ timeline }: { timeline: never[] }) {
+      state = useShellRemote({ screen: 'workspace', selectedTask: task('a'), serverManager: service, timeline })
+      return null
+    }
+    const view = await mount(<Harness timeline={[]} />)
+    expect(probe).toHaveBeenCalledTimes(1)
+    await view.render(<Harness timeline={[{} as never]} />)
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(probe).toHaveBeenCalledTimes(1)
+    await act(async () => { pending.reject(new Error('temporary timeout')) })
+    expect(state.serverIssue?.title).toBe('服务器连接已中断')
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+    expect(probe).toHaveBeenCalledTimes(2)
+    expect(state.serverIssue).toBeUndefined()
+    await view.unmount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000) })
+    expect(probe).toHaveBeenCalledTimes(2)
+  })
+
   it('shows all pending input and retains the queue after a failed action', async () => {
     const first: LingPendingMessage = { id: 'one', queueId: 'host-one', delivery: 'queue', status: 'pending', text: '先执行这条', attachments: [] }
     const second: LingPendingMessage = { id: 'two', delivery: 'steer', status: 'sending', text: '另一条消息', attachments: [{ name: '截图.png', kind: 'image' }] }

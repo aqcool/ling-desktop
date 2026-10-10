@@ -85,17 +85,29 @@ export function useShellRemote(props: Pick<LingShellProps, 'newTaskOperationsSer
     return () => { active = false }
   }, [selectedTask?.taskId, props.serverManager])
   useEffect(() => {
+    setServerIssue(undefined)
     if (!issueServerId || props.screen !== 'workspace') return
     let active = true
-    const check = () => {
-      void remoteIssue(issueServerId).then(issue => { if (active) setServerIssue(issue) }).catch(() => {
+    let pending = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const check = async () => {
+      if (!active || pending) return
+      pending = true
+      if (timer) clearTimeout(timer)
+      try {
+        const issue = await remoteIssue(issueServerId)
+        if (active) setServerIssue(issue)
+      } catch {
         if (active) setServerIssue({ title: '服务器连接已中断' })
-      })
+      } finally {
+        pending = false
+        if (active) timer = setTimeout(() => { void check() }, 15000)
+      }
     }
-    check()
+    void check()
     window.addEventListener('focus', check)
-    return () => { active = false; window.removeEventListener('focus', check) }
-  }, [issueServerId, props.screen, timeline.length])
+    return () => { active = false; if (timer) clearTimeout(timer); window.removeEventListener('focus', check) }
+  }, [issueServerId, props.screen])
   return {
     setTaskOperationsBinding,
     servers,

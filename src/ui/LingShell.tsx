@@ -252,6 +252,7 @@ export function LingShell(props: LingShellProps) {
   } = useTaskMonitor({ screen, taskId: selectedTask?.taskId, workbenchOpen, workbenchMaximized, workspaceAvailableWidth })
   const terminalVisible = terminalOpen && screen === 'workspace'
   const isDarwin = document.documentElement.dataset.platform === 'darwin'
+  const isWindows = document.documentElement.dataset.platform === 'win32'
 
   const emptyConversation = timeline.length === 0 && !loadingOlder
   const fileContextScope = workspaceContextScope({ workspaceId: activeWorkspaceId, serverId: activeServerId, cwd: taskRemoteCwd })
@@ -327,13 +328,19 @@ export function LingShell(props: LingShellProps) {
       sidebarCollapsed
         ? "grid-cols-[minmax(0,1fr)]"
         : "grid-cols-[var(--sidebar-width,17.5rem)_minmax(0,1fr)] max-[980px]:grid-cols-[var(--sidebar-width,15rem)_minmax(0,1fr)] max-[700px]:grid-cols-[3.6rem_minmax(0,1fr)]",
+      isWindows && "pt-10 grid-rows-[minmax(0,1fr)]",
       screen === 'settings' && "desktop-shell--settings",
       sidebarCollapsed && "desktop-shell--sidebar-collapsed",
     )} style={{ '--sidebar-width': `${String(displayedSidebarWidth)}px` } as CSSProperties}>
-      <div aria-hidden="true" className={tw("absolute inset-x-0 top-0 z-10 h-1 select-none [-webkit-app-region:drag]")} />
+      {isWindows ? <header aria-label="窗口工具栏" className={tw('absolute inset-x-0 top-0 z-10 flex h-10 items-center gap-1 pl-3 pr-36 select-none [-webkit-app-region:drag]')}>
+        <button aria-expanded={!sidebarCollapsed} aria-label="切换侧边栏" title="切换侧边栏" type="button" className={tw('icon-button grid size-control place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] [-webkit-app-region:no-drag]')} onClick={() => setSidebarCollapsed(current => !current)}><Icon active={!sidebarCollapsed} name="panelLeft" size={18} /></button>
+        <button aria-label="后退" title="后退" type="button" disabled={!props.canNavigateBack} onClick={onNavigateBack} className={tw('icon-button grid size-control place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] disabled:opacity-35 [-webkit-app-region:no-drag]')}><Icon name="arrowLeft" size={16} /></button>
+        <button aria-label="前进" title="前进" type="button" disabled={!props.canNavigateForward} onClick={onNavigateForward} className={tw('icon-button grid size-control place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] disabled:opacity-35 [-webkit-app-region:no-drag]')}><Icon name="arrowRight" size={16} /></button>
+      </header> : <div aria-hidden="true" className={tw("absolute inset-x-0 top-0 z-10 h-1 select-none [-webkit-app-region:drag]")} />}
       <aside className={tw("sidebar min-h-0 min-w-0 flex-col bg-transparent dark:bg-transparent max-[700px]:h-full max-[700px]:w-14.5 max-[700px]:overflow-hidden", sidebarCollapsed ? "hidden" : "flex")}>
         <div className={tw(
           "sidebar__top select-none [-webkit-app-region:drag] flex h-13 flex-none items-center gap-1 px-2.5 pl-3 max-[700px]:justify-center max-[700px]:p-0",
+          isWindows && "hidden",
           isDarwin && "min-[701px]:gap-0 min-[701px]:pl-22",
           screen === 'settings' && "max-[700px]:h-13 max-[700px]:pt-2",
         )}>
@@ -503,6 +510,7 @@ export function LingShell(props: LingShellProps) {
 
       <main className={tw(
         "workspace relative min-h-0 min-w-0 overflow-hidden my-[0.3rem] mr-[0.3rem] ml-[var(--workspace-inset)] rounded-2xl border border-[var(--panel-border)] bg-[var(--surface)] shadow-[var(--canvas-shadow)]",
+        isWindows && sidebarCollapsed && "ml-[0.3rem]",
         workbenchOpen
           ? tw(
               "workspace--workbench-open grid grid-cols-[minmax(0,calc(100%_-_var(--workbench-width)))_minmax(0,var(--workbench-width))]",
@@ -517,7 +525,7 @@ export function LingShell(props: LingShellProps) {
         terminalVisible && "workspace--terminal-open",
         sidebarCollapsed ? "max-[700px]:col-start-1" : "max-[700px]:col-start-2",
       )} style={{ '--workbench-width': `${String(displayedWorkbenchWidth)}%`, '--terminal-height': `${String(displayedTerminalHeight)}px` } as CSSProperties}>
-        {screen === 'settings' && sidebarCollapsed ? (
+        {screen === 'settings' && sidebarCollapsed && !isWindows ? (
           <div className={tw("settings-collapsed-navigation [-webkit-app-region:no-drag] absolute z-2 top-2 left-3 flex items-center gap-1", isDarwin && "min-[701px]:top-1 min-[701px]:left-20 min-[701px]:gap-0")}>
             <button aria-expanded={false} aria-label="切换侧边栏" className={tw("icon-button inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] shadow-none hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]")} onClick={() => { setSidebarCollapsed(false) }} title="展开侧边栏（⌘ B）" type="button"><Icon name="panelLeft" size={18} /></button>
             <button aria-label="后退" className={tw("icon-button inline-grid size-control place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>
@@ -527,7 +535,7 @@ export function LingShell(props: LingShellProps) {
         ) : null}
         {screen === 'knowledge' ? null : screen === 'settings' ? <div aria-hidden="true" className={tw("h-10 shrink-0 select-none [-webkit-app-region:drag]")} /> : <header className={tw("workspace-header select-none [-webkit-app-region:drag] relative z-5 flex h-10 shrink-0 items-center justify-between bg-[var(--surface)] pr-2.5 pl-5", workbenchOpen && "col-start-1 row-start-1", workbenchOpen && workbenchMaximized && "hidden", workbenchOpen && "max-[700px]:hidden", sidebarCollapsed && isDarwin && "min-[701px]:pl-20")}>
           <div className={tw("workspace-header__leading flex items-center min-w-0 flex-1 gap-2")}>
-            {sidebarCollapsed ? (
+            {sidebarCollapsed && !isWindows ? (
               <div className={tw("workspace-header__navigation [-webkit-app-region:no-drag] flex flex-none items-center gap-0.5", isDarwin && "min-[701px]:gap-0 min-[701px]:-translate-x-px min-[701px]:-translate-y-px")}>
                 <button aria-expanded={false} aria-label="切换侧边栏" className={tw("icon-button inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)]", isDarwin && "min-[701px]:size-7.5")} onClick={() => { setSidebarCollapsed(false) }} title="展开侧边栏（⌘ B）" type="button"><Icon name="panelLeft" size={18} /></button>
                 <button aria-label="后退" className={tw("icon-button inline-grid size-control flex-none place-items-center rounded-lg border-0 bg-transparent p-0 hover:bg-[var(--surface-hover)] hover:[color:var(--foreground)] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent", isDarwin && "min-[701px]:size-7.5")} disabled={!props.canNavigateBack} onClick={onNavigateBack} title="后退" type="button"><Icon name="arrowLeft" size={16} /></button>

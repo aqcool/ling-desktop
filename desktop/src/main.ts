@@ -163,7 +163,7 @@ function createWindow(notes = false): BrowserWindow {
     } : {}),
     ...(process.platform === 'win32' ? {
       titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { height: 40, color: windowColors().surface, symbolColor: windowColors().foreground },
+      titleBarOverlay: { height: 40, color: '#00000000', symbolColor: windowColors().foreground },
     } : {}),
     webPreferences: {
       preload: join(root, 'lib', 'preload-app.cjs'),
@@ -292,12 +292,14 @@ async function main(): Promise<void> {
       webPreferences: { preload: join(root, 'lib', 'preload-credentials.cjs'), contextIsolation: true,
         sandbox: true, nodeIntegration: false, webSecurity: true, partition: 'ling-credentials' },
     })
-    credentialWindows.set(window.webContents.id, { window, serverId: id })
+    // The native WebContents is already destroyed when the window emits closed.
+    const credentialContentsId = window.webContents.id
+    credentialWindows.set(credentialContentsId, { window, serverId: id })
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', event => event.preventDefault())
     window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
     window.once('ready-to-show', () => window.show())
-    const closed = new Promise<void>(resolve => window.once('closed', () => { credentialWindows.delete(window.webContents.id); resolve() }))
+    const closed = new Promise<void>(resolve => window.once('closed', () => { credentialWindows.delete(credentialContentsId); resolve() }))
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(credentialDocument(appearance, themeSnapshot().resolved))}`)
     return closed
   })
@@ -358,7 +360,7 @@ async function main(): Promise<void> {
     for (const window of [...windows, ...[...credentialWindows.values()].map(item => item.window)]) {
       if (window.isDestroyed()) continue
       window.setBackgroundColor(colors.surface!)
-      if (windows.has(window) && process.platform === 'win32') window.setTitleBarOverlay({ color: colors.surface, symbolColor: colors.foreground })
+      if (windows.has(window) && process.platform === 'win32') window.setTitleBarOverlay({ color: '#00000000', symbolColor: colors.foreground })
       if (credentialWindows.has(window.webContents.id)) window.webContents.send(IPC.themeChanged, themeSnapshot())
     }
   }

@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
-<title id="title">LING — Fold / night</title><desc id="desc">A sculptural folded ribbon forming an L on a softly rounded square.</desc>
-<defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#232B30"/><stop offset="1" stop-color="#232B30"/></linearGradient><linearGradient id="ribbon" x1="280" y1="260" x2="650" y2="740" gradientUnits="userSpaceOnUse"><stop stop-color="#FFC08B"/><stop offset=".55" stop-color="#F38458"/><stop offset="1" stop-color="#D45536"/></linearGradient><filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#231B16" flood-opacity=".13"/></filter></defs>
-<rect x="64" y="64" width="896" height="896" rx="204" fill="url(#tile)"/>
-<rect x="65" y="65" width="894" height="894" rx="203" fill="none" stroke="#FFF" stroke-opacity=".22" stroke-width="2"/>
-<g filter="url(#shadow)"><path d="M292 252 Q292 232 312 232 H452 Q472 232 472 252 V568 L708 568 Q740 568 740 600 V712 Q740 744 708 744 H324 Q292 744 292 712Z" fill="url(#ribbon)"/><path d="M472 568 L292 712 Q292 744 324 744 H472Z" fill="#D45536"/><path d="M472 568 H708 Q740 568 740 600 V612 H472Z" fill="#FFC08B" opacity=".6"/><path d="M312 232 H452 Q472 232 472 252 V269 H292 V252 Q292 232 312 232Z" fill="#FFF" opacity=".13"/></g>
-</svg>

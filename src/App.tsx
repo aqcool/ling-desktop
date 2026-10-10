@@ -1,3 +1,4 @@
+import { useTaskMode } from './ui/use-task-mode.js'
 import { acceptDraft, type ComposerDraft as Draft } from './ui/composer-draft.js'
 import { useBehavior } from './ui/behavior-preferences.js'
 import { readTaskWorkModes, rememberCreatedTaskMode } from './ui/task-work-modes.js'
@@ -17,7 +18,6 @@ import type {
   LingTaskAgentPreset,
   LingTaskChanges,
   LingTaskGoal,
-  LingTaskMode,
   LingTaskPermission,
   LingTaskSchedule,
   LingTaskSearchMatch,
@@ -145,7 +145,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const [presetPending, setPresetPending] = useState(false)
   const [presetState, setPresetState] = useState<{ taskId?: string; catalog?: LingTaskAgentPreset; loading: boolean; error?: string }>({ loading: true })
   const [newTaskPermission, setNewTaskPermission] = useState<LingTaskPermission>()
-  const [mode, setMode] = useState<LingTaskMode>()
 
   const [schedules, setSchedules] = useState<readonly LingTaskSchedule[]>()
   const [schedulesLoading, setSchedulesLoading] = useState(false)
@@ -432,24 +431,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     return () => { active = false }
   }, [getPermissionCatalog])
 
-  const refreshMode = useCallback(async (taskId: string) => {
-    try {
-      const result = await getTaskMode(taskId)
-      setMode(result.ok && (result.value.planActive !== undefined || result.value.goal !== undefined)
-        ? result.value
-        : undefined)
-    } catch {
-      setMode(undefined)
-    }
-  }, [getTaskMode])
-
-  useEffect(() => {
-    if (selectedTaskId === undefined) {
-      setMode(undefined)
-      return
-    }
-    void refreshMode(selectedTaskId)
-  }, [refreshMode, selectedTaskId, selectedTaskStatus])
+  const { mode, refreshMode } = useTaskMode(selectedTaskId, selectedTaskStatus, getTaskMode)
 
 
   useEffect(() => {

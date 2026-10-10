@@ -1,5 +1,8 @@
-# LING · Fold
+# LING 应用图标
 
-折叠丝带构成 L，延续现有字母识别。主推暖白与朱橙版本；night 用于深色偏好，ink 用于低彩度偏好。
+当前采用折面与接力两组、共四款图标。选定的原始概念和接入说明保留在 [selected/](./selected/README.md)。
 
-SVG 为可编辑源文件；PNG 提供 16、32、64、128、256、512、1024 像素。画布外缘透明，底板内缩 6.25%。预览在 preview.png。设计稿独立保存，尚未替换应用资源。
+- `desktop/assets/application-icons/`：Host 使用的正式透明 PNG，也用于打包。
+- `src/assets/application-icons/`：Renderer 设置页使用的预览 PNG。
+
+早期未采用的 warm、night、ink 折叠丝带草案及尺寸导出已清理；需要查看时可从 Git 历史恢复。
