@@ -16,6 +16,7 @@ import { Menu, MenuItem, placeList } from './Menu.js'
 import { tw } from './tailwind.js'
 import { ProviderIcon } from './ProviderIcon.js'
 import { composerSkillPresentation, withComposerSkills } from './composer-skills.js'
+import { goalRoundPresentation } from './goal-rounds.js'
 
 interface ComposerProps {
   readonly value: string
@@ -520,6 +521,10 @@ export function Composer({
     ...recordedAttachments.map(attachment => ({ id: attachment.attachmentId, name: attachment.name, size: attachment.bytes, isImage: attachment.kind === 'image', previewUrl: undefined, context: undefined, recorded: true })),
   ]
   const goal = mode?.goal
+  const goalRounds = goal && goalRoundPresentation(goal)
+  const goalAwaitingResume = goal?.phase === 'active' && goal.activation === 'disarmed'
+  const goalAtRoundLimit = goal !== undefined && goal.roundsStarted >= goal.maxGoalRounds
+  const goalLimitHint = '已达到自动续跑上限，需先提高该目标的上限。'
 
   useLayoutEffect(() => {
     if (!skillsOpen) { setSkillPlacement(undefined); return }
@@ -626,22 +631,22 @@ export function Composer({
         <div className={tw("composer__goal flex items-center gap-1.5 py-1.5 px-2.5 [border-bottom:1px_solid_var(--panel-border)] [color:var(--text-secondary)] text-xs")}>
           <Icon name="target" size={15} />
           <span className={tw("composer__goal-objective flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [color:var(--text-secondary)]")} title={goal.blockedReason ?? goal.objective}>{goal.objective}</span>
-          <span className={tw(
+          <span title={goalAwaitingResume ? goalAtRoundLimit ? goalLimitHint : '自动续跑尚未激活，点击继续可恢复。' : undefined} className={tw(
             "composer__goal-phase whitespace-nowrap rounded-md bg-[var(--surface-tertiary)] px-1.5 py-px text-caption text-[var(--text-secondary)]",
-            (goal.phase === 'active' || goal.phase === 'complete') && "composer__goal-phase--active bg-[color-mix(in_oklab,var(--success)_14%,var(--surface))] text-[var(--success)]",
+            ((goal.phase === 'active' && !goalAwaitingResume) || goal.phase === 'complete') && "composer__goal-phase--active bg-[color-mix(in_oklab,var(--success)_14%,var(--surface))] text-[var(--success)]",
             goal.phase === 'blocked' && "composer__goal-phase--blocked bg-[color-mix(in_oklab,var(--danger)_10%,var(--surface))] text-[var(--danger)]",
-            goal.phase === 'paused' && "composer__goal-phase--paused bg-[color-mix(in_oklab,var(--warning)_12%,var(--surface))] text-[var(--warning)]",
-          )}>{goalPhaseLabels[goal.phase]}</span>
-          <small>轮次 {goal.roundsStarted}/{goal.maxGoalRounds}</small>
+            (goal.phase === 'paused' || goalAwaitingResume) && "composer__goal-phase--paused bg-[color-mix(in_oklab,var(--warning)_12%,var(--surface))] text-[var(--warning)]",
+          )}>{goalAwaitingResume ? goalAtRoundLimit ? '已达上限' : '待继续' : goalPhaseLabels[goal.phase]}</span>
+          <small title={goalRounds?.title}>{goalRounds?.label}</small>
           {goal.phase === 'active' ? (
             <>
-              <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('pause', goal) }} type="button">暂停</button>
+              <button disabled={goalAwaitingResume && goalAtRoundLimit} title={goalAwaitingResume && goalAtRoundLimit ? goalLimitHint : undefined} className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap disabled:opacity-50 hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction(goalAwaitingResume ? 'resume' : 'pause', goal) }} type="button">{goalAwaitingResume ? '继续' : '暂停'}</button>
               <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('complete', goal) }} type="button">完成</button>
             </>
           ) : null}
           {goal.phase === 'paused' || goal.phase === 'blocked' ? (
             <>
-              <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('resume', goal) }} type="button">继续</button>
+              <button disabled={goalAtRoundLimit} title={goalAtRoundLimit ? goalLimitHint : undefined} className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap disabled:opacity-50 hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('resume', goal) }} type="button">继续</button>
               <button className={tw("composer__goal-action py-0.5 px-2 [border:1px_solid_var(--panel-border)] rounded-lg bg-transparent [color:var(--text-secondary)] text-caption whitespace-nowrap hover:[background:var(--surface-secondary)] hover:[color:var(--text-secondary)]")} onClick={() => { onGoalAction('clear', goal) }} type="button">移除</button>
             </>
           ) : null}

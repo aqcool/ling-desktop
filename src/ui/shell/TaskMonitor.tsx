@@ -15,6 +15,7 @@ import { requestBrowserNavigation } from '../browser-navigation.js'
 import { deliveryForChangedFile } from '../conversation-deliveries.js'
 import type { MonitorPreferences } from '../monitor-preferences.js'
 import { projectTaskMonitorContent } from '../task-monitor-content.js'
+import { goalRoundPresentation } from '../goal-rounds.js'
 import { tw } from '../tailwind.js'
 import type { LingShellProps, WorkbenchTab } from './types.js'
 
@@ -254,6 +255,7 @@ export function EnvironmentPanel({
     finally { setDownloading(undefined) }
   }
   const goal = props.mode?.goal
+  const goalRounds = goal && goalRoundPresentation(goal)
   const hasSubagents = props.supportsSubagents && selectedTask && props.subagents?.state === 'ready'
     && (props.subagents.subagents.length > 0 || props.subagents.unreadable.length > 0)
   const fixed = presentation === 'fixed'
@@ -265,7 +267,7 @@ export function EnvironmentPanel({
     </div> : null}
     {sourceError ? <p role="alert" className={tw('m-0 pb-2 text-xs text-[var(--danger)]')}>{sourceError}</p> : null}
     {preferences.recap && selectedTask && onOpenRecap ? <TaskRecap key={`${recapRemoteTaskId ?? selectedTask.workspaceId}:${selectedTask.taskId}`} service={props.knowledge} workspaceId={selectedTask.workspaceId} remoteTaskId={recapRemoteTaskId} taskId={selectedTask.taskId} onOpen={onOpenRecap} /> : null}
-    {preferences.goal && goal ? <MonitorSection title="任务目标"><p className={tw("mb-2 mt-0 break-words text-compact leading-6")}>{goal.objective}</p><span className={tw("text-caption text-[var(--text-tertiary)]")}>{goal.phase === 'complete' ? '已完成' : goal.phase === 'paused' ? '已暂停' : goal.phase === 'blocked' ? '已阻塞' : '进行中'} · 第 {goal.roundsStarted} / {goal.maxGoalRounds} 轮</span></MonitorSection> : null}
+    {preferences.goal && goal ? <MonitorSection title="任务目标"><p className={tw("mb-2 mt-0 break-words text-compact leading-6")}>{goal.objective}</p><span className={tw("text-caption text-[var(--text-tertiary)]")} title={goalRounds?.title}>{goal.phase === 'complete' ? '已完成' : goal.phase === 'paused' ? '已暂停' : goal.phase === 'blocked' ? '已阻塞' : goal.activation === 'disarmed' ? goal.roundsStarted >= goal.maxGoalRounds ? '已达上限' : '待继续' : '进行中'} · {goalRounds?.label}</span></MonitorSection> : null}
     {preferences.plan && (props.mode?.planActive || props.mode?.planPending) ? <MonitorSection title="计划"><div className={tw(monitorRowClassName)}><span className={tw(monitorIconClassName)}><Icon name="listCheck" size={14} /></span><span>{props.mode.planPending ? '等待确认' : '按计划执行'}</span></div></MonitorSection> : null}
     {behavior.modes[behavior.workMode].monitorEnvironment && (activeWorkspace || environmentRemote) ? <MonitorSection title="环境信息">
       <div className={tw("grid gap-0.5")}>

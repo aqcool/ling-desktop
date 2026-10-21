@@ -492,6 +492,7 @@ export interface LingTaskGoal {
   readonly revision: number
   readonly objective: string
   readonly phase: LingGoalPhase
+  readonly activation?: 'armed' | 'disarmed'
   readonly roundsStarted: number
   readonly maxGoalRounds: number
   readonly blockedReason?: string
@@ -911,6 +912,7 @@ export interface LingRuntimeAdapter {
   getPermissionCatalog?(): Promise<LingReadResult<readonly LingPermissionOption[]>>
   getTaskPermissions?(taskId: string): Promise<LingReadResult<LingTaskPermission>>
   getTaskMode?(taskId: string): Promise<LingReadResult<LingTaskMode>>
+  subscribeTaskMode?(taskId: string, listener: () => void): () => void
   workspaceGit?(workspaceId: string, request: LingGitRequest): Promise<LingReadResult<LingGitResult>>
   getWorkspaceBranch?(workspaceId: string): Promise<string | null>
   workspaceTools?(workspaceId: string, request: LingWorkspaceToolRequest): Promise<LingReadResult<LingWorkspaceTools>>

@@ -547,7 +547,8 @@ describe('composer plan and goal mode', () => {
 
     expect(markup).toContain('修复全部失败的门禁')
     expect(markup).toContain('进行中')
-    expect(markup).toContain('轮次 2/8')
+    expect(markup).toContain('自动续跑 2/8 轮')
+    expect(markup).toContain('不包含普通用户消息触发的回合')
     expect(markup).toContain('暂停')
     expect(markup).toContain('完成')
     expect(markup).not.toContain('继续</button>')
@@ -560,6 +561,21 @@ describe('composer plan and goal mode', () => {
     expect(markup).toContain('继续</button>')
     expect(markup).toContain('移除')
     expect(markup).not.toContain('暂停</button>')
+  })
+
+  it('offers resume for a restored active goal whose continuation is disarmed', () => {
+    const markup = renderComposer(false, undefined, { goal: { ...goal, activation: 'disarmed' } })
+    expect(markup).toContain('待继续')
+    expect(markup).toContain('继续</button>')
+    expect(markup).toContain('自动续跑 2/8 轮')
+    expect(markup).not.toContain('暂停</button>')
+    expect(markup).not.toContain('进行中')
+  })
+
+  it.each(['active', 'paused', 'blocked'] as const)('does not offer an invalid resume at the round limit for a %s goal', phase => {
+    const markup = renderComposer(false, undefined, { goal: { ...goal, phase, activation: 'disarmed', roundsStarted: 8 } })
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>继续<\/button>/u)
+    expect(markup).toContain('需先提高该目标的上限')
   })
 
   it('shows the blocked reason through the objective title', () => {
@@ -577,6 +593,16 @@ describe('composer plan and goal mode', () => {
     expect(markup).toContain('已完成')
     expect(markup).toContain('移除')
     expect(markup).not.toContain('完成</button>')
+    expect(markup).toContain('自动续跑 2 轮')
+    expect(markup).not.toContain('2/8')
+  })
+
+  it('shows completion in the human turn without inventing an automatic round', () => {
+    const markup = renderComposer(false, undefined, { goal: { ...goal, phase: 'complete', roundsStarted: 0, maxGoalRounds: 256 } })
+    expect(markup).toContain('已完成')
+    expect(markup).toContain('未自动续跑')
+    expect(markup).not.toContain('0/256')
+    expect(markup).not.toContain('第 0 轮')
   })
 })
 

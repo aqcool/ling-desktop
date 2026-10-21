@@ -431,7 +431,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     return () => { active = false }
   }, [getPermissionCatalog])
 
-  const { mode, refreshMode } = useTaskMode(selectedTaskId, selectedTaskStatus, getTaskMode)
+  const { mode, refreshMode } = useTaskMode(selectedTaskId, selectedTaskStatus, getTaskMode, runtime.subscribeTaskMode)
 
 
   useEffect(() => {

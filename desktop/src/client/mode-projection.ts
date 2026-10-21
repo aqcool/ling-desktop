@@ -32,6 +32,7 @@ function projectGoal(view: GoalView): LingTaskGoal {
     revision: view.revision,
     objective: view.objective,
     phase: view.phase,
+    ...(view.activation === undefined ? {} : { activation: view.activation }),
     roundsStarted: view.roundsStarted,
     maxGoalRounds: view.maxGoalRounds,
     ...(view.blockedReason === undefined ? {} : { blockedReason: view.blockedReason.message }),
@@ -40,6 +41,16 @@ function projectGoal(view: GoalView): LingTaskGoal {
 
 export function createDshModeProjection(remote: ClientRemote) {
   return {
+    subscribe(binding: SessionBinding, listener: () => void): () => void {
+      const stops = [remote.$on('goal/activation-changed', event => {
+        if (event.sessionId === binding.sessionId) listener()
+      })]
+      for (const key of ['goal', 'plan'] as const) {
+        try { stops.push(binding.session.projections.faceOf(key).subscribe(listener)) }
+        catch { /* An optional projection may be unavailable in this runtime. */ }
+      }
+      return () => { for (const stop of stops) stop() }
+    },
     async createGoal(taskId: string, objective: string, maxGoalRounds: number): Promise<LingReadResult<void>> {
       try {
         const result = await remote.goals.create(taskId as SessionId, { objective, maxGoalRounds })

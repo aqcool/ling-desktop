@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { LingCommandResult, LingModelSelection, LingModelSettings, LingReadResult, LingRuntimeAdapter, LingTaskMode, LingTaskPermission, LingWithdrawnMessage } from '../runtime/contract.js'
+import type { LingCommandResult, LingModelSelection, LingModelSettings, LingReadResult, LingRuntimeAdapter, LingTaskPermission, LingWithdrawnMessage } from '../runtime/contract.js'
 import { useLingRuntime } from '../runtime/use-ling-runtime.js'
 import { Composer, isComposerCommand } from './Composer.js'
 import { Conversation } from './Conversation.js'
@@ -10,6 +10,7 @@ import { useBehavior } from './behavior-preferences.js'
 import { rememberCreatedTaskMode } from './task-work-modes.js'
 import { tw } from './tailwind.js'
 import { MessageQueue } from './MessageQueue.js'
+import { useTaskMode } from './use-task-mode.js'
 
 export interface SideTaskState {
   readonly error?: string
@@ -36,7 +37,6 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
   const [readingFiles, setReadingFiles] = useState(false)
   const [error, setError] = useState<string>(state.error ?? '')
   const [permission, setPermission] = useState<LingTaskPermission>()
-  const [mode, setMode] = useState<LingTaskMode>()
   const [revision, setRevision] = useState(0)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const locked = useRef(false)
@@ -47,6 +47,8 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
   useEffect(() => { if (state.taskId) task.selectTask(state.taskId) }, [state.taskId, task.selectTask])
   useEffect(() => { setError(state.error ?? '') }, [state.error])
   const id = task.selectedTask?.taskId ?? state.taskId
+  const { mode, refreshMode } = useTaskMode(id, task.selectedTask?.status, task.getTaskMode, runtime.subscribeTaskMode)
+  useEffect(() => { if (id) void refreshMode(id) }, [id, revision, refreshMode])
   const running = task.selectedTask?.status === 'running' || task.selectedTask?.status === 'queued' || task.selectedTask?.status === 'waiting-for-input'
   const model = (id ? task.taskModel : state.model) ?? modelSettings?.defaultSelection
   const modelLabel = modelSettings?.providers.find(provider => provider.providerId === model?.provider)?.models.find(option => option.id === model?.model)?.name ?? model?.model ?? '选择模型'
@@ -57,14 +59,12 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
   useEffect(() => {
     let active = true
     if (!id) {
-      setMode(undefined)
       void task.getPermissionCatalog().then(result => { if (active) setPermission(result.ok ? { options: result.value, currentValue: latest.current.state.permissionPreset } : undefined) })
     } else {
       void task.getTaskPermissions(id).then(result => { if (active) setPermission(result.ok ? result.value : undefined) })
-      void task.getTaskMode(id).then(result => { if (active) setMode(result.ok ? result.value : undefined) })
     }
     return () => { active = false }
-  }, [id, revision, task.selectedTask?.status, task.timeline.length, state.permissionPreset, task.getPermissionCatalog, task.getTaskPermissions, task.getTaskMode])
+  }, [id, revision, task.selectedTask?.status, task.timeline.length, state.permissionPreset, task.getPermissionCatalog, task.getTaskPermissions])
 
   const act = async (operation: () => Promise<LingCommandResult>) => {
     if (locked.current || latest.current.state.pending) return

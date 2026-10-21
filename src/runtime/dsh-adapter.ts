@@ -181,6 +181,7 @@ export interface DshRuntimeFacades {
     createGoal?(taskId: string, objective: string, maxGoalRounds: number): Promise<LingReadResult<void>>
     plan(binding: SessionBinding): { active: boolean; pending: boolean } | undefined
     goal(taskId: string): Promise<LingReadResult<LingTaskGoal | undefined>>
+    subscribe?(binding: SessionBinding, listener: () => void): () => void
     goalAction(
       taskId: string,
       action: 'pause' | 'resume' | 'complete' | 'clear',
@@ -542,7 +543,7 @@ function createPromptSender(facades: DshRuntimeFacades) {
 
 export function goalObjective(line: string): string | undefined {
   const objective = /^\/goal\s+([\s\S]+)$/u.exec(line.trim())?.[1]?.trim()
-  if (!objective || (/^(?:clear|pause|resume)$/u.test(objective) || /^edit(?:\s|$)/u.test(objective))) return undefined
+  if (!objective || (/^(?:clear|pause|resume)$/iu.test(objective) || /^edit(?:\s|$)/iu.test(objective))) return undefined
   return objective
 }
 
@@ -714,6 +715,54 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
         }
       } catch {
         return unavailableRead('无法读取任务模式状态。')
+      }
+    },
+    subscribeTaskMode(taskId, listener) {
+      const mode = facades.mode
+      if (!mode?.subscribe) return () => {}
+      const abort = new AbortController()
+      const publish = () => { if (!abort.signal.aborted) listener() }
+      let reference: ReturnType<DshRuntimeFacades['sessions']['retain']> | undefined
+      let dispose: (() => void) | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let failures = 0
+      const release = () => {
+        const held = reference
+        reference = undefined
+        const stop = dispose
+        dispose = undefined
+        try { stop?.() } finally { held?.release() }
+      }
+      const retry = () => {
+        if (abort.signal.aborted || timer !== undefined) return
+        const delay = Math.min(1000 * 2 ** Math.min(failures++, 4), 15000)
+        timer = setTimeout(() => { timer = undefined; connect() }, delay)
+      }
+      const connect = () => {
+        if (abort.signal.aborted) return
+        try {
+          const held = facades.sessions.retain(sessionId(taskId), { source: 'lingRenderer', signal: abort.signal })
+          reference = held
+          void held.ready.then(binding => {
+            if (abort.signal.aborted || reference !== held) return
+            dispose = mode.subscribe!(binding, publish)
+            failures = 0
+            // Cover changes committed while the session binding was being retained.
+            publish()
+          }).catch(() => {
+            if (reference !== held) return
+            release()
+            retry()
+          })
+        } catch { retry() }
+      }
+      connect()
+      return () => {
+        if (abort.signal.aborted) return
+        abort.abort()
+        clearTimeout(timer)
+        timer = undefined
+        release()
       }
     },
     async getWorkspaceSkills(workspaceId, signal, agentPreset) {

@@ -65,6 +65,21 @@ describe('task monitor content', () => {
     expect(renderPanel({ changes: [{ taskId: 't', turn: 1, seq: 1, files: [], total: 0, added: 0, deleted: 0 }] })).not.toContain('产出')
   })
 
+  it('presents automatic continuations consistently without a zeroth task round', () => {
+    const goal = { goalId: 'g', revision: 1, objective: '完成发布', phase: 'active' as const, roundsStarted: 0, maxGoalRounds: 256 }
+    const active = renderPanel({ mode: { goal } })
+    expect(active).toContain('自动续跑 0/256 轮')
+    expect(active).toContain('不包含普通用户消息触发的回合')
+    expect(active).not.toContain('第 0')
+    const restored = renderPanel({ mode: { goal: { ...goal, activation: 'disarmed' } } })
+    expect(restored).toContain('待继续')
+    expect(restored).not.toContain('进行中')
+    const complete = renderPanel({ mode: { goal: { ...goal, phase: 'complete' } } })
+    expect(complete).toContain('已完成')
+    expect(complete).toContain('未自动续跑')
+    expect(complete).not.toContain('0/256')
+  })
+
   it('keeps populated groups while respecting their display preferences', () => {
     const base = { taskId: 't', createdAt: '2026-09-30', status: 'completed' as const }
     const timeline: PanelProps['timeline'] = [

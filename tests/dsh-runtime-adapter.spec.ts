@@ -941,6 +941,112 @@ describe('DSH runtime adapter', () => {
     expect(modeGoal).toHaveBeenCalledWith('session-1')
   })
 
+  it('retains the selected session for mode invalidations and releases its subscription', async () => {
+    const { facades, retain, release } = fixture()
+    const changes = new Source(undefined)
+    const subscribe = vi.fn((_binding, listener: () => void) => changes.subscribe(listener))
+    const adapter = createDshRuntimeAdapter({ ...facades, mode: { ...facades.mode!, subscribe } })
+    const listener = vi.fn()
+    const stop = adapter.subscribeTaskMode!('session-1', listener)
+    await Promise.resolve()
+    expect(retain).toHaveBeenCalledWith('session-1', { source: 'lingRenderer', signal: expect.any(AbortSignal) })
+    expect(subscribe).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }), expect.any(Function))
+    expect(listener).toHaveBeenCalledOnce()
+    changes.set(undefined)
+    expect(listener).toHaveBeenCalledTimes(2)
+    stop()
+    changes.set(undefined)
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('does not attach a mode subscription after its pending retain is disposed', async () => {
+    const { facades, retain } = fixture()
+    let finish!: (binding: never) => void
+    const ready = new Promise<never>(resolve => { finish = resolve })
+    const release = vi.fn()
+    retain.mockReturnValueOnce({ ready, release } as never)
+    const subscribe = vi.fn(() => vi.fn())
+    const adapter = createDshRuntimeAdapter({ ...facades, mode: { ...facades.mode!, subscribe } })
+    const listener = vi.fn()
+    const stop = adapter.subscribeTaskMode!('session-1', listener)
+    stop()
+    finish({} as never)
+    await Promise.resolve()
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(listener).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('releases a failed mode retain and retries until its subscription is restored', async () => {
+    vi.useFakeTimers()
+    const { facades, retain, release } = fixture()
+    const failedRelease = vi.fn()
+    retain.mockReturnValueOnce({ ready: Promise.reject(new Error('temporarily offline')), release: failedRelease } as never)
+    const unsubscribe = vi.fn()
+    const subscribe = vi.fn(() => unsubscribe)
+    const adapter = createDshRuntimeAdapter({ ...facades, mode: { ...facades.mode!, subscribe } })
+    const listener = vi.fn()
+    const stop = adapter.subscribeTaskMode!('session-1', listener)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(failedRelease).toHaveBeenCalledOnce()
+      expect(subscribe).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(999)
+      expect(retain).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(retain).toHaveBeenCalledTimes(2)
+      expect(subscribe).toHaveBeenCalledOnce()
+      expect(listener).toHaveBeenCalledOnce()
+      stop(); stop()
+      expect(unsubscribe).toHaveBeenCalledOnce()
+      expect(release).toHaveBeenCalledOnce()
+      expect(failedRelease).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(retain).toHaveBeenCalledTimes(2)
+    } finally { stop(); vi.useRealTimers() }
+  })
+
+  it('cancels a mode retry after disposal without releasing the failed reference twice', async () => {
+    vi.useFakeTimers()
+    const { facades, retain } = fixture()
+    const release = vi.fn()
+    retain.mockReturnValueOnce({ ready: Promise.reject(new Error('temporarily offline')), release } as never)
+    const subscribe = vi.fn(() => vi.fn())
+    const adapter = createDshRuntimeAdapter({ ...facades, mode: { ...facades.mode!, subscribe } })
+    const stop = adapter.subscribeTaskMode!('session-1', vi.fn())
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      stop(); stop()
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(retain).toHaveBeenCalledOnce()
+      expect(release).toHaveBeenCalledOnce()
+      expect(subscribe).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { stop(); vi.useRealTimers() }
+  })
+
+  it('does not retry a pending mode retain that rejects after disposal', async () => {
+    vi.useFakeTimers()
+    const { facades, retain } = fixture()
+    let fail!: (error: Error) => void
+    const ready = new Promise<never>((_resolve, reject) => { fail = reject })
+    const release = vi.fn()
+    retain.mockReturnValueOnce({ ready, release } as never)
+    const subscribe = vi.fn(() => vi.fn())
+    const adapter = createDshRuntimeAdapter({ ...facades, mode: { ...facades.mode!, subscribe } })
+    const stop = adapter.subscribeTaskMode!('session-1', vi.fn())
+    try {
+      stop()
+      fail(new Error('closed while opening'))
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(retain).toHaveBeenCalledOnce()
+      expect(release).toHaveBeenCalledOnce()
+      expect(subscribe).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { stop(); vi.useRealTimers() }
+  })
+
   it('omits plan fields when the projection is absent and goal fields when none is set', async () => {
     const { adapter, modeGoal, modePlan } = fixture()
     modePlan.mockReturnValueOnce(undefined)
@@ -1759,6 +1865,24 @@ describe('DSH runtime adapter', () => {
     expect(createGoal).toHaveBeenLastCalledWith('session-1', '再检查', 50)
     await adapter.dispatch({ type: 'task.run-command', requestId: 'goal-pause', taskId: 'session-1', line: '/goal pause', maxGoalRounds: 50 })
     expect(runCommand).toHaveBeenLastCalledWith('/goal pause')
+  })
+  it.each(['PAUSE', 'Resume', 'CLEAR', 'Edit', 'EDIT new objective'])('preserves the upstream control command /goal %s with a round cap', async control => {
+    const { adapter, createGoal, runCommand, prompt } = fixture(true)
+    const line = `/goal ${control}`
+    await expect(adapter.dispatch({ type: 'task.create', requestId: 'control-new', prompt: line, maxGoalRounds: 20 })).resolves.toMatchObject({ accepted: true })
+    await expect(adapter.dispatch({ type: 'task.run-command', requestId: 'control-existing', taskId: 'session-1', line, maxGoalRounds: 20 })).resolves.toMatchObject({ accepted: true })
+    expect(runCommand).toHaveBeenNthCalledWith(1, line)
+    expect(runCommand).toHaveBeenNthCalledWith(2, line)
+    expect(createGoal).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+  })
+  it('sends ordinary text without creating a goal when the default round cap is present', async () => {
+    const { adapter, createGoal, runCommand, prompt } = fixture(true)
+    const text = '请检查目标模式为什么出现，暂时不要创建目标。'
+    await expect(adapter.dispatch({ type: 'task.create', requestId: 'ordinary-new', prompt: text, maxGoalRounds: 20 })).resolves.toMatchObject({ accepted: true })
+    expect(prompt).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text }], 'queue', undefined, 'submission-1')
+    expect(createGoal).not.toHaveBeenCalled()
+    expect(runCommand).not.toHaveBeenCalled()
   })
   it('rejects invalid caps and unsupported runtimes before creating a task', async () => {
     const { adapter, create } = fixture()
