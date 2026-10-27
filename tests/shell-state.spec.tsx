@@ -15,6 +15,7 @@ import { MessageQueue } from '../src/ui/MessageQueue.js'
 import { useTaskMode } from '../src/ui/use-task-mode.js'
 import { useShellRemote } from '../src/ui/shell/useShellRemote.js'
 import type { LingReadResult, LingTaskMode } from '../src/runtime/contract.js'
+import type { LingTaskServers } from '../src/runtime/servers.js'
 
 const roots = new Set<Root>()
 beforeEach(() => {
@@ -76,12 +77,11 @@ describe('shell state boundaries', () => {
     })
     const service = {
       list: async () => ({ ok: true, value: [] }),
-      taskBinding: async () => ({ ok: true, value: undefined }),
-      operationsBinding: async () => ({ ok: true, value: { serverId: 'server' } }),
+      taskServers: async () => ({ ok: true, value: { revision: 1, developmentServerId: 'server', servers: [{ serverId: 'server', cwd: '/home/test' }] } }),
     } as unknown as LingServerService
     let state!: ReturnType<typeof useShellRemote>
     function Harness({ timeline }: { timeline: never[] }) {
-      state = useShellRemote({ screen: 'workspace', selectedTask: task('a'), serverManager: service, timeline })
+      state = useShellRemote({ screen: 'workspace', selectedTask: task('a'), serverManager: service, newTaskServerIds: [], timeline })
       return null
     }
     const view = await mount(<Harness timeline={[]} />)
@@ -97,6 +97,29 @@ describe('shell state boundaries', () => {
     await view.unmount()
     await act(async () => { await vi.advanceTimersByTimeAsync(30000) })
     expect(probe).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps task server reads scoped and refreshes associations after an explicit change event', async () => {
+    const old = deferred<LingReadResult<LingTaskServers>>()
+    let current: LingTaskServers = { revision: 1, servers: [{ serverId: 'b' }] }
+    const taskServers = vi.fn(async (id: string) => id === 'old' ? old.promise : { ok: true as const, value: current })
+    const service = { list: async () => ({ ok: true, value: [] }), taskServers } as unknown as LingServerService
+    let state!: ReturnType<typeof useShellRemote>
+    function Harness({ id }: { id: string }) {
+      state = useShellRemote({ screen: 'workspace', selectedTask: task(id), serverManager: service, newTaskServerIds: [], timeline: [] })
+      return null
+    }
+    const view = await mount(<Harness id="old" />)
+    await view.render(<Harness id="new" />)
+    await act(async () => { old.resolve({ ok: true, value: { revision: 9, servers: [{ serverId: 'stale' }] } }) })
+    expect(state.serverIds).toEqual(['b'])
+    expect(state.taskFileBindingReady).toBe('new')
+    current = { revision: 2, servers: [{ serverId: 'b' }, { serverId: 'c' }] }
+    await act(async () => { window.dispatchEvent(new CustomEvent('ling:task-servers-changed', { detail: 'old' })) })
+    expect(taskServers).toHaveBeenCalledTimes(2)
+    await act(async () => { window.dispatchEvent(new CustomEvent('ling:task-servers-changed', { detail: 'new' })) })
+    expect(state.serverIds).toEqual(['b', 'c'])
+    expect(state.activeServerId).toBeUndefined()
   })
 
   it('shows all pending input and retains the queue after a failed action', async () => {
@@ -235,6 +258,45 @@ describe('shell state boundaries', () => {
     expect(monitor()).toBeNull()
   })
 
+  it('opens independent sidebar server file tabs without changing the current conversation or draft', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    window.localStorage.setItem('ling.selectedTask', 'a')
+    window.localStorage.setItem(draftStorageKey, serializeDrafts({ a: { text: '保留当前草稿' } }))
+    const configured = [{ id: 'a', name: 'Server A', alias: 'a.example', environment: 'development' }, { id: 'b', name: 'Server B', alias: 'b.example', environment: 'production' }]
+    const setTaskServers = vi.fn()
+    const fileManager = vi.fn<LingServerService['fileManager']>(async (id, request) => request.type === 'jobs'
+      ? { ok: true, value: { type: 'jobs', jobs: [] } }
+      : { ok: true, value: { type: 'directory', directory: { path: request.type === 'list' && request.path !== '.' ? request.path : `/srv/${id}`, entries: [], truncated: false } } })
+    const serverManager = { list: async () => ({ ok: true, value: configured }), taskServers: async () => ({ ok: true, value: { revision: 1, servers: [] } }), setTaskServers, fileManager } as unknown as LingServerService
+    const dispatch = vi.fn(async (command: LingRuntimeCommand) => ({ accepted: true as const, requestId: command.requestId }))
+    const runtime = { ...createOfflineRuntimeAdapter(), serverManager, dispatch,
+      getSnapshot: async () => ({ connection: { phase: 'ready' as const }, workspaces: [{ workspaceId: 'project', label: 'Project' }], tasks: [task('a')], pendingInteractions: [], backgroundJobs: {}, subagents: {} }),
+      getTaskTimeline: async () => [],
+    }
+    const view = await mount(<App runtime={runtime} />)
+    const click = async (label: string) => { await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click() }) }
+    await click('浏览 Server A 文件')
+    let location = [...view.container.querySelectorAll<HTMLInputElement>('[aria-label="远端目录路径"]')].find(input => !input.closest('[hidden]'))!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(location, '/kept/a')
+      location.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { location.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    await click('浏览 Server B 文件')
+    location = [...view.container.querySelectorAll<HTMLInputElement>('[aria-label="远端目录路径"]')].find(input => !input.closest('[hidden]'))!
+    expect(location.value).toBe('/srv/b')
+    await click('浏览 Server A 文件')
+    location = [...view.container.querySelectorAll<HTMLInputElement>('[aria-label="远端目录路径"]')].find(input => !input.closest('[hidden]'))!
+    expect(location.value).toBe('/kept/a')
+    expect(view.container.querySelectorAll('[aria-label="工作面与文件标签页"] [role="tab"]')).toHaveLength(2)
+    expect(view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.value).toBe('保留当前草稿')
+    expect(view.container.querySelector('.workspace-header__title')?.textContent).toContain('a')
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(setTaskServers).not.toHaveBeenCalled()
+  })
+
   it('keeps manual monitor visibility and section collapse through workbench and task navigation', async () => {
     let monitor!: ReturnType<typeof useTaskMonitor>
     function Harness(options: Parameters<typeof useTaskMonitor>[0]) {
@@ -315,6 +377,30 @@ describe('shell state boundaries', () => {
     expect(workbench.browserNavigation?.id).toBe('open-1')
   })
 
+  it('keeps independent server file tabs and side task drafts while selecting a remote development task', async () => {
+    let workbench!: ReturnType<typeof useWorkbench>
+    const onSubmit = vi.fn()
+    function Harness({ development }: { development?: string }) {
+      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', prompt: 'keep draft', onSubmit, onBrowserToggle: vi.fn() }, activeServerId: development, activeWorkspaceId: 'project', workspaceLabel: 'Project' })
+      return null
+    }
+    const view = await mount(<Harness />)
+    await act(async () => { workbench.openServerFiles({ id: 'a', name: 'Server A' }, '/a') })
+    await act(async () => { workbench.openServerFiles({ id: 'b', name: 'Server B' }, '/b') })
+    await act(async () => { workbench.openServerFiles({ id: 'a', name: 'Server A' }, '/new-agent-cwd') })
+    expect(workbench.workbenchTabs.map(tab => tab.remoteFiles)).toEqual([{ serverId: 'a', initialPath: '/a' }, { serverId: 'b', initialPath: '/b' }])
+    expect(workbench.activeWorkbenchTabId).toBe('server-files:a')
+    await act(async () => { workbench.openWorkbenchTab('side-task', { prompt: 'side draft', attachments: [] }) })
+    await view.render(<Harness development="a" />)
+    expect(workbench.workbenchTabs.find(tab => tab.sideTask)?.sideTask?.prompt).toBe('side draft')
+    await act(async () => { workbench.openTerminal({ kind: 'server', serverId: 'b' }) })
+    expect(workbench.terminalTarget).toEqual({ kind: 'server', serverId: 'b' })
+    await act(async () => { workbench.openTerminal({ kind: 'local' }) })
+    expect(workbench.terminalTarget).toEqual({ kind: 'local' })
+    expect(workbench.workbenchTabs.filter(tab => tab.kind === 'terminal')).toHaveLength(1)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('forwards attachment-only submissions to App instead of silently dropping them', async () => {
     let workbench!: ReturnType<typeof useWorkbench>
     const onSubmit = vi.fn()
@@ -336,7 +422,7 @@ describe('shell state boundaries', () => {
     const service = { takeTerminalUiRequest } as unknown as LingServerService
     let workbench!: ReturnType<typeof useWorkbench>
     function Harness({ taskId }: { taskId: string }) {
-      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', selectedTask: task(taskId), serverManager: service, prompt: '', onSubmit: vi.fn(), onBrowserToggle: vi.fn() }, activeOperationsServerId: 'server', workspaceLabel: 'Project' })
+      workbench = useWorkbench({ props: { browserOpen: true, screen: 'workspace', selectedTask: task(taskId), serverManager: service, prompt: '', onSubmit: vi.fn(), onBrowserToggle: vi.fn() }, serverIds: ['server'], workspaceLabel: 'Project' })
       return null
     }
     const view = await mount(<Harness taskId="a" />)

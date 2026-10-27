@@ -155,9 +155,9 @@ describe('DSH Conversation projection', () => {
     } finally { vi.useRealTimers() }
   })
 
-  it('finds a remote command nested under an orchestration tool', () => {
+  it.each(['server_exec', 'server_copy'])('finds %s nested under an orchestration tool', name => {
     const running = snapshot({ runningCalls: [{ callId: 'root', name: 'run_code', time: 1000,
-      subCalls: [{ callId: 'remote', name: 'server_exec', parentCallId: 'root', time: 1100, subCalls: [] }],
+      subCalls: [{ callId: 'remote', name, parentCallId: 'root', time: 1100, subCalls: [] }],
     } as never] })
     const result = projectConversation('task', running, [{ callId: 'remote', summary: '检查服务', server: '测试', cwd: '/srv', command: 'systemctl status nginx', output: 'active', status: 'running' }])
     expect(result).toHaveLength(2)

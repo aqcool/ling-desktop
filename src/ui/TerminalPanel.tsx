@@ -1,88 +1,16 @@
 import { terminalLinks } from './terminal-links.js'
 import { readBehavior } from './behavior-preferences.js'
 import { requestBrowserNavigation } from './browser-navigation.js'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type KeyboardEvent } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Input } from '@heroui/react/input'
 import { Button } from '@heroui/react/button'
-import type { LingReadResult, LingTerminalPanel, LingTerminalService, LingTerminalView } from '../runtime/contract.js'
-import { updateAppearance, useAppearance, terminalMode, terminalTheme, metrics, type LingPalette, type ResolvedTheme } from '../theme.js'
-import { Icon } from './Icon.js'
+import type { LingReadResult, LingTerminalView } from '../runtime/contract.js'
+import { useAppearance, terminalMode, terminalTheme, metrics, type LingPalette, type ResolvedTheme } from '../theme.js'
 import { tw } from './tailwind.js'
 
-export function TerminalPanel({ service, taskId, workspaceId, placement, onClose }: {
-  readonly service?: LingTerminalService
-  readonly taskId?: string
-  readonly workspaceId?: string
-  readonly placement: 'side' | 'bottom'
-  readonly onClose?: () => void
-}) {
-  const panel = useMemo(() => taskId ? service?.panel(taskId, placement) : service?.workspacePanel?.(workspaceId, placement), [service, taskId, workspaceId, placement])
-  return <section aria-label={placement === 'bottom' ? '底部终端' : '侧面终端'} className={tw("flex min-h-0 min-w-0 flex-1 flex-col")}>
-    {panel ? <TerminalTabs key={`${taskId ?? `workspace:${workspaceId ?? 'home'}`}:${placement}`} panel={panel} onClose={onClose} /> : <div className={tw("flex flex-1 items-center justify-center text-xs text-[var(--text-tertiary)]")}>终端服务暂不可用</div>}
-  </section>
-}
-
-function TerminalTabs({ panel, onClose }: { readonly panel: LingTerminalPanel; readonly onClose?: () => void }) {
-  const state = useSyncExternalStore(panel.subscribe, panel.getSnapshot, panel.getSnapshot)
-  const [selectedId, setSelectedId] = useState<string>()
-  const [editingId, setEditingId] = useState<string>()
-  const [renameError, setRenameError] = useState<string>()
-  const tabs = useRef<HTMLDivElement>(null)
-  const restoreTab = useRef<number | undefined>(undefined)
-  useLayoutEffect(() => {
-    if (editingId !== undefined || restoreTab.current === undefined) return
-    tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[restoreTab.current]?.focus()
-    restoreTab.current = undefined
-  }, [editingId])
-  const appearance = useAppearance()
-  const mode = terminalMode(appearance, appearance.resolved)
-  const dark = mode === 'dark'
-  const selected = state.terminals.find(terminal => terminal.terminalId === selectedId) ?? state.terminals.at(-1)
-  const previousIds = useRef(new Set(state.terminals.map(terminal => terminal.terminalId)))
-  useEffect(() => { void panel.load() }, [panel])
-  useEffect(() => {
-    const added = state.terminals.filter(terminal => !previousIds.current.has(terminal.terminalId))
-    if (added.length) setSelectedId(added.at(-1)!.terminalId)
-    previousIds.current = new Set(state.terminals.map(terminal => terminal.terminalId))
-  }, [state.terminals])
-  const controls = "size-control-sm min-w-7 shrink-0 rounded-md p-0 text-current opacity-65 hover:opacity-100"
-  return <div data-theme={mode} data-palette={appearance.palette} className={tw('flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--terminal-background)] text-[var(--terminal-foreground)]')}>
-    <div className={tw("flex h-control-lg shrink-0 items-center gap-1 px-2")}>
-      <div ref={tabs} role="tablist" aria-label="终端列表" className={tw("flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]")}>
-        {state.terminals.map((terminal, index) => <div key={terminal.terminalId} className={tw("group flex h-control-sm shrink-0 items-center rounded-md", terminal.terminalId === selected?.terminalId && 'bg-[var(--surface-selected)]')}>
-          {editingId === terminal.terminalId ? <TerminalNameEditor title={terminal.title || terminal.shell}
-            onDone={focus => { if (focus) restoreTab.current = index; setEditingId(current => current === terminal.terminalId ? undefined : current) }}
-            onSave={async title => {
-              setRenameError(undefined)
-              const result = await panel.rename(terminal.terminalId, title)
-              if (!result.ok) setRenameError(result.message)
-              return result
-            }} /> : <button type="button" role="tab" aria-selected={terminal.terminalId === selected?.terminalId} aria-label={`终端 ${index + 1}`} tabIndex={terminal.terminalId === selected?.terminalId ? 0 : -1} className={tw("inline-flex h-control-sm min-w-0 max-w-48 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-current outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]")} title={`${terminal.cwd} · 双击重命名`} onDoubleClick={() => { setRenameError(undefined); setEditingId(terminal.terminalId) }} onClick={() => setSelectedId(terminal.terminalId)} onKeyDown={event => {
-            if (event.key === 'F2') { event.preventDefault(); setRenameError(undefined); setEditingId(terminal.terminalId); return }
-            const next = event.key === 'ArrowRight' ? (index + 1) % state.terminals.length : event.key === 'ArrowLeft' ? (index + state.terminals.length - 1) % state.terminals.length : event.key === 'Home' ? 0 : event.key === 'End' ? state.terminals.length - 1 : undefined
-            if (next === undefined) return
-            event.preventDefault()
-            setSelectedId(state.terminals[next]!.terminalId)
-            event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
-          }}>
-            <Icon name="terminal" size={14} /><span className={tw("truncate")}>{terminal.title || terminal.shell}</span>
-          </button>}
-          <Button isIconOnly aria-label={`关闭终端 ${index + 1}`} variant="ghost" className={tw("mr-0.5 size-5 min-w-5 rounded p-0 text-current opacity-50 hover:opacity-100")} onPress={() => { void panel.close(terminal.terminalId) }}><Icon name="close" size={12} /></Button>
-        </div>)}
-      </div>
-      <Button isIconOnly aria-label="新建终端" title="新建终端" variant="ghost" className={tw(controls)} isDisabled={state.loading} onPress={() => { void panel.create() }}><Icon name="plus" size={16} /></Button>
-      <Button isIconOnly aria-label={dark ? '切换为浅色终端' : '切换为深色终端'} variant="ghost" className={tw(controls)} onPress={() => updateAppearance({ terminal: 'manual', terminalDark: !dark })}><Icon name={dark ? 'sun' : 'moon'} size={16} /></Button>
-      {onClose && <Button isIconOnly aria-label="关闭终端面板" title="关闭终端面板" variant="ghost" className={tw(controls)} onPress={onClose}><Icon name="close" size={16} /></Button>}
-    </div>
-    {renameError && <p role="alert" className={tw("m-0 px-3 py-1 text-xs text-[var(--danger)]")}>{renameError}</p>}
-    {state.error && <div role="alert" className={tw("flex items-center gap-2 px-3 py-1 text-xs text-[var(--danger)]")}>{state.error}{state.terminals.length === 0 && <Button variant="ghost" size="sm" onPress={() => { void panel.load() }}>重试</Button>}</div>}
-    {selected ? <TerminalBody key={selected.terminalId} model={panel.view(selected.terminalId)} /> : state.loading ? <p role="status" className={tw("px-3 text-xs opacity-60")}>正在连接终端…</p> : null}
-  </div>
-}
-
-function TerminalNameEditor({ title, onSave, onDone }: {
+export function TerminalNameEditor({ title, onSave, onDone }: {
   readonly title: string
   readonly onSave: (title: string) => Promise<LingReadResult<void>>
   readonly onDone: (restoreFocus: boolean) => void
@@ -115,7 +43,7 @@ function TerminalNameEditor({ title, onSave, onDone }: {
     }} />
 }
 
-function TerminalBody({ model }: { readonly model: LingTerminalView }) {
+export function TerminalBody({ model }: { readonly model: LingTerminalView }) {
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot)
   useEffect(() => model.mount(), [model])
   const ended = state.phase === 'closed' || state.terminal?.state === 'exited'

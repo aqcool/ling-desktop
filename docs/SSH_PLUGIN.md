@@ -21,9 +21,9 @@ The user should be able to complete three paths inside LING:
    terminal, Git and tasks must use the same current remote directory. A
    connection test or directory browser alone is not remote development.
 3. **Develop locally, deploy and operate remotely:** keep a local workspace,
-   choose a server, use approved remote shell commands for operations, and
-   preview and approve local-file or directory deployment and remote-file
-   download. Local tools remain local. The server and credential are selected
+   choose a server, let the agent copy local files/directories and run remote
+   operations under the session permission mode, and optionally preview complete
+   directory replacement or remote-file download. Local tools remain local. The server and credential are selected
    outside the model tool call.
 
 The server list, credential lifecycle, connection lifecycle and workflow
@@ -39,8 +39,10 @@ Remote execution now uses the pinned `@deepseek-ai/dsh-fs-ssh`,
 `desktop/src/ssh/runtime.ts` is an Electron-independent composition of these
 providers. `server-broker.ts` retains only credential/connection ownership and
 LING workflow adapters. Generic commands no longer use a separate ssh2 exec
-implementation; deployment and Git also execute through the DSH subprocess
-provider. Fixed onboarding probes and runtime installation still use SSH exec
+implementation; reviewed deployment and Git also execute through the DSH subprocess
+provider. `server_copy` uses native SFTP or an optional rsync receiver over the
+same saved-authentication SSH connection; file payloads bypass the DSH subprocess
+and helper installation. Fixed onboarding probes and runtime installation still use SSH exec
 because they run before the helper exists.
 
 `desktop/src/ssh/connection.ts` adapts an authenticated ssh2 channel to the
@@ -134,25 +136,42 @@ runtime for host adapters. No pinned upstream sources are changed.
   If safe storage is unavailable, including Linux's `basic_text` backend,
   saving and using credentials fail closed. Secrets are not passed through
   command-line arguments, environment variables or a generic SSH subprocess.
-- `remote_run`, `remote_cd`, `remote_list`, `remote_read` and `remote_write`
-  are installed only in bound Agent scopes. A
-  remote command goes through the shared risk classifier and a bounded,
-  cancellable Host-to-Electron IPC request. Electron main decrypts the
-  credential, checks the pinned host key for each connection, and runs the
-  command in the task's remote directory. The model cannot select a different
-  server or obtain the credential. Known local filesystem, shell and terminal
-  tools are hidden or denied for these tasks. The session's file browser uses
-  the same current directory and supports SHA-256-checked text edits. Its
-  terminal uses a DSH-managed PTY over pinned SSH and keeps running when its panel closes. The
-  Git review, branch and commit controls operate on that server and directory.
-- A local task can separately select a saved operations server from the
-  Composer. Its workspace, local tools and Git remain local. The selected
-  server is bound to the task before the first prompt and retained by forks;
-  an existing local task can attach one server from the same Composer control.
-  `server_exec` executes general remote shell commands. Known read-only inspections
-  follow the session mode described above. It can inspect processes, services, containers and logs, or run
-  deployment commands. The model cannot change the bound server or access its
-  credential.
+- A conversation associates any number of saved servers through the Composer's
+  **关联服务器** picker. It saves the whole set atomically with a revision;
+  stale updates fail instead of replacing a newer selection. Associating a server
+  does not open SSH, so offline servers remain selectable. Each association has
+  its own lazily resolved remote directory. Forks retain the associated server IDs
+  and optional primary development server, without inheriting terminal sessions.
+- A task has at most one **主工程** server. Its known local filesystem, shell
+  and task terminal tools are hidden or denied, and its Git controls use the
+  primary server and directory. A local task retains its workspace, local tools
+  and Git when servers are associated. Changing the association set does not move
+  the primary workspace.
+- `remote_run`, `remote_cd`, `remote_list`, `remote_read`, `remote_write`,
+  `server_exec` and transfer tools require an explicit associated `serverId`.
+  There is one tool set per Agent. Approval and execution use the same server and
+  directory and connection snapshot; changing an association, directory or SSH
+  endpoint invalidates pending execution. The broker also checks the expected
+  endpoint before opening or reusing its SSH connection. No tool chooses the
+  first associated server implicitly. Commands go
+  through the shared risk classifier and cancellable Host-to-Electron IPC;
+  Electron main owns credentials and checks the pinned host key on connections.
+- Right and bottom terminal panels can each contain local terminals and terminals
+  from several associated servers. Every tab captures its target when created;
+  changing a conversation or file-browser tab cannot retarget it. Server PTYs are
+  scoped by conversation, server and panel placement. Collapsing a panel preserves
+  the PTY; explicitly closing a terminal tab ends that terminal. An already open
+  terminal remains usable after unlinking its server, while new terminals require
+  a current association. Local shells always use a local workspace or local home.
+- The left sidebar's **服务器** group opens independent SFTP file tabs by server
+  ID. Different servers can be browsed together, with a separate path and edit
+  buffer for each. Browsing does not create or switch conversations or alter a
+  draft's server associations. Server settings manage connection metadata and
+  credentials; file browsing starts from the sidebar.
+- Task associations live only in the new mode-`0600` `ling-task-servers.json`.
+  The old single-server task files are neither read nor migrated. Existing
+  conversations must reselect their servers; conversation content, saved global
+  connection metadata and credentials remain unchanged.
 - `server_exec` and `remote_run` share `server-command-policy.ts`. Literal
   inspection commands are checked across every pipeline and command-list stage;
   file writes, service changes, destructive flags, substitutions and unknown
@@ -175,6 +194,43 @@ runtime for host adapters. No pinned upstream sources are changed.
   hash and atomically replaces the remote target. It does not create the
   target directory. Both tool
   calls appear in the task timeline.
+- `server_copy` is the agent's ordinary local-to-remote copy tool. A file maps to
+  an exact destination file; a directory's **contents** merge into the exact
+  destination directory. Parent and empty directories are created, remote-only
+  files remain, and no `--delete` or whole-tree replacement is implied. The agent
+  chooses `source`, `destination`, `overwrite` (`replace`, `skip`, `error`),
+  gitignore-style `exclude`, `method` (`auto`, `sftp`, `rsync`), `checksum`,
+  concurrency and optional `dryRun`. It needs no native file chooser or mandatory
+  plan/apply pair. Full access executes directly, workspace-write uses the
+  existing approval card, and read-only permits only a dry run. Sources stay
+  inside the real local workspace in restricted modes; full access also accepts
+  absolute paths. Server address and authentication remain outside tool args.
+- The SFTP copy path reuses password or private key/passphrase from Electron's
+  encrypted credential store and the trusted host fingerprint. Local paths use
+  Node's native filesystem APIs on macOS, Linux and Windows; remote paths use
+  POSIX semantics. It scans metadata once, runs bounded parallel metadata/file
+  operations, and keeps up to 32 WRITE requests per file in flight. Each copy
+  has its own SFTP channel; cancellation closes only that channel
+  and cleans its stages over the retained control channel, without terminating
+  other file-manager operations or the saved SSH connection. Temporary
+  files are published by rename; overwriting requires OpenSSH atomic rename and
+  never deletes the original first. Links and special files are refused. Optional
+  SHA-256 checks verify payloads. Cancellation cleans unfinished stages and
+  retains completed files; retry skips equal size/mtime/mode by default, or equal
+  content with `checksum=true`. This is retry at file boundaries, not byte-offset
+  resumption of a partly uploaded SFTP file.
+- `auto` tries rsync for directory copies only when both ends provide it, and
+  otherwise uses SFTP. Explicit `rsync` reports missing support before changing
+  remote paths. The agent may install remote rsync using `server_exec` when useful
+  under the session permissions; installation is optional. A short-lived Node
+  remote-shell adapter routes the rsync receiver through the saved SSH connection
+  using local IPC (Unix socket or Windows named pipe), a per-invocation token and
+  binary streams. It is scoped to one receiver and one destination, contains no
+  SSH password/key, and removes its temporary script/socket afterward. Only the
+  pre-scanned selected files are sent via `--files-from`; excluded directories
+  are never recursively included. Windows needs no rsync for normal copies;
+  optional Windows rsync needs a compatible local installation. Progress and
+  completion/failure use the existing task execution row and audit recorder.
 - `server_deploy_directory_plan` previews the local tree and complete remote
   destination, including remote-only paths that will be removed. Its approved
   apply action uploads the full tree to a sibling staging directory, checks
@@ -204,11 +260,11 @@ runtime for host adapters. No pinned upstream sources are changed.
 
 This makes a saved server usable from an Agent chat for approved remote
 commands, file reading and writing, directory navigation and Git commands.
-The LING file browser, persistent terminal and Git controls target the selected
-server. OS-enforced isolation from other same-user processes has not been
+The LING file browser and persistent terminal target their own selected server;
+Git controls follow the primary workspace. OS-enforced isolation from other same-user processes has not been
 demonstrated.
 
-In a local task, select **运维服务器** below the Composer, then ask the Agent
+In a local task, select one or more **关联服务器** below the Composer, then ask the Agent
 to inspect Docker, manage a service, deploy a local build artifact or directory,
 or retrieve a remote file. A remote command shows its exact text for approval.
 File and directory changes are previewed with source, destination and hashes
@@ -283,7 +339,7 @@ end-to-end acceptance still needs a Linux host; local protocol tests run on the
 build host. No application restart or production command is part of these tests.
 
 OS isolation from other processes owned by the same local user is not claimed.
-Symlink deployment, text diff preview and resumable transfers remain distinct
+Symlink deployment, text diff preview and byte-offset SFTP resumption remain distinct
 workflow features. A successful fixed connection probe alone does not prove
 helper installation or runtime readiness; actual execution initializes the
 helper and reports installation/confinement failures.

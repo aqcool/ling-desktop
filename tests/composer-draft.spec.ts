@@ -19,6 +19,10 @@ describe('composer admission settlement', () => {
     const source = { seq: 9, attachments: [{ attachmentId: 'new', kind: 'file' as const, name: 'new.txt' }] }
     expect(acceptDraft({ text: '原问题', attachments: [added], recordedAttachments: source }, submitted)).toEqual({ text: '', attachments: [added], recordedAttachments: source })
   })
+  it('retains server choices changed while a new task submission is pending', () => {
+    const original = { text: 'create', attachments: [], serverIds: ['a'] }
+    expect(acceptDraft({ ...original, serverIds: ['a', 'b'] }, original)).toEqual({ text: '', attachments: [], serverIds: ['a', 'b'] })
+  })
   it('retries an unacknowledged failure with the same command identity, then begins a new attempt after acceptance', async () => {
     const runtime = { dispatch: vi.fn().mockResolvedValueOnce({ accepted: false, message: 'network', retryable: true }).mockResolvedValue({ accepted: true }) }
     const item = { taskId: 'task', itemId: 'user' } as LingTimelineItem

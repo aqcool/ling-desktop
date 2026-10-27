@@ -73,11 +73,9 @@ interface ShellSettingsProps {
   readonly monitorPreferences: MonitorPreferences
   readonly setMonitorPreferences: Dispatch<SetStateAction<MonitorPreferences>>
   readonly onOpenDialog: (dialog: DialogState) => void
-  readonly onBrowseServerFiles: (id: string) => void
 }
 
 export function ShellSettings({
-  onBrowseServerFiles,
   settings: props,
   activeWorkspaceId,
   memoryRecapRequested,
@@ -155,7 +153,7 @@ export function ShellSettings({
             workspaces={workspaces}
           />
         ) : props.settingsTab === 'connections' ? (
-          <ServerSettings service={props.serverManager} onBrowseFiles={onBrowseServerFiles} />
+          <ServerSettings service={props.serverManager} />
         ) : props.settingsTab === 'memory' ? (
           <MemorySettings service={props.knowledge} models={props.modelSettings} workspaces={workspaces} remoteTaskId={remoteTaskId} remoteLabel={remoteLabel} initialRecapSettings={memoryRecapRequested} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} />
         ) : props.settingsTab === 'hooks' ? (

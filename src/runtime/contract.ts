@@ -760,8 +760,8 @@ export type LingRuntimeCommand =
       readonly maxGoalRounds?: number
       readonly prompt: string
       readonly workspaceId?: string
-      readonly serverId?: string
-      readonly operationsServerId?: string
+      readonly serverIds?: readonly string[]
+      readonly developmentServerId?: string
       readonly attachments?: readonly LingPromptAttachment[]
       readonly permissionPreset?: string
     })

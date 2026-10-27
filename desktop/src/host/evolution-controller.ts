@@ -114,7 +114,7 @@ export class LingEvolutionController extends TypertRemoteService {
   }
   private async scope(taskId: string, signal?: AbortSignal) {
     signal?.throwIfAborted()
-    if (await this.ctx.get('lingServers')?.taskBinding(taskId))
+    if ((await this.ctx.get('lingServers')?.taskServers(taskId))?.developmentServerId)
       throw new RemoteError('evolution/unavailable', '远程服务器暂不支持自进化技能建议。', {})
     const history = await this.ctx.sessionQuery.readSession(SessionId(taskId))
     signal?.throwIfAborted()

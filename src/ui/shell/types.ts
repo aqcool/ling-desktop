@@ -64,6 +64,7 @@ export interface LingExtensionProps {
 
 export type WorkbenchTabKind = 'side-task' | 'files' | 'browser' | 'review' | 'terminal' | 'document'
 export interface WorkbenchTab {
+  readonly remoteFiles?: { readonly serverId: string; readonly initialPath?: string }
   readonly delivery?: { taskId: string; file: LingPresentedFile }
   readonly sideTask?: SideTaskState
   readonly id: string
@@ -213,12 +214,11 @@ export interface LingShellProps {
   readonly onNewTask: () => void
   readonly onNewTaskInWorkspace: (workspaceId: string) => void
   readonly onNewTaskOnServer: (serverId: string) => void
-  readonly onSelectOperationsServer: (serverId: string) => Promise<boolean>
-  readonly onClearOperationsServer: () => void
+  readonly onSelectTaskServers: (serverIds: readonly string[], expectedRevision?: number) => Promise<boolean>
   readonly onNewTaskWithoutWorkspace: () => void
   readonly newTaskWorkspaceId?: string
-  readonly newTaskServerId?: string
-  readonly newTaskOperationsServerId?: string
+  readonly newTaskServerIds: readonly string[]
+  readonly newTaskDevelopmentServerId?: string
   readonly newTaskWithoutWorkspace: boolean
   readonly onNavigateBack: () => void
   readonly onNavigateForward: () => void

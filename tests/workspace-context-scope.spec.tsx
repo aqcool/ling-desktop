@@ -79,10 +79,11 @@ it('clears references at every new-task workspace/development switch while prese
     await act(async () => { props().onAddWorkspaceContext?.({ kind: 'file', path: 'src/main.ts' }, scope) })
     expect(contexts()).toHaveLength(1)
   }
-  // Operations access leaves the file workspace in place.
+  // Resource server associations leave the file workspace in place.
   const reference = contexts()[0]
-  await act(async () => { await props().onSelectOperationsServer?.('operations-server') })
+  await act(async () => { await props().onSelectTaskServers?.(['server-a', 'server-b']) })
   expect(contexts()).toEqual([reference])
+  expect(props().newTaskServerIds).toEqual(['server-a', 'server-b'])
   await act(async () => { props().onNewTaskInWorkspace('workspace-a') })
   expect(contexts()).toEqual([reference])
 })
@@ -171,4 +172,39 @@ it.each([false, true])('invalidates a failed send and its retry payload after th
     expect(payload).not.toContain('OLD_FAILED_CONTEXT')
   }
   expect(dispatch.mock.calls[1]?.[0].requestId).not.toBe(dispatch.mock.calls[0]?.[0].requestId)
+})
+
+it('keeps independent remote file references and the message draft while associating several servers', async () => {
+  const dispatch = await mount()
+  await act(async () => { props().onPromptChange('deploy to both') })
+  await act(async () => {
+    props().onAddWorkspaceContext?.({ kind: 'file', path: '/project/config.json', server: { id: 'a', label: 'A' } }, remote('a'))
+    props().onAddWorkspaceContext?.({ kind: 'file', path: '/project/config.json', server: { id: 'b', label: 'B' } }, remote('b'))
+  })
+  await act(async () => { await props().onSelectTaskServers?.(['a', 'b']) })
+  expect(props().prompt).toBe('deploy to both')
+  expect(contexts().map(item => item.context?.server?.id)).toEqual(['a', 'b'])
+  await act(async () => { props().onWorkspaceContextScopeChange?.(remote('primary', '/resolved-home')) })
+  expect(contexts().map(item => item.context?.server?.id)).toEqual(['a', 'b'])
+  await act(async () => { await props().onSubmit() })
+  expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'task.create', serverIds: ['a', 'b'], workspaceId: 'workspace-a' }))
+  expect(localStorage.getItem('ling.drafts')).toContain('"serverIds":["a","b"]')
+})
+
+it('saves server associations on the selected task with a revision and keeps its primary fixed', async () => {
+  const setTaskServers = vi.fn(async () => ({ ok: true as const, value: { revision: 5, developmentServerId: 'primary', servers: [{ serverId: 'primary' }, { serverId: 'b' }] } }))
+  const taskServers = vi.fn(async () => ({ ok: true as const, value: { revision: 4, developmentServerId: 'primary', servers: [{ serverId: 'primary' }] } }))
+  const runtime: LingRuntimeAdapter = { ...createOfflineRuntimeAdapter(), serverManager: { taskServers, setTaskServers } as unknown as NonNullable<LingRuntimeAdapter['serverManager']>, async getSnapshot() {
+    return { connection: { phase: 'ready' }, workspaces: [], tasks: [task], pendingInteractions: [], backgroundJobs: {}, subagents: {} }
+  } }
+  const container = document.createElement('div')
+  document.body.append(container)
+  root = createRoot(container)
+  await act(async () => { root!.render(<App runtime={runtime} />) })
+  await act(async () => { props().onSelectTask(task.taskId) })
+  await act(async () => { props().onPromptChange('keep this draft'); await props().onSelectTaskServers?.(['primary', 'b'], 4) })
+  expect(setTaskServers).toHaveBeenCalledWith(task.taskId, { expectedRevision: 4, serverIds: ['primary', 'b'], developmentServerId: 'primary' })
+  expect(props().prompt).toBe('keep this draft')
+  await act(async () => { await props().onSelectTaskServers?.(['primary'], 3) })
+  expect(setTaskServers).toHaveBeenCalledTimes(1)
 })

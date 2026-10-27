@@ -18,12 +18,14 @@ function wrong<Value>(): LingReadResult<Value> {
   return { ok: false, reason: 'runtime-unavailable', message: '服务器返回了无效文件结果。', retryable: true }
 }
 
-export function ServerFileBrowser({ service, serverId, initialPath = '.', workspaceLabel, onAddContext }: {
+export function ServerFileBrowser({ service, serverId, initialPath = '.', workspaceLabel, onAddContext, active = true, onPathChange }: {
   readonly service: LingServerService
   readonly serverId: string
   readonly initialPath?: string
   readonly workspaceLabel: string
   readonly onAddContext?: (reference: WorkspaceContextReference) => void
+  readonly active?: boolean
+  readonly onPathChange?: (path: string) => void
 }) {
   const [root, setRoot] = useState<string>()
   const [location, setLocation] = useState('')
@@ -40,6 +42,8 @@ export function ServerFileBrowser({ service, serverId, initialPath = '.', worksp
   const mounted = useRef(true)
   const navigation = useRef<AbortController | undefined>(undefined)
   const startingPath = useRef(initialPath)
+  const pathChanged = useRef(onPathChange)
+  pathChanged.current = onPathChange
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; navigation.current?.abort() } }, [])
   const request = useCallback((action: LingRemoteFileRequest, signal?: AbortSignal) => service.fileManager(serverId, action, signal), [service, serverId])
   const navigate = useCallback(async (path: string) => {
@@ -49,13 +53,14 @@ export function ServerFileBrowser({ service, serverId, initialPath = '.', worksp
     try {
       const result = await request({ type: 'list', path }, abort.signal)
       if (abort.signal.aborted || !mounted.current) return
-      if (result.ok && result.value.type === 'directory') { setRoot(result.value.directory.path); setLocation(result.value.directory.path); setRevision(value => value + 1) }
+      if (result.ok && result.value.type === 'directory') { setRoot(result.value.directory.path); setLocation(result.value.directory.path); setRevision(value => value + 1); pathChanged.current?.(result.value.directory.path) }
       else setMessage(result.ok ? '无法读取目录。' : result.message)
     } catch { if (!abort.signal.aborted && mounted.current) setMessage('无法读取远端目录，请重试。') }
     finally { if (!abort.signal.aborted && mounted.current) setBusy(false) }
-  }, [request])
+  }, [request, serverId])
   useEffect(() => { void navigate(startingPath.current); return () => { navigation.current?.abort() } }, [navigate])
   useEffect(() => {
+    if (!active) return
     const abort = new AbortController()
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
@@ -74,7 +79,7 @@ export function ServerFileBrowser({ service, serverId, initialPath = '.', worksp
     }
     void poll()
     return () => { abort.abort(); clearTimeout(timer) }
-  }, [request])
+  }, [request, active])
   const perform = async (action: LingRemoteFileRequest): Promise<{ accepted: boolean; message?: string }> => {
     setMessage(undefined)
     try {

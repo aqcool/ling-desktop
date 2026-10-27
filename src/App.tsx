@@ -25,7 +25,6 @@ import type {
   LingTimelineItem,
 } from './runtime/contract.js'
 import { useLingRuntime } from './runtime/use-ling-runtime.js'
-import { readyServerHome } from './runtime/server-preflight.js'
 import { resendMessage } from './runtime/message-resend.js'
 import { modelVisibilityKey, readConfirmedModels, readDisabledModels, replacementDefaultModel, saveConfirmedModels, saveDisabledModels, withModelVisibility } from './model-visibility.js'
 import {
@@ -54,6 +53,7 @@ import { LING_RENDERER_VERSION } from './version.js'
 
 const offlineRuntime = createOfflineRuntimeAdapter('灵创暂时无法连接。')
 const newTaskKey = 'new-task'
+const noServers: readonly string[] = []
 
 type NavigationLocation =
   | { readonly screen: 'workspace'; readonly taskId?: string }
@@ -102,12 +102,12 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const pendingNavigation = useRef<NavigationLocation | undefined>(undefined)
   const [browserOpen, setBrowserOpen] = useState(storedBrowserOpen)
   const [newTaskWorkspaceId, setNewTaskWorkspaceId] = useState<string>()
-  const [newTaskServerId, setNewTaskServerId] = useState<string>()
-  const [newTaskOperationsServerId, setNewTaskOperationsServerId] = useState<string>()
   const [newTaskWithoutWorkspace, setNewTaskWithoutWorkspace] = useState(false)
   const [notice, setNotice] = useState('')
   const [retryAction, setRetryAction] = useState<RetryRunner>()
   const [drafts, setDrafts] = useState<Record<string, Draft>>(readStoredDrafts)
+  const newTaskDevelopmentServerId = drafts[newTaskKey]?.developmentServerId
+  const newTaskServerIds = drafts[newTaskKey]?.serverIds ?? noServers
   const [composerFocusKey, setComposerFocusKey] = useState(0)
   const appearance = useAppearance()
   const theme = appearance.mode
@@ -238,8 +238,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const draftKey = selectedTask?.taskId ?? newTaskKey
   const draft = drafts[draftKey] ?? emptyDraft
   const newTaskContextScope = workspaceContextScope({
-    workspaceId: newTaskServerId || newTaskWithoutWorkspace ? undefined : newTaskWorkspaceId ?? workspaces[0]?.workspaceId,
-    serverId: newTaskServerId,
+    workspaceId: newTaskDevelopmentServerId || newTaskWithoutWorkspace ? undefined : newTaskWorkspaceId ?? workspaces[0]?.workspaceId,
+    serverId: newTaskDevelopmentServerId,
   })
 
   const updateDraftContextScope = useCallback((key: string, scope: string, added?: ComposerAttachment) => {
@@ -254,7 +254,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     setDrafts(current => {
       const previousDraft = current[key] ?? emptyDraft
       let attachments = previousDraft.attachments
-      if (changed && attachments.some(item => item.context)) attachments = attachments.filter(item => !item.context)
+      if (changed && attachments.some(item => item.context && !item.context.server)) attachments = attachments.filter(item => !item.context || item.context.server)
       if (added?.context && !attachments.some(item => item.context && workspaceContextKey(item.context) === workspaceContextKey(added.context!))) {
         attachments = [...attachments, added]
       }
@@ -612,57 +612,72 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     setNewTaskAgentPreset(undefined)
     setScreen('workspace')
     setNewTaskWorkspaceId(undefined)
-    setNewTaskServerId(undefined)
-    setNewTaskOperationsServerId(undefined)
+    writeDraft(newTaskKey, { serverIds: [], developmentServerId: undefined })
     setNewTaskWithoutWorkspace(false)
     startNewTaskRuntime()
     showNotice('')
-  }, [showNotice, startNewTaskRuntime])
+  }, [showNotice, startNewTaskRuntime, writeDraft])
 
   const startNewTaskInWorkspace = useCallback((workspaceId: string) => {
     setScreen('workspace')
     setNewTaskWorkspaceId(workspaceId)
-    setNewTaskServerId(undefined)
-    setNewTaskOperationsServerId(undefined)
+    writeDraft(newTaskKey, { serverIds: [], developmentServerId: undefined })
     setNewTaskWithoutWorkspace(false)
     startNewTaskRuntime()
     showNotice('')
-  }, [showNotice, startNewTaskRuntime])
+  }, [showNotice, startNewTaskRuntime, writeDraft])
 
   const startNewTaskWithoutWorkspace = useCallback(() => {
     setScreen('workspace')
     setNewTaskWorkspaceId(undefined)
-    setNewTaskServerId(undefined)
-    setNewTaskOperationsServerId(undefined)
+    writeDraft(newTaskKey, { serverIds: [], developmentServerId: undefined })
     setNewTaskWithoutWorkspace(true)
     startNewTaskRuntime()
     showNotice('')
-  }, [showNotice, startNewTaskRuntime])
+  }, [showNotice, startNewTaskRuntime, writeDraft])
 
   const startNewTaskOnServer = useCallback((serverId: string) => {
     setScreen('workspace')
     setNewTaskWorkspaceId(undefined)
     setNewTaskWithoutWorkspace(false)
-    setNewTaskServerId(serverId)
-    setNewTaskOperationsServerId(undefined)
+    writeDraft(newTaskKey, { serverIds: [serverId], developmentServerId: serverId })
     startNewTaskRuntime()
     showNotice('')
-  }, [showNotice, startNewTaskRuntime])
+  }, [showNotice, startNewTaskRuntime, writeDraft])
 
-  const selectOperationsServer = useCallback(async (serverId: string): Promise<boolean> => {
-    if (!selectedTask) { setNewTaskOperationsServerId(serverId); return true }
+  const selectTaskServers = useCallback(async (serverIds: readonly string[], expectedRevision?: number): Promise<boolean> => {
+    const ids = [...new Set(serverIds)]
+    if (!selectedTask) {
+      if (newTaskDevelopmentServerId && !ids.includes(newTaskDevelopmentServerId)) {
+        showNotice('主工程服务器必须保留关联。')
+        return false
+      }
+      writeDraft(newTaskKey, { serverIds: ids })
+      return true
+    }
     if (!runtime.serverManager) { showNotice('服务器服务暂时不可用。'); return false }
     try {
-      const home = await readyServerHome(serverId)
-      const result = await runtime.serverManager.attachOperations(selectedTask.taskId, serverId, home)
+      const current = await runtime.serverManager.taskServers(selectedTask.taskId)
+      if (!current.ok) { showNotice(current.message); return false }
+      if (expectedRevision === undefined || current.value.revision !== expectedRevision) {
+        window.dispatchEvent(new CustomEvent('ling:task-servers-changed', { detail: selectedTask.taskId }))
+        showNotice('服务器关联已变化，请关闭并重新打开选择器后重试。')
+        return false
+      }
+      const result = await runtime.serverManager.setTaskServers(selectedTask.taskId, {
+        expectedRevision,
+        serverIds: ids,
+        ...(current.value.developmentServerId ? { developmentServerId: current.value.developmentServerId } : {}),
+      })
       if (!result.ok) { showNotice(result.message); return false }
+      window.dispatchEvent(new CustomEvent('ling:task-servers-changed', { detail: selectedTask.taskId }))
       showNotice('')
       return true
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : '服务器连接失败。')
+      showNotice(error instanceof Error ? error.message : '无法保存服务器关联。')
       return false
     }
-  }, [runtime.serverManager, selectedTask, showNotice])
+  }, [runtime.serverManager, selectedTask, newTaskDevelopmentServerId, showNotice, writeDraft])
 
   const openSettings = useCallback((tab: LingSettingsTab = 'general') => {
     showNotice('')
@@ -681,6 +696,16 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   }, [draftKey, showNotice, writeDraft])
 
   const addWorkspaceContext = useCallback((reference: WorkspaceContextReference, scope?: string) => {
+    if (reference.server) {
+      const added = toComposerWorkspaceContext(reference)
+      setDrafts(current => {
+        const previous = current[draftKey] ?? emptyDraft
+        if (previous.attachments.some(item => item.context && workspaceContextKey(item.context) === workspaceContextKey(reference))) return current
+        return { ...current, [draftKey]: { ...previous, attachments: [...previous.attachments, added] } }
+      })
+      setComposerFocusKey(key => key + 1)
+      return
+    }
     const resolvedScope = scope ?? (selectedTask
       ? workspaceContextScopes.current.get(draftKey) ?? workspaceContextScope({ workspaceId: selectedTask.workspaceId })
       : newTaskContextScope)
@@ -731,9 +756,9 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
             ...(runtime.supportsGoalLimit ? { maxGoalRounds: behavior.goalRounds } : {}),
             ...(selectedTask && running ? { mode: 'queue' as const } : {}),
             ...(payload.length > 0 ? { attachments: payload } : {}),
-            ...(selectedTask === undefined && !newTaskServerId && !newTaskWithoutWorkspace && (newTaskWorkspaceId ?? workspaces[0]?.workspaceId) ? { workspaceId: newTaskWorkspaceId ?? workspaces[0]?.workspaceId } : {}),
-            ...(selectedTask === undefined && newTaskServerId ? { serverId: newTaskServerId } : {}),
-            ...(selectedTask === undefined && newTaskOperationsServerId ? { operationsServerId: newTaskOperationsServerId } : {}),
+            ...(selectedTask === undefined && !newTaskDevelopmentServerId && !newTaskWithoutWorkspace && (newTaskWorkspaceId ?? workspaces[0]?.workspaceId) ? { workspaceId: newTaskWorkspaceId ?? workspaces[0]?.workspaceId } : {}),
+            ...(selectedTask === undefined && newTaskDevelopmentServerId ? { developmentServerId: newTaskDevelopmentServerId } : {}),
+            ...(selectedTask === undefined && newTaskServerIds.length ? { serverIds: newTaskServerIds } : {}),
             ...(selectedTask === undefined && composerAgentPreset ? { agentPreset: composerAgentPreset } : {}),
             ...(selectedTask === undefined && newTaskPermission?.currentValue ? { permissionPreset: newTaskPermission.currentValue } : {}),
           })
@@ -748,8 +773,6 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
           onAccepted?.()
           if (!selectedTask) setNewTaskAgentPreset(undefined)
           setNewTaskWorkspaceId(undefined)
-          setNewTaskServerId(undefined)
-          setNewTaskOperationsServerId(undefined)
           setNewTaskWithoutWorkspace(false)
           if (selectedTask && text.startsWith('/')) void refreshMode(selectedTask.taskId)
         }
@@ -761,7 +784,7 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     } catch {
       showNotice('无法发送，请检查运行状态后重试。')
     }
-  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.goalRounds, behavior.workMode, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskServerId, newTaskOperationsServerId, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
+  }, [presetPending, composerAgentPreset, getTaskCommands, behavior.goalRounds, behavior.workMode, runtime, clearDraft, draft, draftKey, newTaskAgentPreset, newTaskPermission, newTaskWorkspaceId, newTaskDevelopmentServerId, newTaskServerIds, newTaskWithoutWorkspace, refreshMode, report, runCommand, running, selectedTask, showNotice, submitRuntime, workspaces])
 
   const stop = useCallback(async () => {
     if (!selectedTask) return
@@ -1338,12 +1361,11 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       onNewTask={startNewTask}
       onNewTaskInWorkspace={startNewTaskInWorkspace}
       onNewTaskOnServer={startNewTaskOnServer}
-      onSelectOperationsServer={selectOperationsServer}
-      onClearOperationsServer={() => { setNewTaskOperationsServerId(undefined) }}
+      onSelectTaskServers={selectTaskServers}
       onNewTaskWithoutWorkspace={startNewTaskWithoutWorkspace}
       newTaskWorkspaceId={newTaskWorkspaceId}
-      newTaskServerId={newTaskServerId}
-      newTaskOperationsServerId={newTaskOperationsServerId}
+      newTaskDevelopmentServerId={newTaskDevelopmentServerId}
+      newTaskServerIds={newTaskServerIds}
       newTaskWithoutWorkspace={newTaskWithoutWorkspace}
       onNavigateBack={() => { navigateHistory(-1) }}
       onNavigateForward={() => { navigateHistory(1) }}

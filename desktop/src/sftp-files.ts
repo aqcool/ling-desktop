@@ -3,6 +3,7 @@ import { posix } from 'node:path'
 import { Readable, Transform, type Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Stats, SFTPWrapper } from 'ssh2'
+import type { FileHandle } from 'node:fs/promises'
 import type { LingWorkspaceDirectory, LingWorkspaceDocument } from 'ling-desktop/runtime'
 
 export const TEXT_LIMIT = 2 * 1024 * 1024
@@ -28,9 +29,24 @@ const binaryTypes: Record<string, { kind: 'image' | 'pdf' | 'office'; mediaType:
 
 /** Native SFTP streams; no remote executable, helper installation or shell quoting. */
 export class SftpFiles {
-  constructor(readonly channel: SFTPWrapper) {}
+  private ended = false
+  private readonly waiting = new Set<(error: Error) => void>()
+  constructor(readonly channel: SFTPWrapper) {
+    const closed = () => {
+      this.ended = true
+      for (const fail of this.waiting) fail(new Error('SFTP 通道已关闭。'))
+      this.waiting.clear()
+    }
+    channel.once?.('end', closed); channel.once?.('close', closed); channel.once?.('error', closed)
+  }
   private call<T>(invoke: (done: (error: Error | undefined | null, value: T) => void) => void): Promise<T> {
-    return new Promise((resolve, reject) => invoke((error, value) => error ? reject(error) : resolve(value)))
+    if (this.ended) return Promise.reject(new Error('SFTP 通道已关闭。'))
+    return new Promise((resolve, reject) => {
+      const fail = (error: Error) => { this.waiting.delete(fail); reject(error) }
+      this.waiting.add(fail)
+      try { invoke((error, value) => { this.waiting.delete(fail); if (error) reject(error); else resolve(value) }) }
+      catch (error) { fail(error instanceof Error ? error : new Error('SFTP 请求失败。')) }
+    })
   }
   realpath(path: string) { return this.call<string>(done => this.channel.realpath(path, done)) }
   stat(path: string) { return this.call<Stats>(done => this.channel.lstat(remotePath(path), done)) }
@@ -42,6 +58,16 @@ export class SftpFiles {
   }
   mkdir(path: string) { return this.call<void>(done => this.channel.mkdir(mutablePath(path), { mode: 0o755 }, done)) }
   rename(path: string, destination: string) { return this.call<void>(done => this.channel.rename(mutablePath(path), mutablePath(destination), done)) }
+  async replace(path: string, destination: string): Promise<void> {
+    try { await this.call<void>(done => this.channel.ext_openssh_rename(mutablePath(path), mutablePath(destination), done)) }
+    catch (error) {
+      if ((error as { code?: number }).code === 8 || /extension|extended request/i.test(String(error))) throw new Error('服务器不支持原子替换；已有文件已保留。可使用 rsync 或拷贝到新路径。')
+      throw error
+    }
+  }
+  setAttributes(path: string, mode: number, mtime: number) {
+    return this.call<void>(done => this.channel.setstat(mutablePath(path), { mode: mode & 0o777, atime: mtime, mtime }, done))
+  }
   unlink(path: string) { return this.call<void>(done => this.channel.unlink(mutablePath(path), done)) }
   rmdir(path: string) { return this.call<void>(done => this.channel.rmdir(mutablePath(path), done)) }
   async list(path: string, signal?: AbortSignal): Promise<LingWorkspaceDirectory> {
@@ -89,11 +115,20 @@ export class SftpFiles {
       ...(!truncated ? { version: createHash('sha256').update(bytes).digest('hex') } : {}) }
   }
   async hash(path: string, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted()
     const hash = createHash('sha256')
-    await pipeline(this.channel.createReadStream(remotePath(path)), new Transform({ transform(chunk: Buffer, _encoding, done) {
-      hash.update(chunk); done()
-    } }), { signal })
-    return hash.digest('hex')
+    const handle = await this.call<Buffer>(done => this.channel.open(remotePath(path), 'r', done))
+    const bytes = Buffer.alloc(64 * 1024)
+    let offset = 0
+    try {
+      while (true) {
+        signal?.throwIfAborted()
+        const size = await this.call<number>(done => this.channel.read(handle, bytes, 0, bytes.length, offset, (error, count) => done(error, count)))
+        if (!size) break
+        hash.update(bytes.subarray(0, size)); offset += size
+      }
+      return hash.digest('hex')
+    } finally { await this.call<void>(done => this.channel.close(handle, done)) }
   }
   async create(path: string, directory: boolean, signal?: AbortSignal) {
     signal?.throwIfAborted()
@@ -151,5 +186,31 @@ export class SftpFiles {
     await pipeline(input, new Transform({ transform(chunk: Buffer, _encoding, done) {
       progress(chunk.length); done(null, chunk)
     } }), this.channel.createWriteStream(mutablePath(path), { flags: 'wx', mode: mode & 0o777 }), { signal })
+  }
+  /** Keep WRITE requests in flight, like scp, instead of waiting one network round trip per chunk. */
+  async putFile(path: string, input: FileHandle, size: number, mode: number, signal: AbortSignal, progress: (bytes: number) => void): Promise<void> {
+    signal.throwIfAborted()
+    const handle = await this.call<Buffer>(done => this.channel.open(mutablePath(path), 'wx', mode & 0o777, done))
+    let next = 0
+    let failure: unknown
+    try {
+      await Promise.all(Array.from({ length: Math.min(32, Math.ceil(size / 32768)) }, async () => {
+        while (next < size && !failure && !signal.aborted) {
+          const offset = next; next += Math.min(32768, size - next)
+          const bytes = Buffer.alloc(Math.min(32768, size - offset))
+          try {
+            const read = await input.read(bytes, 0, bytes.length, offset)
+            if (read.bytesRead !== bytes.length) throw new Error('本地文件在传输期间变短。')
+            signal.throwIfAborted()
+            await this.call<void>(done => this.channel.write(handle, bytes, 0, bytes.length, offset, done))
+            progress(bytes.length)
+          } catch (error) { failure ??= error }
+        }
+      }))
+      if (failure) throw failure
+      signal.throwIfAborted()
+      const stat = await this.call<Stats>(done => this.channel.fstat(handle, done))
+      if (stat.size !== size) throw new Error('远端文件大小与来源不一致。')
+    } finally { await this.call<void>(done => this.channel.close(handle, done)) }
   }
 }

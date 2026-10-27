@@ -1072,8 +1072,20 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
         if ((command.type === 'task.create' || command.type === 'task.run-command') && command.maxGoalRounds !== undefined && (!Number.isSafeInteger(command.maxGoalRounds) || command.maxGoalRounds < 1 || command.maxGoalRounds > 256)) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '目标轮次应为 1 至 256 的整数。', retryable: false }
         if (command.type === 'task.create') {
           if (!command.prompt.trim() && !command.attachments?.length) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '请输入消息。', retryable: false }
-          if (command.serverId && command.workspaceId) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '远端任务不能同时选择本地工作区。', retryable: false }
-          if (command.serverId && command.operationsServerId) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '远端开发和本地运维目标不能同时选择。', retryable: false }
+          if (command.developmentServerId && command.workspaceId) return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '远端任务不能同时选择本地工作区。', retryable: false }
+          const serverIds = command.serverIds ?? []
+          if (!Array.isArray(serverIds) || serverIds.some(id => typeof id !== 'string' || !id.trim()) || new Set(serverIds).size !== serverIds.length
+            || (command.developmentServerId !== undefined && !serverIds.includes(command.developmentServerId))) {
+            return { accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '服务器关联无效；主工程服务器必须在关联列表中。', retryable: false }
+          }
+          if (serverIds.length) {
+            if (!facades.servers) return modelCommandResult(command.requestId, unavailableRead<void>('服务器服务暂时不可用。'))
+            const catalog = await facades.servers.list()
+            if (!catalog.ok) return modelCommandResult(command.requestId, catalog)
+            if (serverIds.some(id => !catalog.value.some(server => server.id === id))) return {
+              accepted: false, requestId: command.requestId, reason: 'invalid-command', message: '所选服务器已不存在，请重新选择。', retryable: false,
+            }
+          }
           if (command.model && !facades.taskModels) return modelCommandResult(command.requestId, unavailableRead<void>('当前运行时不支持任务模型选择。'))
           if (command.maxGoalRounds !== undefined && goalObjective(command.prompt) && !facades.mode?.createGoal) return modelCommandResult(command.requestId, unavailableRead<void>('当前运行时不支持目标轮次配置。'))
           const modeCommand = /^\/(goal|plan)(?:\s|$)/u.test(command.prompt)
@@ -1094,13 +1106,9 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             }
           }
           if (command.agentPreset && !facades.createSession) return modelCommandResult(command.requestId, unavailableRead<void>('当前运行时不支持选择智能体。'))
-          let remoteHome: string | undefined
-          const chosenServerId = command.serverId ?? command.operationsServerId
-          if (chosenServerId) {
-            if (!facades.servers) return modelCommandResult(command.requestId, unavailableRead<void>('服务器服务暂时不可用。'))
-            try {
-              remoteHome = await readyServerHome(chosenServerId)
-            } catch (error) {
+          if (command.developmentServerId) {
+            try { await readyServerHome(command.developmentServerId) }
+            catch (error) {
               return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable',
                 message: error instanceof Error ? error.message : '服务器无法连接。', retryable: true }
             }
@@ -1111,12 +1119,14 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             : await facades.sessions.create(workspace))
           if (createdTasks.size >= 64 && !createdTasks.has(command.requestId)) createdTasks.delete(createdTasks.keys().next().value!)
           createdTasks.set(command.requestId, String(taskId))
-          if (command.serverId && remoteHome) {
-            const bound = await facades.servers!.bindTask(String(taskId), command.serverId, remoteHome)
-            if (!bound.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: bound.message, retryable: true }
-          }
-          if (command.operationsServerId && remoteHome) {
-            const bound = await facades.servers!.attachOperations(String(taskId), command.operationsServerId, remoteHome)
+          if (serverIds.length) {
+            const current = await facades.servers!.taskServers(String(taskId))
+            if (!current.ok) return modelCommandResult(command.requestId, current)
+            const bound = await facades.servers!.setTaskServers(String(taskId), {
+              expectedRevision: current.value.revision,
+              serverIds,
+              ...(command.developmentServerId ? { developmentServerId: command.developmentServerId } : {}),
+            })
             if (!bound.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: bound.message, retryable: true }
           }
           if (command.model) {
@@ -1160,21 +1170,15 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
             : result
         }
         if (command.type === 'task.fork') {
-          const sourceServer = await facades.servers?.taskBinding(command.taskId)
-          if (sourceServer && !sourceServer.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: sourceServer.message, retryable: true }
-          const sourceOperations = await facades.servers?.operationsBinding(command.taskId)
-          if (sourceOperations && !sourceOperations.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: sourceOperations.message, retryable: true }
+          const sourceServers = await facades.servers?.taskServers(command.taskId)
+          if (sourceServers && !sourceServers.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: sourceServers.message, retryable: true }
           const taskId = await facades.sessions.fork({
             sessionId: sessionId(command.taskId),
             ...(command.atSeq === undefined ? {} : { atSeq: command.atSeq }),
             ...(command.increaseTitle === undefined ? {} : { increaseTitle: command.increaseTitle }),
           })
-          if (sourceServer?.ok && sourceServer.value) {
-            const bound = await facades.servers!.bindTask(String(taskId), sourceServer.value.serverId, sourceServer.value.cwd)
-            if (!bound.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: bound.message, retryable: true }
-          }
-          if (sourceOperations?.ok && sourceOperations.value) {
-            const bound = await facades.servers!.attachOperations(String(taskId), sourceOperations.value.serverId, sourceOperations.value.cwd)
+          if (sourceServers?.ok && sourceServers.value.servers.length) {
+            const bound = await facades.servers!.copyTaskServers(command.taskId, String(taskId))
             if (!bound.ok) return { accepted: false, requestId: command.requestId, reason: 'runtime-unavailable', message: bound.message, retryable: true }
           }
           return {

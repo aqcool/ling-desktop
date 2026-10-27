@@ -112,7 +112,8 @@ async function fixture(gateway = false, root = '/project') {
     listSessions: async () => [],
   } as never)
   ctx.provide('lingServers', {
-    taskBinding: async (id: string) => bindings.get(id) ?? null,
+    developmentTarget: async (id: string) => bindings.get(id) ?? null,
+    taskServers: async (id: string) => ({ revision: 0, ...(bindings.has(id) ? { developmentServerId: bindings.get(id)!.serverId } : {}), servers: bindings.has(id) ? [bindings.get(id)!] : [] }),
   } as never)
   ctx.provide('llm', { stream: generate } as never)
   if (gateway) {

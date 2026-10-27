@@ -247,7 +247,7 @@ function projectTool(
   const seq = 'seq' in node ? node.seq : undefined
   const attachments = settled ? contentAttachments(node.content) : []
   const tool = toolPresentation(node)
-  const children = node.subCalls?.filter(child => !['server_exec', 'remote_run'].includes(toolName(child)))
+  const children = node.subCalls?.filter(child => !['server_exec', 'remote_run', 'server_copy'].includes(toolName(child)))
     .map(child => projectTool(taskId, child, suffix, stopped))
   return {
     itemId: `${taskId}:tool:${node.callId}:${suffix}`,
@@ -361,7 +361,7 @@ function projectNode(taskId: string, stops: TurnStops, node: ConversationNode): 
 function serverCalls(snapshot: ChatSnapshot): Array<RunningToolCall | ToolResultNode> {
   const calls = new Map<string, RunningToolCall | ToolResultNode>()
   const visit = (call: RunningToolCall | ToolResultNode) => {
-    if (['server_exec', 'remote_run'].includes(toolName(call))) calls.set(call.callId, call)
+    if (['server_exec', 'remote_run', 'server_copy'].includes(toolName(call))) calls.set(call.callId, call)
     for (const child of call.subCalls ?? []) visit(child)
   }
   for (const node of snapshot.legacy.nodes) if (node.kind === 'tool-result') visit(node)

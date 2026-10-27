@@ -65,6 +65,8 @@ function parseStoredStringMap(raw: string | null): Record<string, string> {
 
 export interface StoredDraft {
   readonly text: string
+  readonly serverIds?: readonly string[]
+  readonly developmentServerId?: string
   readonly recordedAttachments?: {
     readonly seq: number
     readonly attachments: readonly import('./runtime/contract.js').LingTimelineAttachment[]
@@ -90,8 +92,13 @@ export function parseStoredDrafts(raw: string | null): Record<string, StoredDraf
       && source.attachments.every(a => a && typeof a.attachmentId === 'string' && typeof a.name === 'string'
         && (a.kind === 'image' || a.kind === 'file')
         && (a.bytes === undefined || typeof a.bytes === 'number') && (a.mediaType === undefined || typeof a.mediaType === 'string'))
-    if (draft.text || (valid && source.attachments.length)) drafts[key] = {
+    const serverIds = Array.isArray(draft.serverIds)
+      ? [...new Set(draft.serverIds.filter((id): id is string => typeof id === 'string' && !!id.trim()))] : []
+    const developmentServerId = typeof draft.developmentServerId === 'string' && serverIds.includes(draft.developmentServerId)
+      ? draft.developmentServerId : undefined
+    if (draft.text || serverIds.length || (valid && source.attachments.length)) drafts[key] = {
       text: draft.text, ...(valid && source.attachments.length ? { recordedAttachments: source } : {}),
+      ...(serverIds.length ? { serverIds } : {}), ...(developmentServerId ? { developmentServerId } : {}),
     }
   }
   return drafts
@@ -100,10 +107,12 @@ export function parseStoredDrafts(raw: string | null): Record<string, StoredDraf
 export function serializeDrafts(drafts: Record<string, StoredDraft>): string {
   return JSON.stringify(Object.fromEntries(Object.entries(drafts).flatMap(([key, draft]) => {
     const source = draft.recordedAttachments
-    if (!draft.text && !source?.attachments.length) return []
-    return [[key, source?.attachments.length ? { text: draft.text, recordedAttachments: {
+    if (!draft.text && !source?.attachments.length && !draft.serverIds?.length) return []
+    return [[key, source?.attachments.length || draft.serverIds?.length ? { text: draft.text, ...(source?.attachments.length ? { recordedAttachments: {
       seq: source.seq, attachments: source.attachments.map(({ attachmentId, kind, name, bytes, mediaType }) => ({ attachmentId, kind, name, bytes, mediaType })),
-    } } : draft.text]]
+    } } : {}), ...(draft.serverIds?.length ? { serverIds: draft.serverIds } : {}),
+      ...(draft.developmentServerId ? { developmentServerId: draft.developmentServerId } : {}),
+    } : draft.text]]
   })))
 }
 

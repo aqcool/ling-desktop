@@ -9,6 +9,7 @@ import type {
   LingWorkspaceDocument,
 } from '../runtime/contract.js'
 import type { LingPresentedFile } from '../runtime/reply-features.js'
+import type { LingTerminalTarget } from '../runtime/servers.js'
 import { AutomationCenter } from './AutomationCenter.js'
 import { BrowserPanel } from './BrowserPanel.js'
 import { ChangeReview } from './ChangeReview.js'
@@ -22,19 +23,19 @@ import { GitBranchMenu, GitDialog, GitPanel } from './GitPanel.js'
 import { Icon } from './Icon.js'
 import { InteractionPanel } from './InteractionPanel.js'
 import { KnowledgeCenter } from './KnowledgeCenter.js'
-import { Menu, MenuItem, MenuSeparator } from './Menu.js'
+import { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu.js'
 import { MessageQueue } from './MessageQueue.js'
 import { MonitorSectionsContext } from './MonitorSection.js'
 import { PromptDialog } from './PromptDialog.js'
 import { QuickNotes } from './QuickNotes.js'
 import { ServerFileBrowser } from './ServerFileBrowser.js'
-import { ServerTerminalPanel } from './ServerTerminalPanel.js'
+import { TargetTerminalPanel } from './TargetTerminalPanel.js'
 import { SettingsSidebar } from './SettingsSidebar.js'
 import { SideTaskPanel } from './SideTaskPanel.js'
 import { TaskGroupDialog } from './TaskGroupDialog.js'
 import { TaskSearch } from './TaskSearch.js'
 import { TaskViewMenu } from './TaskViewMenu.js'
-import { TerminalPanel } from './TerminalPanel.js'
+import { TaskServerPicker } from './TaskServerPicker.js'
 import { TokenUsagePopover } from './TokenUsagePopover.js'
 import { WorkspaceCreateDialog, WorkspaceEditDialog } from './WorkspaceCreateDialog.js'
 import { WorkspaceModeMenu } from './WorkspaceModeMenu.js'
@@ -141,7 +142,7 @@ export function LingShell(props: LingShellProps) {
     workspaces,
   } = props
   const snapshot = useComputerSnapshot({ manager: props.extensions?.manager, computer: props.computerControl,
-    draftId: selectedTask?.taskId ?? `new:${props.newTaskWorkspaceId ?? ''}:${props.newTaskServerId ?? ''}:${props.newTaskWithoutWorkspace ?? false}`,
+    draftId: selectedTask?.taskId ?? `new:${props.newTaskWorkspaceId ?? ''}:${props.newTaskDevelopmentServerId ?? ''}:${props.newTaskWithoutWorkspace ?? false}`,
     addFiles: onAddFiles, addQuote: props.onAddQuote, openWorkspace: props.onWorkspaceOpen })
   const {
     dialog,
@@ -172,17 +173,17 @@ export function LingShell(props: LingShellProps) {
   const [gitOpen, setGitOpen] = useState(false)
   const { settingsGitWorkspace, setSettingsGitWorkspace, memoryRecapRequested, setMemoryRecapRequested } = useShellSettingsRouting(props.settingsTab)
   const {
-    setTaskOperationsBinding,
     servers,
-    taskServerId,
+    serverIds,
+    taskServers,
+    taskServersError,
+    refreshTaskServers,
     taskRemoteCwd,
-    setTaskRemoteCwd,
     taskFileBindingReady,
     remoteGitBranch,
     setRemoteGitBranch,
     remoteGitRequest,
     activeServerId,
-    activeOperationsServerId,
     issueServerId,
     serverIssue,
     setServerIssue,
@@ -213,10 +214,13 @@ export function LingShell(props: LingShellProps) {
     browserAnnotationResetKey,
     submitWithBrowserAnnotations,
     openWorkbenchTab,
+    openServerFiles,
+    openTerminal,
+    terminalTarget,
     previewDelivery,
     closeWorkbenchTab,
     closeWorkbench,
-  } = useWorkbench({ props, activeServerId, activeOperationsServerId, taskServerId, activeWorkspaceId, workspaceLabel })
+  } = useWorkbench({ props, activeServerId, serverIds, servers, taskRemoteCwd, activeWorkspaceId, workspaceLabel })
   const {
     sidebarAvailableWidth,
     sidebarCollapsed,
@@ -235,6 +239,7 @@ export function LingShell(props: LingShellProps) {
   const { notesFloating, setNotesFloating, notesOrigin, notesError, requestNotes, handleNoteAction } = useShellNotes(props)
   const [knowledgeTarget, setKnowledgeTarget] = useState<{ workspaceId?: string; remoteTaskId?: string; documentId?: string }>()
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [bottomTerminalTarget, setBottomTerminalTarget] = useState<LingTerminalTarget>()
   const [actionOutputOpen, setActionOutputOpen] = useState(false)
   const workbenchOpen = screen === 'workspace' && browserOpen
   const {
@@ -282,7 +287,7 @@ export function LingShell(props: LingShellProps) {
     remoteGitRequest,
     remoteGitBranch,
     setRemoteGitBranch,
-    setTaskRemoteCwd,
+    refreshTaskServers,
     serverManager: props.serverManager,
     loadWorkspaceBranch: props.loadWorkspaceBranch,
   })
@@ -309,13 +314,32 @@ export function LingShell(props: LingShellProps) {
     return props.replyFeatures?.openFile(taskId, file, AbortSignal.timeout(15_000)) ?? { ok: false, reason: 'runtime-unavailable', message: '系统应用打开暂不可用，请使用预览。', retryable: false }
   }, [behavior.artifactOpen, activeServerId, previewDelivery, props.replyFeatures])
   const readDelivery = useCallback(async (taskId: string, path: string, signal: AbortSignal): Promise<LingReadResult<LingWorkspaceDocument>> => {
-    if (activeServerId && props.serverManager) {
-      const result = await props.serverManager.filesRead(taskId, path, signal)
-      if (!result.ok) return result
-      return { ok: true, value: { path, kind: /\.(md|markdown|mdown)$/iu.test(path) ? 'markdown' : 'text', mediaType: 'text/plain', text: result.value.text, truncated: result.value.truncated } }
+    if (props.serverManager) {
+      const binding = await props.serverManager.taskServers(taskId)
+      if (!binding.ok) return binding
+      if (binding.value.developmentServerId) {
+        const result = await props.serverManager.filesRead(taskId, binding.value.developmentServerId, path, signal)
+        if (!result.ok) return result
+        return { ok: true, value: { path, kind: /\.(md|markdown|mdown)$/iu.test(path) ? 'markdown' : 'text', mediaType: 'text/plain', text: result.value.text, truncated: result.value.truncated } }
+      }
     }
     return props.loadWorkspaceDocument(taskId, path, signal)
-  }, [activeServerId, props.serverManager, props.loadWorkspaceDocument])
+  }, [props.serverManager, props.loadWorkspaceDocument])
+
+  const openBottomTerminal = (target: LingTerminalTarget) => {
+    setBottomTerminalTarget({ ...target }); setActionOutputOpen(false); setTerminalOpen(true)
+  }
+  const terminalChoices = (open: (target: LingTerminalTarget) => void) => <>
+    <MenuItem icon="desktop" onPress={() => open({ kind: 'local' })}>本地</MenuItem>
+    {serverIds.map(id => {
+      const server = servers.find(item => item.id === id)
+      return <MenuItem key={id} icon="globe" disabled={!server} onPress={() => open({ kind: 'server', serverId: id })}>{server?.name ?? '已移除的服务器'}</MenuItem>
+    })}
+  </>
+  const bottomTerminalMenu = <Menu align="end" triggerAriaLabel="选择底部终端位置" triggerClassName={tw('size-control-sm shrink-0 rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} triggerLabel={<Icon name="terminalPanel" size={17} />}>
+    {terminalOpen ? <><MenuItem icon="close" onPress={() => setTerminalOpen(false)}>收起终端面板</MenuItem><MenuSeparator /></> : null}
+    <MenuLabel>打开终端</MenuLabel>{terminalChoices(openBottomTerminal)}
+  </Menu>
 
   const openExtensions = () => {
     onSettingsOpen()
@@ -428,6 +452,19 @@ export function LingShell(props: LingShellProps) {
                 onNewTaskInWorkspace={props.onNewTaskInWorkspace}
                 workspaceAppearance={workspaceAppearance}
               /> : null}
+              {props.serverManager ? <section aria-label="服务器" className={tw('mt-3 flex max-h-[35%] min-h-16 flex-none flex-col border-t border-[var(--panel-border)] pt-2')}>
+                <div className={tw('flex min-h-7 items-center justify-between px-2')}><span className={tw('text-xs font-semibold text-[var(--text-tertiary)]')}>服务器</span><button aria-label="管理服务器" type="button" className={tw('grid size-6 place-items-center rounded-md border-0 bg-transparent text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)]')} onClick={() => { onSettingsOpen(); props.onSettingsTabChange('connections') }}><Icon name="plus" size={14} /></button></div>
+                <div className={tw('min-h-0 overflow-y-auto')}>
+                  {servers.map(server => <div key={server.id} className={tw('group flex min-w-0 items-center gap-0.5 rounded-lg hover:bg-[var(--surface-hover)]')}>
+                    <button aria-label={`浏览 ${server.name} 文件`} type="button" className={tw('flex h-control min-w-0 flex-1 items-center gap-2 rounded-lg border-0 bg-transparent px-2 text-left text-compact text-[var(--text-secondary)]')} onClick={() => { openServerFiles(server, server.id === activeServerId ? taskRemoteCwd : undefined) }} title={server.alias}><Icon name="globe" size={15} /><span className={tw('min-w-0 flex-1 truncate')}>{server.name}</span>{serverIds.includes(server.id) ? <span className={tw('shrink-0 text-caption text-[var(--text-tertiary)]')}>{server.id === activeServerId ? '主工程' : '已关联'}</span> : null}</button>
+                    <Menu triggerAriaLabel={`${server.name} 服务器操作`} triggerLabel={<Icon name="more" size={14} />} triggerClassName="mr-1 size-6 shrink-0 rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-[var(--surface-selected)]">
+                      <MenuItem icon="folderOpen" onPress={() => openServerFiles(server, server.id === activeServerId ? taskRemoteCwd : undefined)}>浏览远程文件</MenuItem>
+                      <MenuItem icon="compose" onPress={() => props.onNewTaskOnServer(server.id)}>新建远端主工程</MenuItem>
+                    </Menu>
+                  </div>)}
+                  {!servers.length ? <button type="button" className={tw('w-full rounded-lg border-0 bg-transparent px-2 py-2 text-left text-xs text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)]')} onClick={() => { onSettingsOpen(); props.onSettingsTabChange('connections') }}>添加服务器</button> : null}
+                </div>
+              </section> : null}
             </div>
 
             <div className={tw("sidebar-bottom flex-none max-[700px]:mt-auto")}>
@@ -569,7 +606,7 @@ export function LingShell(props: LingShellProps) {
               <MenuItem icon="clipboard" suffix="⌘/Ctrl+9" onPress={() => requestNotes(selectedTask?.taskId)}>打开速记板</MenuItem>
             </Menu> : null}
             {!browserOpen ? <>
-              <WorkbenchHeaderAction active={terminalOpen} controls="workspace-terminal" expanded={terminalOpen} icon="terminalPanel" label="终端面板" onClick={() => { setTerminalOpen(current => !current) }} />
+              {bottomTerminalMenu}
               <WorkbenchHeaderAction expanded={false} icon="panelRight" label="展开工作面" onClick={props.onBrowserToggle} />
             </> : null}
           </div>}
@@ -582,7 +619,7 @@ export function LingShell(props: LingShellProps) {
             <button type="button" aria-label="前进" disabled={!props.canNavigateForward} className={tw('icon-button grid size-7.5 place-items-center rounded-md border-0 bg-transparent hover:bg-[var(--surface-hover)] disabled:opacity-35')} onClick={onNavigateForward}><Icon name="arrowRight" size={16} /></button>
           </div> : undefined} headerActions={behavior.quickNotes || behavior.replyAnnotations ? <button type="button" aria-label="打开速记板" title="打开速记板 · ⌘/Ctrl+9" className={tw('grid size-8 place-items-center rounded-lg border-0 bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]')} onClick={() => requestNotes()}><Icon name="clipboard" size={17} /></button> : undefined} key={`${knowledgeTarget?.remoteTaskId ?? knowledgeTarget?.workspaceId ?? 'center'}:${knowledgeTarget?.documentId ?? ''}`} initialProject={!!knowledgeTarget} initialDocumentId={knowledgeTarget?.documentId} remoteTaskId={knowledgeTarget?.remoteTaskId ?? (activeServerId ? selectedTask?.taskId : undefined)} service={props.knowledge} workspaceId={knowledgeTarget?.workspaceId ?? activeWorkspaceId} workspaces={workspaces} taskId={selectedTask?.taskId} onOpenTask={taskId => { props.onWorkspaceOpen(); props.onSelectTask(taskId) }} onSettings={() => { setMemoryRecapRequested(true); onSettingsOpen(); props.onSettingsTabChange('memory') }} />
         ) : screen === 'settings' ? (
-          <ShellSettings settings={props} memoryRecapRequested={memoryRecapRequested} setMemoryRecapRequested={setMemoryRecapRequested} activeWorkspaceId={activeWorkspaceId} settingsGitWorkspace={settingsGitWorkspace} setSettingsGitWorkspace={setSettingsGitWorkspace} remoteTaskId={activeServerId ? selectedTask?.taskId : undefined} remoteLabel={taskRemoteCwd} taskViewState={taskViewState} setTaskViewState={setTaskViewState} monitorPreferences={monitorPreferences} setMonitorPreferences={setMonitorPreferences} onOpenDialog={setDialog} onBrowseServerFiles={id => { props.onNewTaskOnServer(id); openWorkbenchTab('files') }} />
+          <ShellSettings settings={props} memoryRecapRequested={memoryRecapRequested} setMemoryRecapRequested={setMemoryRecapRequested} activeWorkspaceId={activeWorkspaceId} settingsGitWorkspace={settingsGitWorkspace} setSettingsGitWorkspace={setSettingsGitWorkspace} remoteTaskId={activeServerId ? selectedTask?.taskId : undefined} remoteLabel={taskRemoteCwd} taskViewState={taskViewState} setTaskViewState={setTaskViewState} monitorPreferences={monitorPreferences} setMonitorPreferences={setMonitorPreferences} onOpenDialog={setDialog} />
         ) : (
           <>
             <div className={tw("workspace-content flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", workbenchOpen && "col-start-1 row-start-2", workbenchMaximized && "hidden", workbenchOpen && "max-[700px]:hidden", monitorFixed ? "w-[calc(100%_-_var(--monitor-width))]" : "w-full", selectedTask && "workspace-content--task", emptyConversation && "justify-center overflow-y-auto py-6")}>
@@ -623,6 +660,7 @@ export function LingShell(props: LingShellProps) {
             <div className={tw("composer-wrap relative [z-index:4] flex flex-col [width:min(var(--reading-width),calc(100%_-_var(--reading-gutter)*2))] [flex:0_1_auto] min-h-0 mt-0 mx-auto mb-2", emptyConversation && "shrink-0")}>
               {snapshot.error ? <ComposerNotice message={snapshot.error} onRetry={snapshot.retry} /> : null}
               {notesError ? <ComposerNotice message={notesError} /> : null}
+              {taskServersError ? <ComposerNotice message={taskServersError} onRetry={() => { void refreshTaskServers() }} /> : null}
               {notice ? <ComposerNotice message={notice} onRetry={props.onNoticeRetry} /> : null}
               <InteractionPanel
                 interactions={pendingInteractions}
@@ -651,7 +689,7 @@ export function LingShell(props: LingShellProps) {
                 onRemoveRecordedAttachment={props.onRemoveRecordedAttachment}
                 focusKey={props.composerFocusKey}
                 browserAnnotationCount={browserAnnotations.length}
-                disabled={connection.phase !== 'ready' || props.composerPresetPending === true || Boolean(taskServerId && serverIssue)}
+                disabled={connection.phase !== 'ready' || props.composerPresetPending === true || Boolean(activeServerId && serverIssue)}
                 getTaskCommands={props.getTaskCommands}
                 getTaskSkills={props.extensions?.readSkills}
                 getWorkspaceSkills={props.extensions?.readWorkspaceSkills}
@@ -681,23 +719,7 @@ export function LingShell(props: LingShellProps) {
               />
               <ComposerContext
                 agentPresetControl={props.agentPresetControl}
-                operationsControl={!activeServerId && props.serverManager ? activeOperationsServerId && selectedTask ? (
-                  <span className={tw("inline-flex h-control-xs max-w-40 items-center gap-1 rounded-md px-1 text-[var(--text-secondary)]")} title={`运维服务器：${servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}`}><Icon name="globe" size={14} /><span className={tw('truncate')}>运维 · {servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}</span></span>
-                ) : <Menu
-                  align="start"
-                  side="top"
-                  triggerAriaLabel="选择运维服务器"
-                  triggerClassName={tw("h-control-xs max-w-40 rounded-md px-1 text-xs hover:bg-[var(--surface-hover)]")}
-                  triggerLabel={<><Icon name="globe" size={14} /><span className={tw('truncate')}>{activeOperationsServerId ? `运维 · ${servers.find(server => server.id === activeOperationsServerId)?.name ?? '服务器'}` : '运维服务器'}</span><Icon name="chevronDown" size={12} /></>}
-                >
-                  {servers.length ? servers.map(server => <MenuItem key={server.id} checked={activeOperationsServerId === server.id} icon="globe" onPress={() => {
-                    const taskId = selectedTask?.taskId
-                    void props.onSelectOperationsServer(server.id).then(accepted => {
-                      if (accepted && taskId) setTaskOperationsBinding({ taskId, serverId: server.id })
-                    })
-                  }}>{server.name}</MenuItem>) : <MenuItem icon="plus" onPress={() => { onSettingsOpen(); props.onSettingsTabChange('connections') }}>添加服务器</MenuItem>}
-                  {activeOperationsServerId && !selectedTask ? <MenuItem onPress={props.onClearOperationsServer}>不关联服务器</MenuItem> : null}
-                </Menu> : undefined}
+                operationsControl={props.serverManager ? <TaskServerPicker key={selectedTask?.taskId ?? 'new-task'} servers={servers} serverIds={serverIds} developmentServerId={activeServerId} revision={taskServers?.revision} disabled={Boolean(selectedTask && taskFileBindingReady !== selectedTask.taskId)} onApply={props.onSelectTaskServers} onManageServers={() => { onSettingsOpen(); props.onSettingsTabChange('connections') }} /> : undefined}
                 locationControl={props.workspaceGit || props.serverManager ? <WorkspaceModeMenu
                   key={`location-${activeServerId ?? activeWorkspaceId ?? 'none'}`}
                   workspaceId={activeWorkspaceId ?? (activeServerId ? props.newTaskWorkspaceId ?? workspaces[0]?.workspaceId : undefined)}
@@ -706,8 +728,6 @@ export function LingShell(props: LingShellProps) {
                   taskSelected={Boolean(selectedTask)}
                   onSelectWorkspace={props.onSelectWorkspacePath}
                   serverId={activeServerId}
-                  servers={props.serverManager ? servers : []}
-                  onSelectServer={props.onNewTaskOnServer}
                   onSelectLocal={() => {
                     const workspaceId = props.newTaskWorkspaceId ?? workspaces[0]?.workspaceId
                     if (workspaceId) props.onNewTaskInWorkspace(workspaceId)
@@ -766,19 +786,19 @@ export function LingShell(props: LingShellProps) {
                   <MenuItem icon="folderOpen" onPress={() => { openWorkbenchTab('files') }}>打开工作区文件</MenuItem>
                     <MenuItem icon="globe" onPress={() => { openWorkbenchTab('browser') }}>打开内置浏览器</MenuItem>
                     <MenuItem icon="review" onPress={() => { setReviewSource('git'); openWorkbenchTab('review') }}>打开审阅</MenuItem>
-                  <MenuItem icon="terminalSquare" onPress={() => { openWorkbenchTab('terminal') }}>打开终端</MenuItem>
+                    <MenuSeparator /><MenuLabel>打开终端</MenuLabel>{terminalChoices(openTerminal)}
                   </Menu>
                   <WorkbenchHeaderAction icon={workbenchMaximized ? 'collapse' : 'expand'} label={workbenchMaximized ? '还原工作面' : '全屏显示工作面'} onClick={() => { setWorkbenchMaximized(current => !current) }} />
-                  <WorkbenchHeaderAction active={terminalOpen} controls="workspace-terminal" expanded={terminalOpen} icon="terminalPanel" label="终端面板" onClick={() => { setTerminalOpen(current => !current) }} />
+                  {bottomTerminalMenu}
                   <WorkbenchHeaderAction active expanded icon="panelRight" label="收起工作面" onClick={closeWorkbench} />
                 </div>
               </div>
-              {activeWorkbenchTab?.kind === 'files' ? (
-                activeServerId && props.serverManager ? <section className={tw('flex min-h-0 min-w-0 flex-1 flex-col')}><ServerFileBrowser key={activeServerId} service={props.serverManager} serverId={activeServerId} initialPath={taskRemoteCwd} onAddContext={addFileContext} workspaceLabel={workspaceLabel} /></section>
-                  : props.supportsWorkspaceFiles && selectedTask ? <section className={tw("flex min-h-0 min-w-0 flex-1 flex-col")}><FileBrowser key={selectedTask.taskId} loadDirectory={props.loadWorkspaceDirectory} loadDocument={props.loadWorkspaceDocument} saveDocument={props.saveWorkspaceDocument} onAddContext={addFileContext} taskId={selectedTask.taskId} workspaceLabel={workspaceLabel} /></section>
+              {activeWorkbenchTab?.kind === 'files' && !activeWorkbenchTab.remoteFiles ? (
+                props.supportsWorkspaceFiles && selectedTask ? <section className={tw("flex min-h-0 min-w-0 flex-1 flex-col")}><FileBrowser key={selectedTask.taskId} loadDirectory={props.loadWorkspaceDirectory} loadDocument={props.loadWorkspaceDocument} saveDocument={props.saveWorkspaceDocument} onAddContext={addFileContext} taskId={selectedTask.taskId} workspaceLabel={workspaceLabel} /></section>
                   : !selectedTask && activeWorkspaceId && props.listDraftWorkspaceDirectory && props.readDraftWorkspaceDocument ? <section className={tw('flex min-h-0 min-w-0 flex-1 flex-col')}><FileBrowser key={`workspace:${activeWorkspaceId}`} taskId={`workspace:${activeWorkspaceId}`} workspaceLabel={workspaceLabel} loadDirectory={listDraftFiles} loadDocument={readDraftFile} saveDocument={props.saveDraftWorkspaceDocument ? saveDraftFile : undefined} onAddContext={addFileContext} /></section>
                   : <div className={tw("grid min-h-0 flex-1 place-items-center p-6 text-sm [color:var(--text-tertiary)]")}>{selectedTask ? '当前运行时尚未提供本地文件浏览。' : '选择一个工作区以查看文件。'}</div>
               ) : null}
+              {props.serverManager ? workbenchTabs.filter(tab => tab.remoteFiles).map(tab => <section key={tab.id} hidden={activeWorkbenchTabId !== tab.id} className={tw('flex min-h-0 min-w-0 flex-1 flex-col [&[hidden]]:hidden')}><ServerFileBrowser service={props.serverManager!} serverId={tab.remoteFiles!.serverId} initialPath={tab.remoteFiles!.initialPath} active={activeWorkbenchTabId === tab.id} onPathChange={path => setWorkbenchTabs(current => current.some(item => item.id === tab.id && item.remoteFiles?.initialPath !== path) ? current.map(item => item.id === tab.id && item.remoteFiles ? { ...item, remoteFiles: { ...item.remoteFiles, initialPath: path } } : item) : current)} onAddContext={addFileContext} workspaceLabel={servers.find(server => server.id === tab.remoteFiles!.serverId)?.name ?? tab.label} /></section>) : null}
               {activeWorkbenchTab?.delivery ? <DeliveryPreview key={`${activeWorkbenchTab.delivery.taskId}:${activeWorkbenchTab.delivery.file.seq}:${activeWorkbenchTab.delivery.file.index}`} taskId={activeWorkbenchTab.delivery.taskId} file={activeWorkbenchTab.delivery.file} load={readDelivery} /> : null}
               {workbenchTabs.filter(tab => tab.sideTask).map(tab => <div key={tab.id} hidden={activeWorkbenchTabId !== tab.id} className={tw('flex min-h-0 min-w-0 flex-1 flex-col [&[hidden]]:hidden')}>
                 {props.sideTaskRuntime && tab.sideTask ? <SideTaskPanel runtime={props.sideTaskRuntime} state={tab.sideTask} modelSettings={props.modelSettings} onUpdate={patch => setWorkbenchTabs(current => current.map(item => item.id === tab.id && item.sideTask ? { ...item, sideTask: { ...item.sideTask, ...patch } } : item))} onTitle={label => setWorkbenchTabs(current => current.map(item => item.id === tab.id && item.label !== label ? { ...item, label } : item))} onOpenModels={() => { onSettingsOpen(); props.onSettingsTabChange('models') }} /> : <p role="status" className={tw('p-4 text-xs text-[var(--text-tertiary)]')}>侧边任务服务不可用</p>}
@@ -790,15 +810,13 @@ export function LingShell(props: LingShellProps) {
                   <div className={tw('min-h-0 flex-1 overflow-auto px-4 pb-4')}><ChangeReview changes={props.changes} diff={props.changeDiff} diffLoading={props.changeDiffLoading} diffMessage={props.changeDiffMessage} loading={props.changesLoading} message={props.changesMessage} onCloseDiff={props.onChangeDiffClose} onSelect={props.onChangeSelect} selection={props.selectedChange} /></div>
                 </>}
               </section> : null}
-              {activeWorkbenchTab?.kind === 'terminal' ? (activeServerId || activeOperationsServerId) && props.serverManager
-                ? <ServerTerminalPanel service={props.serverManager} taskId={selectedTask?.taskId} serverId={activeServerId ?? activeOperationsServerId} placement="side" />
-                : <TerminalPanel service={props.terminalService} taskId={selectedTask?.taskId} workspaceId={activeWorkspaceId} placement="side" /> : null}
+              {workbenchTabs.some(tab => tab.kind === 'terminal') ? <section hidden={activeWorkbenchTab?.kind !== 'terminal'} className={tw('flex min-h-0 min-w-0 flex-1 flex-col [&[hidden]]:hidden')}><TargetTerminalPanel localService={props.terminalService} serverService={props.serverManager} taskId={selectedTask?.taskId} workspaceId={activeWorkspaceId} servers={servers} serverIds={serverIds} placement="side" initialTarget={terminalTarget} onClose={() => closeWorkbenchTab('terminal')} /></section> : null}
               {!activeWorkbenchTab ? <div className={tw("workbench-home flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-auto p-4")}>
                 <WorkbenchHomeAction icon="folderOpen" onClick={() => { openWorkbenchTab('files') }} title="打开工作区文件" />
                 {!activeServerId ? <WorkbenchHomeAction icon="sideChat" onClick={() => { openWorkbenchTab('side-task') }} title="打开侧边任务" /> : null}
                 <WorkbenchHomeAction detail="⌘ T" icon="globe" onClick={() => { openWorkbenchTab('browser') }} title="打开内置浏览器" />
                 <WorkbenchHomeAction icon="review" onClick={() => { setReviewSource('git'); openWorkbenchTab('review') }} title="打开审阅" />
-                <WorkbenchHomeAction icon="terminalSquare" onClick={() => { openWorkbenchTab('terminal') }} title="打开终端" />
+                <Menu align="start" triggerAriaLabel="选择侧边终端位置" triggerClassName="mx-auto grid min-h-13 w-[min(15rem,calc(100%_-_1rem))] grid-cols-[2.25rem_minmax(0,1fr)] gap-2.5 rounded-lg border border-[var(--panel-border)] bg-[var(--surface)] px-2.5 py-1.5 text-left text-[var(--foreground)] hover:bg-[var(--surface-secondary)]" triggerLabel={<><span className={tw('grid size-control-lg place-items-center rounded-md bg-[var(--surface-tertiary)] text-[var(--text-secondary)]')}><Icon name="terminalSquare" size={17} /></span><strong className={tw('text-compact font-medium')}>打开终端</strong></>}>{terminalChoices(openTerminal)}</Menu>
               </div> : null}
         </aside>
         ) : null}
@@ -899,9 +917,8 @@ export function LingShell(props: LingShellProps) {
               role="separator"
               tabIndex={0}
             />
-            {(activeServerId || activeOperationsServerId) && props.serverManager ? <ServerTerminalPanel service={props.serverManager} taskId={selectedTask?.taskId} serverId={activeServerId ?? activeOperationsServerId} placement="bottom" onClose={() => setTerminalOpen(false)} />
-              : actionOutputOpen && workspaceTools.snapshot?.runs.length ? <WorkspaceActionOutput tools={workspaceTools} onClose={() => { setTerminalOpen(false) }} onShowTerminals={() => { setActionOutputOpen(false) }} />
-                : <TerminalPanel service={props.terminalService} taskId={selectedTask?.taskId} workspaceId={activeWorkspaceId} placement="bottom" onClose={() => setTerminalOpen(false)} />}
+            {actionOutputOpen && workspaceTools.snapshot?.runs.length ? <WorkspaceActionOutput tools={workspaceTools} onClose={() => { setTerminalOpen(false) }} onShowTerminals={() => { setActionOutputOpen(false) }} />
+              : <TargetTerminalPanel localService={props.terminalService} serverService={props.serverManager} taskId={selectedTask?.taskId} workspaceId={activeWorkspaceId} servers={servers} serverIds={serverIds} placement="bottom" initialTarget={bottomTerminalTarget} onClose={() => setTerminalOpen(false)} />}
           </section>
         ) : null}
       </main>

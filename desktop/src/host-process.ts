@@ -1,6 +1,8 @@
 import { remoteFileRequestSchema, remotePolicySchema, type RemoteFileRequest } from './ssh/contract.ts'
 import type { RemotePolicy } from './ssh/runtime.ts'
 import type { ServerOutput } from './server-execution.ts'
+import { serverCopyRequestSchema, type ServerCopyRequest, type ServerCopyResult } from './server-copy-contract.ts'
+import type { CopyProgress } from './server-copy.ts'
 /** Electron Node-mode child lifecycle for the shared Web application. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -19,7 +21,7 @@ interface FatalEvent {
 }
 
 export type ServerTerminalRequest =
-  | { readonly action: 'open'; readonly serverId: string; readonly cwd: string; readonly cols: number; readonly rows: number }
+  | { readonly action: 'open'; readonly serverId: string; readonly cwd: string; readonly cols: number; readonly rows: number; readonly expectedEndpoint?: string }
   | { readonly action: 'poll'; readonly terminalId: string; readonly offset: number }
   | { readonly action: 'write'; readonly terminalId: string; readonly data: string }
   | { readonly action: 'resize'; readonly terminalId: string; readonly cols: number; readonly rows: number }
@@ -30,14 +32,15 @@ type DesktopHostEvent = { readonly type: 'automation-state'; readonly awake: boo
   readonly requestId: number
   readonly active: boolean
   readonly error?: string
-} | { readonly type: 'server-request'; readonly requestId: number; readonly serverId: string; readonly cwd: string; readonly command: string; readonly outputLimit?: number; readonly stream?: boolean; readonly policy?: RemotePolicy }
+} | { readonly type: 'server-request'; readonly requestId: number; readonly serverId: string; readonly cwd: string; readonly command: string; readonly outputLimit?: number; readonly stream?: boolean; readonly policy?: RemotePolicy; readonly expectedEndpoint?: string }
   | { readonly type: 'server-upload-request'; readonly requestId: number; readonly serverId: string; readonly root: string; readonly source: string;
-    readonly destination: string; readonly sha256: string; readonly remoteSha256: string | null }
+    readonly destination: string; readonly sha256: string; readonly remoteSha256: string | null; readonly expectedEndpoint?: string }
   | { readonly type: 'server-download-request'; readonly requestId: number; readonly serverId: string; readonly root: string; readonly source: string;
-    readonly destination: string; readonly sha256: string; readonly localSha256: string | null }
-  | { readonly type: 'server-manifest-request'; readonly requestId: number; readonly serverId: string; readonly directory: string; readonly shallow?: boolean }
+    readonly destination: string; readonly sha256: string; readonly localSha256: string | null; readonly expectedEndpoint?: string }
+  | { readonly type: 'server-manifest-request'; readonly requestId: number; readonly serverId: string; readonly directory: string; readonly shallow?: boolean; readonly expectedEndpoint?: string }
   | ({ readonly type: 'server-terminal-request'; readonly requestId: number } & ServerTerminalRequest)
-  | { readonly type: 'server-file-request'; readonly requestId: number; readonly request: RemoteFileRequest }
+  | { readonly type: 'server-file-request'; readonly requestId: number; readonly request: RemoteFileRequest; readonly expectedEndpoint?: string }
+  | { readonly type: 'server-copy-request'; readonly requestId: number; readonly serverId: string; readonly request: ServerCopyRequest; readonly stream?: boolean; readonly expectedEndpoint?: string }
   | { readonly type: 'server-cancel'; readonly requestId: number }
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
@@ -45,6 +48,8 @@ const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
   const candidate = message as Record<string, unknown>
+  if (candidate.expectedEndpoint !== undefined && (typeof candidate.expectedEndpoint !== 'string'
+    || !candidate.expectedEndpoint.length || candidate.expectedEndpoint.length > 4096 || candidate.expectedEndpoint.includes('\0'))) return false
   switch (candidate.type) {
     case 'automation-state':
       return typeof candidate.awake === 'boolean'
@@ -61,6 +66,9 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
         && (candidate.error === undefined || typeof candidate.error === 'string')
     case 'server-file-request':
       return Number.isSafeInteger(candidate.requestId) && remoteFileRequestSchema.safeParse(candidate.request).success
+    case 'server-copy-request':
+      return Number.isSafeInteger(candidate.requestId) && typeof candidate.serverId === 'string'
+        && (candidate.stream === undefined || typeof candidate.stream === 'boolean') && serverCopyRequestSchema.safeParse(candidate.request).success
     case 'server-request':
       if (candidate.policy !== undefined && !remotePolicySchema.safeParse(candidate.policy).success) return false
       return (candidate.stream === undefined || typeof candidate.stream === 'boolean') && Number.isSafeInteger(candidate.requestId) && typeof candidate.serverId === 'string' && typeof candidate.cwd === 'string'
@@ -161,15 +169,16 @@ export class DesktopHostProcess {
     private readonly packageManager?: { readonly pnpm: string; readonly nodeBin: string },
     private readonly hostEntry?: string,
     private readonly onRestart?: () => void,
-    private readonly onServerRequest?: (serverId: string, cwd: string, command: string, signal: AbortSignal, outputLimit?: number, onOutput?: (chunk: ServerOutput) => void, policy?: RemotePolicy) => Promise<{ stdout: string; stderr: string; exitCode: number }>,
+    private readonly onServerRequest?: (serverId: string, cwd: string, command: string, signal: AbortSignal, outputLimit?: number, onOutput?: (chunk: ServerOutput) => void, policy?: RemotePolicy, expectedEndpoint?: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>,
     private readonly onServerUpload?: (serverId: string, root: string, source: string, destination: string,
-      sha256: string, remoteSha256: string | null, signal: AbortSignal) => Promise<{ destination: string; bytes: number; sha256: string }>,
+      sha256: string, remoteSha256: string | null, signal: AbortSignal, expectedEndpoint?: string) => Promise<{ destination: string; bytes: number; sha256: string }>,
     private readonly onServerDownload?: (serverId: string, root: string, source: string, destination: string,
-      sha256: string, localSha256: string | null, signal: AbortSignal) => Promise<{ destination: string; bytes: number; sha256: string }>,
-    private readonly onServerManifest?: (serverId: string, directory: string, signal: AbortSignal, shallow?: boolean) => Promise<{ exists: boolean; entries: readonly unknown[]; sha256: string }>,
+      sha256: string, localSha256: string | null, signal: AbortSignal, expectedEndpoint?: string) => Promise<{ destination: string; bytes: number; sha256: string }>,
+    private readonly onServerManifest?: (serverId: string, directory: string, signal: AbortSignal, shallow?: boolean, expectedEndpoint?: string) => Promise<{ exists: boolean; entries: readonly unknown[]; sha256: string }>,
     private readonly onServerTerminal?: (request: ServerTerminalRequest, signal: AbortSignal) => Promise<unknown>,
-    private readonly onServerFile?: (request: RemoteFileRequest, signal: AbortSignal) => Promise<unknown>,
+    private readonly onServerFile?: (request: RemoteFileRequest, signal: AbortSignal, expectedEndpoint?: string) => Promise<unknown>,
     private readonly onAutomationAwake?: (awake: boolean) => void,
+    private readonly onServerCopy?: (serverId: string, request: ServerCopyRequest, signal: AbortSignal, onProgress?: (progress: CopyProgress) => void, expectedEndpoint?: string) => Promise<ServerCopyResult>,
   ) {}
 
   /**
@@ -213,7 +222,7 @@ export class DesktopHostProcess {
       else if (message.type === 'desktop-action') {
         if (!this.stopping && !this.failureReported) this.onRestart?.()
       }
-      else if (message.type === 'server-file-request' || message.type === 'server-request' || message.type === 'server-upload-request' || message.type === 'server-download-request' || message.type === 'server-manifest-request' || message.type === 'server-terminal-request') {
+      else if (message.type === 'server-copy-request' || message.type === 'server-file-request' || message.type === 'server-request' || message.type === 'server-upload-request' || message.type === 'server-download-request' || message.type === 'server-manifest-request' || message.type === 'server-terminal-request') {
         if (this.serverRequests.has(message.requestId) || this.serverRequests.size >= 8) {
           if (child.connected) child.send({ type: 'server-response', requestId: message.requestId, error: '远端服务正忙，请稍后重试。' })
           return
@@ -222,30 +231,41 @@ export class DesktopHostProcess {
         this.serverRequests.set(message.requestId, controller)
         void Promise.resolve().then(async () => {
           if (this.stopping) throw new Error('远端服务暂不可用。')
+          if (message.type === 'server-copy-request') {
+            if (!this.onServerCopy) throw new Error('远端拷贝服务暂不可用。')
+            let lastProgress = 0
+            return this.onServerCopy(message.serverId, message.request, controller.signal, message.stream ? progress => {
+              const now = Date.now()
+              if (progress.phase !== 'complete' && now - lastProgress < 1000) return
+              lastProgress = now
+              if (child.connected && !controller.signal.aborted) child.send({ type: 'server-output', requestId: message.requestId,
+                stream: 'stdout', data: `${progress.phase} · ${progress.copied}/${progress.files} files · skipped ${progress.skipped} · ${progress.bytes}/${progress.totalBytes} bytes${progress.path ? ` · ${progress.path}` : ''}\n` })
+            } : undefined, message.expectedEndpoint)
+          }
           if (message.type === 'server-file-request') {
             if (!this.onServerFile) throw new Error('远端文件服务暂不可用。')
-            return this.onServerFile(message.request, controller.signal)
+            return this.onServerFile(message.request, controller.signal, message.expectedEndpoint)
           }
           if (message.type === 'server-request') {
             if (!this.onServerRequest) throw new Error('远端服务暂不可用。')
             return await this.onServerRequest(message.serverId, message.cwd, message.command, controller.signal, message.outputLimit,
               message.stream ? chunk => {
                 if (child.connected && !controller.signal.aborted) child.send({ type: 'server-output', requestId: message.requestId, ...chunk })
-              } : undefined, message.policy)
+              } : undefined, message.policy, message.expectedEndpoint)
           }
           if (message.type === 'server-upload-request') {
             if (!this.onServerUpload) throw new Error('远端部署暂不可用。')
             return await this.onServerUpload(message.serverId, message.root, message.source, message.destination,
-              message.sha256, message.remoteSha256, controller.signal)
+              message.sha256, message.remoteSha256, controller.signal, message.expectedEndpoint)
           }
           if (message.type === 'server-download-request') {
             if (!this.onServerDownload) throw new Error('远端取回暂不可用。')
             return await this.onServerDownload(message.serverId, message.root, message.source, message.destination,
-              message.sha256, message.localSha256, controller.signal)
+              message.sha256, message.localSha256, controller.signal, message.expectedEndpoint)
           }
           if (message.type === 'server-manifest-request') {
             if (!this.onServerManifest) throw new Error('远端目录清单暂不可用。')
-            return await this.onServerManifest(message.serverId, message.directory, controller.signal, message.shallow)
+            return await this.onServerManifest(message.serverId, message.directory, controller.signal, message.shallow, message.expectedEndpoint)
           }
           if (!this.onServerTerminal) throw new Error('远端终端暂不可用。')
           return await this.onServerTerminal(message, controller.signal)

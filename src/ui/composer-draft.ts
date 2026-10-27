@@ -16,6 +16,9 @@ export function acceptDraft(current: ComposerDraft, submitted: ComposerDraft): C
   const sentRecorded = source?.seq === submitted.recordedAttachments?.seq
     ? new Set(submitted.recordedAttachments?.attachments.map(a => a.attachmentId)) : new Set<string>()
   const retained = source?.attachments.filter(a => !sentRecorded.has(a.attachmentId))
-  if (!text && !attachments.length && !retained?.length) return undefined
-  return { text, attachments, ...(source && retained?.length ? { recordedAttachments: { seq: source.seq, attachments: retained } } : {}) }
+  const serversChanged = current.serverIds !== submitted.serverIds || current.developmentServerId !== submitted.developmentServerId
+  if (!text && !attachments.length && !retained?.length && !(serversChanged && current.serverIds?.length)) return undefined
+  return { text, attachments, ...(current.serverIds ? { serverIds: current.serverIds } : {}),
+    ...(current.developmentServerId ? { developmentServerId: current.developmentServerId } : {}),
+    ...(source && retained?.length ? { recordedAttachments: { seq: source.seq, attachments: retained } } : {}) }
 }

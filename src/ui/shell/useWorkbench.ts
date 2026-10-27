@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LingPresentedFile } from '../../runtime/reply-features.js'
+import type { LingServer, LingTerminalTarget } from '../../runtime/servers.js'
 import type { BrowserAnnotation } from '../BrowserPanel.js'
 import { deliveryName } from '../DeliveryCards.js'
 import type { SideTaskState } from '../SideTaskPanel.js'
@@ -21,8 +22,9 @@ interface WorkbenchOptions {
     | 'serverManager'
   >
   readonly activeServerId?: string
-  readonly activeOperationsServerId?: string
-  readonly taskServerId?: string
+  readonly serverIds?: readonly string[]
+  readonly servers?: readonly LingServer[]
+  readonly taskRemoteCwd?: string
   readonly activeWorkspaceId?: string
   readonly workspaceLabel: string
 }
@@ -41,14 +43,11 @@ function browserAnnotationText(annotations: readonly BrowserAnnotation[]): strin
 }
 
 /** Owns workbench tabs and browser requests, without changing task monitor visibility. */
-export function useWorkbench({ props, activeServerId, activeOperationsServerId, taskServerId, activeWorkspaceId, workspaceLabel }: WorkbenchOptions) {
+export function useWorkbench({ props, activeServerId, serverIds = [], servers = [], taskRemoteCwd, activeWorkspaceId, workspaceLabel }: WorkbenchOptions) {
   const { browserOpen, screen, prompt, onSubmit, selectedTask } = props
   const [workbenchMaximized, setWorkbenchMaximized] = useState(false)
   const [workbenchTabs, setWorkbenchTabs] = useState<readonly WorkbenchTab[]>([])
-  useEffect(() => {
-    if (!activeServerId) return
-    setWorkbenchTabs(current => current.filter(tab => tab.kind === 'browser' || tab.kind === 'files' || tab.kind === 'terminal'))
-  }, [activeServerId])
+  const [terminalTarget, setTerminalTarget] = useState<LingTerminalTarget>()
   const [activeWorkbenchTabId, setActiveWorkbenchTabId] = useState<string>()
   const sideTaskSequence = useRef(0)
   const [browserInitialized, setBrowserInitialized] = useState(false)
@@ -68,9 +67,19 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     onSubmit(combined, clearBrowserAnnotations)
   }
 
-  const openWorkbenchTab = (kind: WorkbenchTabKind, initialSideTask?: Pick<SideTaskState, 'attachments' | 'prompt'>) => {
+  const openServerFiles = (server: Pick<LingServer, 'id' | 'name'>, initialPath?: string) => {
     if (!browserOpen) props.onBrowserToggle()
-    const existing = kind === 'side-task' ? undefined : workbenchTabs.find(tab => tab.kind === kind)
+    const id = `server-files:${server.id}`
+    setWorkbenchTabs(current => current.some(tab => tab.id === id) ? current : [...current, { id, kind: 'files', label: server.name, remoteFiles: { serverId: server.id, ...(initialPath ? { initialPath } : {}) } }])
+    setActiveWorkbenchTabId(id)
+  }
+  const openWorkbenchTab = (kind: WorkbenchTabKind, initialSideTask?: Pick<SideTaskState, 'attachments' | 'prompt'>) => {
+    if (kind === 'files' && activeServerId) {
+      openServerFiles(servers.find(server => server.id === activeServerId) ?? { id: activeServerId, name: workspaceLabel }, taskRemoteCwd)
+      return
+    }
+    if (!browserOpen) props.onBrowserToggle()
+    const existing = kind === 'side-task' ? undefined : workbenchTabs.find(tab => tab.kind === kind && !tab.remoteFiles)
     if (existing) {
       setActiveWorkbenchTabId(existing.id)
       return
@@ -80,6 +89,10 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     setWorkbenchTabs(current => [...current, { id, kind, label, ...(kind === 'side-task' ? { sideTask: { workspaceId: activeWorkspaceId, workspaceLabel, agentPreset: props.composerAgentPreset, permissionPreset: props.permission?.currentValue, prompt: '', attachments: [], ...initialSideTask } } : {}) }])
     setActiveWorkbenchTabId(id)
     if (kind === 'browser') setBrowserInitialized(true)
+  }
+  const openTerminal = (target: LingTerminalTarget) => {
+    setTerminalTarget({ ...target })
+    openWorkbenchTab('terminal')
   }
 
   const previewDelivery = useCallback((taskId: string, file: LingPresentedFile) => {
@@ -114,23 +127,28 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     return () => { window.removeEventListener('keydown', onKeyDown) }
   }, [activeWorkbenchTab?.kind, browserOpen, screen, workbenchTabs])
 
+  const serverKey = JSON.stringify(serverIds)
   useEffect(() => {
     const service = props.serverManager
-    if (screen !== 'workspace' || !selectedTask || !(activeOperationsServerId || taskServerId) || !service) return
+    if (screen !== 'workspace' || !selectedTask || !serverIds.length || !service) return
     let active = true
+    let pending = false
     const taskId = selectedTask.taskId
     const check = () => {
+      if (pending) return
+      pending = true
       void service.takeTerminalUiRequest(taskId).then(result => {
-        if (!active || !result.ok || !result.value.open) return
+        if (!active || !result.ok || !result.value.open || !result.value.serverId || !serverIds.includes(result.value.serverId)) return
         if (!browserOpen) props.onBrowserToggle()
+        setTerminalTarget({ kind: 'server', serverId: result.value.serverId })
         setWorkbenchTabs(current => current.some(tab => tab.id === 'terminal') ? current : [...current, { id: 'terminal', kind: 'terminal', label: '终端' }])
         setActiveWorkbenchTabId('terminal')
-      })
+      }).catch(() => {}).finally(() => { pending = false })
     }
     check()
     const timer = window.setInterval(check, 800)
     return () => { active = false; window.clearInterval(timer) }
-  }, [screen, selectedTask?.taskId, activeOperationsServerId, taskServerId, props.serverManager, browserOpen, props.onBrowserToggle])
+  }, [screen, selectedTask?.taskId, serverKey, props.serverManager, browserOpen, props.onBrowserToggle])
 
   useEffect(() => {
     const navigate = (event: Event) => {
@@ -159,6 +177,9 @@ export function useWorkbench({ props, activeServerId, activeOperationsServerId, 
     browserAnnotationResetKey,
     submitWithBrowserAnnotations,
     openWorkbenchTab,
+    openServerFiles,
+    openTerminal,
+    terminalTarget,
     previewDelivery,
     closeWorkbenchTab,
     closeWorkbench,

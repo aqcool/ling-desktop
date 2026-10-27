@@ -1,7 +1,52 @@
 import { describe, expect, it } from 'vitest'
 import { ServerBridge } from '../src/host/server-bridge.ts'
+import { serverCopyRequestSchema } from '../src/server-copy-contract.ts'
 
 describe('server bridge', () => {
+  it('carries the admitted endpoint on every connection-opening request', async () => {
+    const sent: object[] = []
+    const bridge = new ServerBridge(message => { sent.push(message) })
+    const signal = new AbortController().signal
+    const expectedEndpoint = 'example.test:2222:tester'
+    const request = serverCopyRequestSchema.parse({ root: '/work', source: 'dist', destination: '/srv/app', allowOutsideWorkspace: false })
+    const pending = [
+      bridge.run('server', '/srv', 'pwd', signal, undefined, undefined, undefined, expectedEndpoint),
+      bridge.file({ action: 'read', serverId: '00000000-0000-4000-8000-000000000001', path: '/srv/a' }, signal, expectedEndpoint),
+      bridge.copy('server', request, signal, undefined, expectedEndpoint),
+      bridge.upload('server', '/work', 'a', '/srv/a', 'a'.repeat(64), null, signal, expectedEndpoint),
+      bridge.download('server', '/work', '/srv/a', 'a', 'a'.repeat(64), null, signal, expectedEndpoint),
+      bridge.manifest('server', '/srv', signal, false, expectedEndpoint),
+      bridge.terminalOpen('server', '/srv', 80, 24, signal, expectedEndpoint),
+    ]
+    expect(sent).toHaveLength(7)
+    for (const message of sent) expect(message).toMatchObject({ expectedEndpoint })
+    bridge.close()
+    await Promise.allSettled(pending)
+  })
+  it('correlates copy progress, rejects malformed copy results and cancels without replay or credential fields', async () => {
+    const sent: object[] = []
+    const output: string[] = []
+    const bridge = new ServerBridge(message => { sent.push(message) })
+    const request = serverCopyRequestSchema.parse({ root: '/work', source: 'dist', destination: '/srv/app', allowOutsideWorkspace: false })
+    const abort = new AbortController()
+    const copying = bridge.copy('bound', request, abort.signal, chunk => output.push(chunk.data))
+    expect(sent[0]).toMatchObject({ type: 'server-copy-request', request, stream: true })
+    bridge.receive({ type: 'server-output', requestId: 1, stream: 'stdout', data: 'transfer · 1/2 files\n' })
+    expect(output).toEqual(['transfer · 1/2 files\n'])
+    abort.abort()
+    await expect(copying).rejects.toThrow('取消')
+    expect(sent.at(-1)).toEqual({ type: 'server-cancel', requestId: 1 })
+    bridge.receive({ type: 'server-output', requestId: 1, stream: 'stdout', data: 'late' })
+    expect(output).toHaveLength(1)
+    const result = { source: 'dist', destination: '/srv/app', method: 'sftp', dryRun: false, files: 2, copied: 1, skipped: 1, bytes: 8, durationMs: 1, changes: [], truncated: false }
+    const invalid = bridge.copy('bound', request, new AbortController().signal)
+    bridge.receive({ type: 'server-response', requestId: 2, result: { ...result, password: 'must not cross' } })
+    await expect(invalid).rejects.toThrow('无效结果')
+    const valid = bridge.copy('bound', request, new AbortController().signal)
+    bridge.receive({ type: 'server-response', requestId: 3, result })
+    await expect(valid).resolves.toMatchObject({ copied: 1 })
+    expect(JSON.stringify(sent)).not.toContain('password')
+  })
   it('routes SFTP independently of task policy, validates results and cancels only the correlated request', async () => {
     const sent: object[] = []
     const bridge = new ServerBridge(message => { sent.push(message) })

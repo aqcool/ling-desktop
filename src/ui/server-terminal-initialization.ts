@@ -1,7 +1,20 @@
 import type { LingReadResult } from '../runtime/contract.js'
-import type { LingServerService } from '../runtime/servers.js'
+import type { LingServerService, LingServerTerminalScope } from '../runtime/servers.js'
 
 const pendingByService = new WeakMap<LingServerService, Map<string, Promise<LingReadResult<readonly string[]>>>>()
+const pendingScopes = new WeakMap<LingServerService, Map<string, Promise<LingReadResult<{ readonly ownerId: string }>>>>()
+
+/** Scope requests identify one task/server/placement; resolved owner IDs never follow later UI selection. */
+export function resolveServerTerminalScope(service: LingServerService, scope: LingServerTerminalScope): Promise<LingReadResult<{ readonly ownerId: string }>> {
+  let pending = pendingScopes.get(service)
+  if (!pending) { pending = new Map(); pendingScopes.set(service, pending) }
+  const key = JSON.stringify([scope.taskId ?? null, scope.serverId, scope.placement])
+  const existing = pending.get(key)
+  if (existing) return existing
+  const request = service.terminalScope(scope).finally(() => { pending.delete(key) })
+  pending.set(key, request)
+  return request
+}
 
 /** React remounts and concurrent views must not allocate two initial SSH shells. */
 export function initializeServerTerminals(service: LingServerService, ownerId: string): Promise<LingReadResult<readonly string[]>> {

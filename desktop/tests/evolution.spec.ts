@@ -54,7 +54,7 @@ async function fixture(watched = false) {
   })
   ctx.provide('sessionQuery', { readSession: async (id: string) => ({ session: { id, cwd: sessionCwd.value }, inheritedEventCount: 1, events }) } as never)
   ctx.provide('workspaceRegistry', { list: () => workspaces } as never)
-  ctx.provide('lingServers', { taskBinding: async (id: string) => bindings.has(id) ? { serverId: 'remote', cwd } : null } as never)
+  ctx.provide('lingServers', { taskServers: async (id: string) => ({ revision: 0, servers: [], ...(bindings.has(id) ? { developmentServerId: 'remote' } : {}) }) } as never)
   const getSkill = vi.fn(async (name: string) => {
     const candidate = (await providerSkills()).find(skill => skill.name === name)
     return candidate ? provider.get(candidate, { cwd }) : undefined

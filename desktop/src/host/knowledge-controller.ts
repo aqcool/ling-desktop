@@ -119,7 +119,7 @@ export class LingKnowledgeController extends TypertRemoteService {
         setTimeout(() => {
           this.timers.delete(key)
           void (async () => {
-            const binding = await ctx.get('lingServers')?.taskBinding(key)
+            const binding = await this.remoteBinding(key)
             const workspace = ctx.workspaceRegistry
               .list()
               .find((workspace) => workspace.path === session.header.cwd)
@@ -206,12 +206,18 @@ export class LingKnowledgeController extends TypertRemoteService {
       /* Manual refresh remains available where recursive watching is unsupported. */
     }
   }
+  /** Metadata-only classification must not connect every remembered SSH task. */
+  private async remoteBinding(taskId: string) {
+    const state = await this.ctx.get('lingServers')?.taskServers(taskId)
+    return state?.developmentServerId ? state.servers.find(item => item.serverId === state.developmentServerId) : undefined
+  }
+
   private async scope(
     workspaceId: string | null,
     taskId?: string,
   ): Promise<KnowledgeScope> {
     if (taskId) {
-      const binding = await this.ctx.get('lingServers')?.taskBinding(taskId)
+      const binding = await this.ctx.get('lingServers')?.developmentTarget(taskId)
       if (!binding) throw new Error('SSH 任务绑定已变化，请重新打开知识中心。')
       return {
         id: `${this.identity}:ssh:${binding.serverId}:${sha256(binding.cwd).slice(0, 16)}`,
@@ -242,7 +248,7 @@ export class LingKnowledgeController extends TypertRemoteService {
     throughSeq?: number,
   ): Promise<SessionEvidence> {
     if (!scope.root) throw new Error('个人记忆不读取项目会话。')
-    const binding = await this.ctx.get('lingServers')?.taskBinding(id)
+    const binding = await this.remoteBinding(id)
     if (
       scope.remote
         ? !binding ||
@@ -316,9 +322,7 @@ export class LingKnowledgeController extends TypertRemoteService {
     const hits: NonNullable<KnowledgeResponse['hits']> = []
     for (const record of sessions.slice(-100).reverse()) {
       signal?.throwIfAborted()
-      const binding = await this.ctx
-        .get('lingServers')
-        ?.taskBinding(String(record.header.id))
+      const binding = await this.remoteBinding(String(record.header.id))
       if (
         scope.remote
           ? !binding ||
@@ -374,9 +378,7 @@ export class LingKnowledgeController extends TypertRemoteService {
     }
     if (!scope.root || !source.sessionId || source.seq === undefined)
       throw new Error('会话来源无效。')
-    const binding = await this.ctx
-      .get('lingServers')
-      ?.taskBinding(source.sessionId)
+    const binding = await this.remoteBinding(source.sessionId)
     if (
       scope.remote
         ? !binding ||
@@ -447,9 +449,7 @@ export class LingKnowledgeController extends TypertRemoteService {
       const workspace = this.ctx.workspaceRegistry
         .list()
         .find((workspace) => workspace.path === record.header.cwd)
-      const binding = await this.ctx
-        .get('lingServers')
-        ?.taskBinding(String(record.header.id))
+      const binding = await this.remoteBinding(String(record.header.id))
       if (!workspace && !binding) continue
       const snapshot = await this.ctx.sessionQuery.readSession(record.header.id)
       const end = snapshot.events
@@ -465,9 +465,7 @@ export class LingKnowledgeController extends TypertRemoteService {
     }
   }
   private async install(agent: Agent) {
-    const binding = await this.ctx
-      .get('lingServers')
-      ?.taskBinding(String(agent.id))
+    const binding = await this.remoteBinding(String(agent.id))
     const workspace = this.ctx.workspaceRegistry
       .list()
       .find((workspace) => workspace.path === agent.session.header.cwd)

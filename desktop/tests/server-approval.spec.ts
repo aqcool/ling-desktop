@@ -11,6 +11,11 @@ import SystemPrompt, { renderContextSnapshot } from '@deepseek-ai/dsh-system-pro
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import Approval, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { installServerBridge, ServerBridge } from '../src/host/server-bridge.ts'
 
 afterEach(() => { vi.unstubAllEnvs() })
 
@@ -28,13 +33,12 @@ describe('server approval integration', () => {
       ctx.provide('typert', { register: () => () => {} } as never)
       const controller = new LingServersController(ctx)
       Object.assign(controller, {
-        sessions: { get: async () => undefined },
-        operations: { get: async () => ({ serverId: 'bound-server', cwd: '/srv/app' }) },
-        store: { list: async () => [{ id: 'bound-server', name: 'Fixture server' }] },
+        sessions: { get: async () => ({ revision: 1, servers: [{ serverId: 'bound-server', cwd: '/srv/app' }] }) },
+        store: { list: async () => [{ id: 'bound-server', name: 'Fixture server', alias: 'fixture' }] },
       })
       const session = ctx.sessions.create(SessionId('permission-prompt-test'), { meta: { cwd: '/local' } })
       const agent = { id: session.id, session, ctx } as Agent
-      await (controller as unknown as { installOperations(agent: Agent): Promise<void> }).installOperations(agent)
+      await (controller as unknown as { install(agent: Agent): Promise<void> }).install(agent)
       setSandboxMode(session, 'danger-full-access')
       setApprovalPolicy(session, 'never')
       const assembly = await ctx.systemPrompt.assemble({ agent })
@@ -42,6 +46,8 @@ describe('server approval integration', () => {
       expect(guidance).toContain('Local SSH, scp, sftp and rsync are also available')
       expect(guidance).not.toContain('Do not use local shell tools to reach that server')
       expect(ctx.tools.get('server_exec')).toBeDefined()
+      expect(ctx.tools.get('server_copy')).toBeDefined()
+      expect(guidance).toContain('no file picker or mandatory plan/apply')
       expect(assembly.contexts.find(context => context.name === 'ling:operations-permissions')?.text).toContain('does not by itself deny ordinary commands in full access')
       expect(assembly.contexts.find(context => context.name === 'approval:policy')?.text).toContain('Approval prompts are disabled')
       expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('danger-full-access')
@@ -53,6 +59,45 @@ describe('server approval integration', () => {
       expect(renderContextSnapshot(restricted)).not.toContain('Current LING mode is danger-full-access')
       expect(restricted.contexts.find(context => context.name === 'approval:policy')?.text).toContain('Approval policy: ask')
     } finally { await ctx.fiber.dispose() }
+  })
+  it('lets the agent copy directly using its live scope and bound server, without a plan or credential argument', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ling-copy-tool-test-'))
+    vi.stubEnv('DSH_HOME', directory)
+    const ctx = new Context()
+    const sent: Array<Record<string, unknown>> = []
+    const bridge = new ServerBridge(message => {
+      const request = message as Record<string, unknown>
+      sent.push(request)
+      queueMicrotask(() => bridge.receive({ type: 'server-response', requestId: request.requestId,
+        result: { source: 'dist', destination: '/srv/app', method: 'sftp', dryRun: false, files: 1, copied: 1, skipped: 0, bytes: 1, durationMs: 1, changes: [], truncated: false } }))
+    })
+    installServerBridge(bridge)
+    try {
+      await ctx.plugin(SessionStore); await ctx.plugin(SessionProjectionRegistry); await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime); await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/local' })
+      ctx.provide('typert', { register: () => () => {} } as never)
+      const controller = new LingServersController(ctx)
+      let binding = { serverId: 'bound', cwd: '/srv/app' }
+      Object.assign(controller, { sessions: { get: async () => ({ revision: 1, servers: [binding] }) },
+        store: { list: async () => [{ id: 'bound', name: 'Fixture', alias: 'fixture' }] } })
+      const session = ctx.sessions.create(SessionId('copy-tool-test'), { meta: { cwd: '/local' } })
+      const agent = { id: session.id, session, ctx } as Agent
+      await (controller as unknown as { install(agent: Agent): Promise<void> }).install(agent)
+      const tool = ctx.tools.get('server_copy')!
+      const exec = { agent, callId: 'copy', signal: new AbortController().signal } as ToolRunContext
+      const args = { serverId: 'bound', source: 'dist', destination: '/srv/app', description: '上传构建产物' }
+      setSandboxMode(session, 'danger-full-access')
+      await expect(tool.execute(args, exec)).resolves.toMatchObject({ copied: 1, method: 'sftp' })
+      expect(sent[0]).toMatchObject({ type: 'server-copy-request', serverId: 'bound', request: { root: '/local', source: 'dist', allowOutsideWorkspace: true } })
+      setSandboxMode(session, 'workspace-write')
+      await tool.execute(args, exec)
+      expect(sent[1]).toMatchObject({ request: { allowOutsideWorkspace: false } })
+      await expect(tool.execute({ ...args, allowOutsideWorkspace: true }, exec)).rejects.toThrow()
+      await expect(tool.execute({ ...args, serverId: 'different' }, exec)).rejects.toThrow()
+      binding = { serverId: 'different', cwd: '/srv/app' }
+      await expect(tool.execute(args, exec)).rejects.toThrow('未关联')
+      expect(sent).toHaveLength(2)
+    } finally { bridge.close(); await ctx.fiber.dispose(); await rm(directory, { recursive: true, force: true }) }
   })
   it('uses actual binding metadata and command analysis rather than the model purpose to decide approval', async () => {
     vi.stubEnv('DSH_HOME', '/tmp/ling-approval-integration')
@@ -69,11 +114,10 @@ describe('server approval integration', () => {
     }) as typeof ctx.on)
     const controller = new LingServersController(ctx)
     Object.assign(controller, {
-      installed: new Map(), installedOperations: new Map([['task', () => {}]]),
-      operations: { get: async () => ({ serverId: 'bound-server', cwd: '/srv/live' }) },
-      store: { list: async () => [{ id: 'bound-server', name: '生产服务器' }] },
+      sessions: { get: async () => ({ revision: 1, servers: [{ serverId: 'bound-server', cwd: '/srv/live' }] }) },
+      store: { list: async () => [{ id: 'bound-server', name: '生产服务器', alias: 'fixture' }] },
     })
-    const exec = (command: string, description: string) => ({ name: 'server_exec', arguments: { command, description },
+    const exec = (command: string, description: string) => ({ name: 'server_exec', arguments: { serverId: 'bound-server', command, description },
       agent: { id: 'task', session: { header: { cwd: '/local' } } } }) as ToolExecution
     const next = async () => ({ kind: 'allow' as const })
     expect(await policy(exec('systemctl status nginx --no-pager', '检查服务'), next)).toEqual({ kind: 'allow' })
@@ -81,18 +125,24 @@ describe('server approval integration', () => {
     expect(decision.kind).toBe('ask')
     if (decision.kind !== 'ask') throw new Error('expected approval')
     expect(decodeApprovalDetails(decision.reason)).toMatchObject({ summary: '读取信息', server: '生产服务器', cwd: '/srv/live', command: 'systemctl restart nginx', impact: expect.stringContaining('中断') })
+    const copy = { ...exec('', '上传产物'), name: 'server_copy', arguments: { serverId: 'bound-server', source: 'dist', destination: '/srv/app', description: '上传产物' } } as ToolExecution
+    const copyDecision = await policy(copy, next)
+    expect(copyDecision.kind).toBe('ask')
+    if (copyDecision.kind === 'ask') expect(decodeApprovalDetails(copyDecision.reason)).toMatchObject({ server: '生产服务器', source: 'dist', destination: '/srv/app', impact: expect.stringContaining('覆盖方式') })
     const upstream = { kind: 'ask', reason: '已有策略需要确认' } as const
     const inherited = await policy(exec('pwd', '检查目录'), async () => upstream)
     expect(inherited.kind).toBe('ask')
     if (inherited.kind === 'ask') expect(decodeApprovalDetails(inherited.reason)?.impact).toContain(upstream.reason)
     mode = 'danger-full-access'
     expect(await policy(exec('systemctl restart nginx', '重启'), next)).toEqual({ kind: 'allow' })
+    expect(await policy(copy, next)).toEqual({ kind: 'allow' })
     for (const command of ['ssh configured-host pwd', 'rsync -a ./dist/ configured-host:/srv/app/']) {
       const local = { ...exec(command, '本地 SSH'), name: 'bash' } as ToolExecution
       expect(await policy(local, next)).toEqual({ kind: 'allow' })
       expect(await policy(local, async () => ({ kind: 'deny', reason: 'independent policy' }))).toEqual({ kind: 'deny', reason: 'independent policy' })
     }
     mode = 'read-only'
+    expect((await policy(copy, next)).kind).toBe('deny')
     expect((await policy(exec('systemctl restart nginx', '重启'), next)).kind).toBe('deny')
     expect((await policy(exec('systemctl restart nginx', '重启'), async () => upstream)).kind).toBe('deny')
   })

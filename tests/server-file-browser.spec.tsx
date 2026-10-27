@@ -18,7 +18,7 @@ beforeEach(() => {
 })
 afterEach(async () => {
   await act(async () => { for (const root of roots) root.unmount() })
-  roots.clear(); document.body.replaceChildren(); vi.unstubAllGlobals()
+  roots.clear(); document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals()
 })
 function fixture() {
   const fileManager = vi.fn<LingServerService['fileManager']>(async (_server, request) => {
@@ -32,10 +32,10 @@ function fixture() {
     if (request.type === 'save') return { ok: false, reason: 'runtime-unavailable', message: '远端文件已变化，未覆盖。', retryable: true }
     return { ok: true, value: { type: 'ok' } }
   })
-  const bindTask = vi.fn(); const filesList = vi.fn()
-  const service = { fileManager, bindTask, filesList } as unknown as LingServerService
+  const taskServers = vi.fn(); const setTaskServers = vi.fn()
+  const service = { fileManager, taskServers, setTaskServers } as unknown as LingServerService
   const onAddContext = vi.fn<NonNullable<Props['onAddContext']>>()
-  return { props: { service, serverId: 'server-fixture', workspaceLabel: '测试服务器', onAddContext } satisfies Props, fileManager, bindTask, filesList, onAddContext }
+  return { props: { service, serverId: 'server-fixture', workspaceLabel: '测试服务器', onAddContext } satisfies Props, fileManager, taskServers, setTaskServers, onAddContext }
 }
 async function mount(props: Props) {
   const container = document.createElement('div'); document.body.append(container)
@@ -71,7 +71,7 @@ describe('remote file browser', () => {
     expect(location.value).toBe('/tmp')
     await render({ ...state.props, initialPath: '/agent-new-cwd' })
     expect(location.value).toBe('/tmp')
-    expect(state.bindTask).not.toHaveBeenCalled(); expect(state.filesList).not.toHaveBeenCalled()
+    expect(state.taskServers).not.toHaveBeenCalled(); expect(state.setTaskServers).not.toHaveBeenCalled()
     expect(state.fileManager.mock.calls.every(([id]) => id === state.props.serverId)).toBe(true)
   })
   it('creates and renames through the existing dialogs and enables directory actions without context attachments', async () => {
@@ -119,5 +119,40 @@ describe('remote file browser', () => {
     expect(slowSignal?.aborted).toBe(true)
     await act(async () => { finish({ ok: true, value: { type: 'directory', directory: { path: '/slow', entries: [], truncated: false } } }) })
     expect(location.value).toBe('/fast')
+  })
+  it('retains the navigated path and pauses job polling while its tab is hidden', async () => {
+    vi.useFakeTimers()
+    const state = fixture()
+    const onPathChange = vi.fn()
+    const { container, render } = await mount({ ...state.props, onPathChange })
+    const location = container.querySelector<HTMLInputElement>('[aria-label="远端目录路径"]')!
+    await input(location, '/kept-path'); await submit(container.querySelector('form')!)
+    expect(onPathChange).toHaveBeenLastCalledWith('/kept-path')
+    await render({ ...state.props, onPathChange, active: false })
+    const calls = state.fileManager.mock.calls.filter(([, request]) => request.type === 'jobs').length
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(state.fileManager.mock.calls.filter(([, request]) => request.type === 'jobs')).toHaveLength(calls)
+    await render({ ...state.props, onPathChange, active: true, initialPath: '/agent-moved' })
+    expect(location.value).toBe('/kept-path')
+    expect(state.fileManager.mock.calls.filter(([, request]) => request.type === 'jobs')).toHaveLength(calls + 1)
+  })
+  it('keeps dirty buffers for identical paths on different servers independent', async () => {
+    const first = fixture(), second = fixture()
+    const firstProps = { ...first.props, serverId: 'dirty-server-a' }
+    const secondProps = { ...second.props, serverId: 'dirty-server-b' }
+    const a = await mount(firstProps)
+    await act(async () => { a.container.querySelector<HTMLButtonElement>('[aria-label="打开文件 data.json"]')!.click() })
+    const aEditor = EditorView.findFromDOM(a.container.querySelector('.cm-content')!)!
+    await act(async () => { aEditor.dispatch({ changes: { from: 0, to: aEditor.state.doc.length, insert: 'draft A' }, userEvent: 'input' }) })
+    const b = await mount(secondProps)
+    await act(async () => { b.container.querySelector<HTMLButtonElement>('[aria-label="打开文件 data.json"]')!.click() })
+    const bEditor = EditorView.findFromDOM(b.container.querySelector('.cm-content')!)!
+    await act(async () => { bEditor.dispatch({ changes: { from: 0, to: bEditor.state.doc.length, insert: 'draft B' }, userEvent: 'input' }) })
+    await a.render({ ...firstProps, active: false })
+    await a.render({ ...firstProps, active: true })
+    expect(aEditor.state.sliceDoc()).toBe('draft A')
+    expect(bEditor.state.sliceDoc()).toBe('draft B')
+    expect(first.fileManager.mock.calls.every(([id]) => id === 'dirty-server-a')).toBe(true)
+    expect(second.fileManager.mock.calls.every(([id]) => id === 'dirty-server-b')).toBe(true)
   })
 })

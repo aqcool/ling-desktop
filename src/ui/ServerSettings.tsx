@@ -22,7 +22,7 @@ interface NativeServerBroker {
 }
 const nativeBroker = (globalThis as { __LING_SERVER_BROKER__?: NativeServerBroker }).__LING_SERVER_BROKER__
 
-export function ServerSettings({ service, onBrowseFiles }: { readonly service?: LingServerService; readonly onBrowseFiles?: (id: string) => void }) {
+export function ServerSettings({ service }: { readonly service?: LingServerService }) {
   const [servers, setServers] = useState<readonly LingServer[]>([])
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState<string>()
@@ -88,6 +88,7 @@ export function ServerSettings({ service, onBrowseFiles }: { readonly service?: 
       const result = editingId ? await service.update(editingId, input) : await service.add(input)
       if (!result.ok) { setError(result.message); return }
       setServers(current => editingId ? current.map(item => item.id === editingId ? result.value : item) : [...current, result.value])
+      window.dispatchEvent(new Event('ling:servers-changed'))
       void refreshSecurity(result.value)
       const newlyAdded = !editingId
       resetForm()
@@ -108,6 +109,7 @@ export function ServerSettings({ service, onBrowseFiles }: { readonly service?: 
       const result = await service.remove(server.id)
       if (!result.ok) { setError(result.message); return }
       setServers(current => current.filter(item => item.id !== server.id))
+      window.dispatchEvent(new Event('ling:servers-changed'))
       setDeleteId(undefined)
       if (nativeBroker) {
         try { await nativeBroker.forget(server.id) }
@@ -176,7 +178,6 @@ export function ServerSettings({ service, onBrowseFiles }: { readonly service?: 
           <div className={tw('flex shrink-0 items-center gap-1.5')}>
             <CompactButton variant="tertiary" isDisabled={Boolean(pending)} onPress={() => { void manage(server) }}>管理</CompactButton>
             <Menu triggerAriaLabel={`${server.name} 更多操作`} triggerClassName={tw("size-control-sm rounded-md hover:bg-[var(--surface-hover)]")} triggerLabel={<Icon name="more" size={15} />} listClassName={tw('min-w-32')}>
-              {onBrowseFiles ? <MenuItem icon="folder" disabled={Boolean(pending)} onPress={() => { onBrowseFiles(server.id) }}>浏览远程文件</MenuItem> : null}
               <MenuItem icon="edit" disabled={Boolean(pending)} onPress={() => beginEdit(server)}>编辑信息</MenuItem>
               <MenuItem icon="trash" danger disabled={Boolean(pending)} onPress={() => setDeleteId(server.id)}>移除服务器</MenuItem>
             </Menu>

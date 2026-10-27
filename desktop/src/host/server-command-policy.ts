@@ -227,9 +227,10 @@ export function serverToolDecision(
   if (decision.kind === 'deny') return decision
   const commandTool = (name === 'remote_run' && binding.remote) || (name === 'server_exec' && binding.operations)
   const mutationTool = (name === 'remote_write' && binding.remote)
-    || (binding.operations && ['server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply'].includes(name))
+    || (binding.operations && ['server_copy', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply'].includes(name))
   if (!commandTool && !mutationTool) return decision
   const values = args && typeof args === 'object' ? args as Record<string, unknown> : {}
+  if (name === 'server_copy' && values.dryRun === true) return decision
   if (binding.mode === 'danger-full-access') return decision
   if (binding.mode === 'read-only') return commandTool && isServerQuery(values.command) ? decision
     : { kind: 'deny', reason: '当前会话为只读，不能修改远端文件、服务或系统状态。请先切换会话权限。' }
@@ -245,6 +246,7 @@ export function serverToolDecision(
   if (name === 'remote_write' && binding.remote) return { kind: 'ask', reason: '在已选择的服务器写入文件。' }
   if (binding.operations) {
     const reasons: Record<string, string> = {
+      server_copy: '将本地文件或目录拷贝到当前会话关联的服务器，可能覆盖目标文件。',
       server_deploy_apply: '将预览过的本地文件部署到当前会话关联的服务器。',
       server_deploy_directory_apply: '将预览过的本地目录部署到当前会话关联的服务器。',
       server_download_apply: '从当前会话关联的服务器取回预览过的文件。',

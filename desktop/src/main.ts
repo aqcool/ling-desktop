@@ -228,26 +228,27 @@ async function startHost(): Promise<void> {
       setAutomationAwake(false)
       reportFailure(error, 'host')
     }, undefined, 'runtime', undefined, join(root, 'lib', 'host.js'), undefined,
-    (serverId, cwd, command, signal, outputLimit, onOutput, policy) => serverBroker.run(serverId, cwd, command, signal, outputLimit, onOutput, policy),
-    (serverId, root, source, destination, sha256, remoteSha256, signal) => serverBroker.upload(serverId, root, source, destination, sha256, remoteSha256, signal),
-    (serverId, root, source, destination, sha256, localSha256, signal) => serverBroker.download(serverId, root, source, destination, sha256, localSha256, signal),
-    (serverId, directory, signal, shallow) => serverBroker.directoryManifest(serverId, directory, signal, shallow),
+    (serverId, cwd, command, signal, outputLimit, onOutput, policy, expectedEndpoint) => serverBroker.run(serverId, cwd, command, signal, outputLimit, onOutput, policy, expectedEndpoint),
+    (serverId, root, source, destination, sha256, remoteSha256, signal, expectedEndpoint) => serverBroker.upload(serverId, root, source, destination, sha256, remoteSha256, signal, expectedEndpoint),
+    (serverId, root, source, destination, sha256, localSha256, signal, expectedEndpoint) => serverBroker.download(serverId, root, source, destination, sha256, localSha256, signal, expectedEndpoint),
+    (serverId, directory, signal, shallow, expectedEndpoint) => serverBroker.directoryManifest(serverId, directory, signal, shallow, expectedEndpoint),
     async (request, signal) => {
-      if (request.action === 'open') return serverBroker.terminalOpen(request.serverId, request.cwd, request.cols, request.rows, signal)
+      if (request.action === 'open') return serverBroker.terminalOpen(request.serverId, request.cwd, request.cols, request.rows, signal, request.expectedEndpoint)
       if (request.action === 'poll') return serverBroker.terminalPoll(request.terminalId, request.offset)
       if (request.action === 'write') await serverBroker.terminalWrite(request.terminalId, request.data)
       else if (request.action === 'resize') await serverBroker.terminalResize(request.terminalId, request.cols, request.rows)
       else await serverBroker.terminalClose(request.terminalId)
       return { ok: true as const }
     },
-    async (request, signal) => {
-      if (request.action === 'sftp') return serverBroker.manageFiles(request.serverId, request.request, signal)
-      if (request.action === 'read') return serverBroker.readFile(request.serverId, request.path, signal, request.root, request.maxBytes)
-      if (request.action === 'write') return serverBroker.writeFile(request.serverId, request.path, request.text, request.expected, request.policy, signal)
-      const entries = await serverBroker.listFiles(request.serverId, request.path, signal, request.root)
+    async (request, signal, expectedEndpoint) => {
+      if (request.action === 'sftp') return serverBroker.manageFiles(request.serverId, request.request, signal, expectedEndpoint)
+      if (request.action === 'read') return serverBroker.readFile(request.serverId, request.path, signal, request.root, request.maxBytes, expectedEndpoint)
+      if (request.action === 'write') return serverBroker.writeFile(request.serverId, request.path, request.text, request.expected, request.policy, signal, expectedEndpoint)
+      const entries = await serverBroker.listFiles(request.serverId, request.path, signal, request.root, expectedEndpoint)
       return { path: request.path, entries: entries.map(entry => ({ name: entry.name, type: entry.type })) }
     },
     setAutomationAwake,
+    (serverId, request, signal, onProgress, expectedEndpoint) => serverBroker.copy(serverId, request, signal, onProgress, expectedEndpoint),
   )
   const ready = await host.start()
   const url = new URL(ready.url)

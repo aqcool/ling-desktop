@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export type ServerAuditAction = 'exec' | 'deploy-file' | 'deploy-directory' | 'download-file' | 'git'
+export type ServerAuditAction = 'exec' | 'copy' | 'deploy-file' | 'deploy-directory' | 'download-file' | 'git'
 
 /** Durable, independent operation history. Commands are hashed so secrets in arguments are not copied here. */
 export class ServerAudit {

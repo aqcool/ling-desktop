@@ -85,8 +85,8 @@ export interface SubmitOptions {
   readonly mode?: 'queue' | 'steer'
   readonly attachments?: readonly LingPromptAttachment[]
   readonly workspaceId?: string
-  readonly serverId?: string
-  readonly operationsServerId?: string
+  readonly serverIds?: readonly string[]
+  readonly developmentServerId?: string
   readonly permissionPreset?: string
 }
 
@@ -248,8 +248,8 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
         prompt: text,
         ...(options.maxGoalRounds === undefined ? {} : { maxGoalRounds: options.maxGoalRounds }),
         ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
-        ...(options.serverId ? { serverId: options.serverId } : {}),
-        ...(options.operationsServerId ? { operationsServerId: options.operationsServerId } : {}),
+        ...(options.serverIds ? { serverIds: options.serverIds } : {}),
+        ...(options.developmentServerId ? { developmentServerId: options.developmentServerId } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
         ...(options.permissionPreset ? { permissionPreset: options.permissionPreset } : {}),
       }))

@@ -1,21 +1,18 @@
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SFTPWrapper } from 'ssh2'
 import { c as tar } from 'tar'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { LingRemoteFileResult } from 'ling-desktop/runtime'
-import { SftpFiles } from '../src/sftp-files.ts'
 import { archivePath, extractArchive } from '../src/sftp-archive.ts'
 import { sftpRequestSchema, sftpResultSchema } from '../src/sftp-contract.ts'
 import { sftpFixture } from './fixtures/sftp-server.ts'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
-async function fixture(picker?: Parameters<typeof sftpFixture>[0], writeDelay = 0) {
-  const value = await sftpFixture(picker, writeDelay); cleanups.push(value.close); return value
+async function fixture(picker?: Parameters<typeof sftpFixture>[0], writeDelay = 0, options?: Parameters<typeof sftpFixture>[2]) {
+  const value = await sftpFixture(picker, writeDelay, options); cleanups.push(value.close); return value
 }
 async function settled(value: Awaited<ReturnType<typeof fixture>>, started: LingRemoteFileResult) {
   expect(started.type).toBe('job')
@@ -153,23 +150,14 @@ describe('native SFTP file operations', () => {
 
 describe('save and archive safety', () => {
   it('atomically replaces a verified text file and preserves its permission bits', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ling-sftp-save-')); cleanups.push(() => rm(root, { recursive: true, force: true }))
-    const path = join(root, 'hello'); await writeFile(path, 'before', { mode: 0o640 })
-    // SFTP always uses POSIX paths, even when the fixture's filesystem is Windows.
-    const localPath = (remote: string) => join(root, remote.replace(/^\/+/, ''))
-    const channel = {
-      createReadStream: (remote: string, options?: Parameters<typeof createReadStream>[1]) => createReadStream(localPath(remote), options),
-      createWriteStream: (remote: string, options?: Parameters<typeof createWriteStream>[1]) => createWriteStream(localPath(remote), options),
-      lstat: (remote: string, done: (error: Error | null, value?: unknown) => void) => { void lstat(localPath(remote)).then(value => done(null, value), done) },
-      unlink: (remote: string, done: (error?: Error | null) => void) => { void rm(localPath(remote)).then(() => done(), done) },
-      ext_openssh_rename: (remote: string, target: string, done: (error?: Error | null) => void) => { void rename(localPath(remote), localPath(target)).then(() => done(), done) },
-    } as unknown as SFTPWrapper
-    const files = new SftpFiles(channel)
+    const value = await fixture(undefined, 0, { atomicRename: true })
+    const path = join(value.home, 'hello'); await writeFile(path, 'before', { mode: 0o640 })
     const version = createHash('sha256').update('before').digest('hex')
-    expect(await files.save('/hello', 'after', version)).toBe(createHash('sha256').update('after').digest('hex'))
+    expect(await value.broker.manageFiles(value.serverId, { type: 'save', path: '/home/tester/hello', text: 'after', version }))
+      .toEqual({ type: 'saved', version: createHash('sha256').update('after').digest('hex') })
     expect(await readFile(path, 'utf8')).toBe('after')
     if (process.platform !== 'win32') expect((await lstat(path)).mode & 0o777).toBe(0o640)
-    expect(await readdir(root)).toEqual(['hello'])
+    expect(await readdir(value.home)).toEqual(['hello'])
   })
   it('extracts TAR.GZ and rejects TAR links and unsafe paths before publishing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ling-sftp-tar-')); cleanups.push(() => rm(root, { recursive: true, force: true }))

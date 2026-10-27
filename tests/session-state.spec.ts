@@ -43,6 +43,15 @@ describe('composer draft persistence', () => {
     })
     expect(parseStoredDrafts(stored)).toEqual({ 'task-1': { text: '  保持缩进\n第二行' } })
   })
+
+  it('persists multi-server draft choices without a message and ignores old single-server fields', () => {
+    const draft = { text: '', serverIds: ['a', 'b'], developmentServerId: 'b' }
+    expect(parseStoredDrafts(serializeDrafts({ 'new-task': draft }))).toEqual({ 'new-task': draft })
+    expect(parseStoredDrafts(JSON.stringify({ 'new-task': { text: 'keep', serverId: 'old', operationsServerId: 'old' } })))
+      .toEqual({ 'new-task': { text: 'keep' } })
+    expect(parseStoredDrafts(JSON.stringify({ 'new-task': { text: '', serverIds: ['a', 'a', null, ''], developmentServerId: 'b' } })))
+      .toEqual({ 'new-task': { text: '', serverIds: ['a'] } })
+  })
 })
 
 describe('selected task restoration', () => {

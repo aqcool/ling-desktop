@@ -147,7 +147,7 @@ describe('LING local workspace editor over the composed filesystem', () => {
     ctx.sessions.create(SessionId('without-cwd'))
     await expect(request('read', { taskId: 'without-cwd', path: '../outside.txt' })).rejects.toMatchObject({ code: 'ling-document/readonly' })
     ctx.sessions.create(SessionId('remote-task'), { meta: { cwd: workspace } })
-    ctx.provide('lingServers', { taskBinding: async (id: string) => id === 'remote-task' ? { serverId: 'server', cwd: workspace } : null } as never)
+    ctx.provide('lingServers', { taskServers: async (id: string) => ({ revision: 0, servers: [], ...(id === 'remote-task' ? { developmentServerId: 'server' } : {}) }) } as never)
     await expect(request('read', { taskId: 'remote-task', path: 'nul.txt' })).rejects.toMatchObject({ code: 'ling-document/readonly' })
     await expect(request('read', { taskId: 'editor-task', workspaceId: 'workspace-fixture', path: 'nul.txt' })).rejects.toThrow()
     expect(await readFile(join(home, 'outside.txt'), 'utf8')).toBe('outside')

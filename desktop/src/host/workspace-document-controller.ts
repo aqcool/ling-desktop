@@ -42,7 +42,7 @@ export class LingWorkspaceDocumentsController extends TypertRemoteService {
       if (!workspace) throw new RemoteError('ling-document/workspace-not-found', '工作区已不存在，请重新选择。', { workspaceId: request.workspaceId })
       return workspace.path
     }
-    if (await this.ctx.get('lingServers')?.taskBinding(request.taskId)) {
+    if ((await this.ctx.get('lingServers')?.taskServers(request.taskId))?.developmentServerId) {
       throw new RemoteError('ling-document/readonly', '远端开发任务请使用服务器文件编辑器。', { path: request.path })
     }
     const id = SessionId(request.taskId)

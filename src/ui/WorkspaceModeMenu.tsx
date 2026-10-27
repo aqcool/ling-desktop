@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from '@heroui/react/modal'
 import type { LingCommandResult, LingGitSnapshot } from '../runtime/contract.js'
-import type { LingServer } from '../runtime/servers.js'
 import { GitPanel, type GitRequest } from './GitPanel.js'
-import { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu.js'
+import { Menu, MenuItem } from './Menu.js'
 import { Icon } from './Icon.js'
 import { tw } from './tailwind.js'
 
@@ -12,15 +11,13 @@ export function workspaceEnvironment(snapshot: LingGitSnapshot | undefined) {
   return { linked: Boolean(current && !current.main), mainPath: snapshot?.worktrees.find(tree => tree.main && !tree.prunable)?.path }
 }
 
-export function WorkspaceModeMenu({ workspaceId, request, interactive, taskSelected, onSelectWorkspace, serverId, servers = [], onSelectServer, onSelectLocal }: {
+export function WorkspaceModeMenu({ workspaceId, request, interactive, taskSelected, onSelectWorkspace, serverId, onSelectLocal }: {
   workspaceId?: string
   request?: GitRequest
   interactive: boolean
   taskSelected: boolean
   onSelectWorkspace: (path: string) => Promise<LingCommandResult>
   serverId?: string
-  servers?: readonly LingServer[]
-  onSelectServer?: (serverId: string) => void
   onSelectLocal?: () => void
 }) {
   const [snapshot, setSnapshot] = useState<LingGitSnapshot>()
@@ -68,9 +65,6 @@ export function WorkspaceModeMenu({ workspaceId, request, interactive, taskSelec
         else if (linked && mainPath) setOpen(true)
       }}>本地模式</MenuItem>
       <MenuItem icon="branch" checked={!serverId && linked} disabled={busy || !workspaceId || !request} onPress={() => setOpen(true)}>Worktree 模式</MenuItem>
-      {servers.length ? <><MenuSeparator /><MenuLabel>服务器</MenuLabel>{servers.map(server => (
-        <MenuItem key={server.id} icon="globe" checked={serverId === server.id} disabled={busy} onPress={() => onSelectServer?.(server.id)}>{server.name}</MenuItem>
-      ))}</> : null}
     </Menu> : <span className={tw("inline-flex h-control-xs items-center gap-1.5")}>{label}</span>}
     {workspaceId && request ? <Modal.Backdrop isOpen={open} onOpenChange={(value: boolean) => { if (!busy) setOpen(value) }}><Modal.Container size="lg"><Modal.Dialog>
       {!busy ? <Modal.CloseTrigger /> : null}

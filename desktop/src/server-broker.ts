@@ -13,9 +13,13 @@ import type { LingServer, LingServerDirectory, LingServerProbe } from './server-
 import { directoryCommand } from './server-ssh.ts'
 import { localDeploymentFile, localDownloadTarget, parseRemoteFileHash, remoteDeploymentDirectory, remoteDeploymentPath, remoteFileHashCommand, shellQuote } from './server-deployment.ts'
 import { ServerStore } from './server-store.ts'
+import { serverEndpoint as endpoint } from './server-task-contract.ts'
 import { SftpFiles } from './sftp-files.ts'
 import { SftpManager, type TransferPicker } from './sftp-manager.ts'
 import type { LingRemoteFileRequest } from 'ling-desktop/runtime'
+import { copySftp, parseCopyRequest, prepareCopy, scanCopySource, type CopyProgress } from './server-copy.ts'
+import { copyRsync, supportsRsync } from './server-copy-rsync.ts'
+import type { ServerCopyRequest, ServerCopyResult } from './server-copy-contract.ts'
 
 const { Client, utils } = ssh2
 
@@ -53,7 +57,6 @@ export function fingerprintFromKey(key: Buffer): HostFingerprint {
   return { algorithm, sha256: `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}` }
 }
 
-function endpoint(server: LingServer): string { return `${server.alias.toLowerCase()}:${server.port ?? 22}:${server.user ?? ''}` }
 function sameFingerprint(a: HostFingerprint, b: HostFingerprint): boolean { return a.algorithm === b.algorithm && a.sha256 === b.sha256 }
 
 /** Terminal scrollback remains in process memory, never in a transcript or a plaintext file. */
@@ -92,8 +95,9 @@ export class ServerBroker {
   private pending: Promise<unknown> = Promise.resolve()
   private readonly inventory: ServerStore
   private readonly runtimes = new Map<string, { key: string; runtime: Promise<DshRemoteRuntime> }>()
-  private readonly sftpSessions = new Map<string, Promise<{ client: ssh2.Client; files: SftpFiles }>>()
+  private readonly sftpSessions = new Map<string, Promise<{ client: ssh2.Client; files: SftpFiles; endpoint: string }>>()
   private readonly fileManager: SftpManager
+  private readonly copies = new Map<AbortController, Promise<void>>()
   private readonly terminals = new Map<string, { serverId: string; handle: SubprocessTerminalHandle;
     output: TerminalOutput; closed: boolean; exitCode?: number; error?: string }>()
   constructor(private readonly home: string, private readonly codec: SecretCodec, private readonly artifactDirectory?: string, picker?: TransferPicker) {
@@ -286,14 +290,14 @@ export class ServerBroker {
   }
 
   /** Snapshot names, types and file hashes without truncating large directory trees. */
-  async directoryManifest(id: string, directory: string, signal?: AbortSignal, shallow = false): Promise<ServerDirectoryManifest> {
+  async directoryManifest(id: string, directory: string, signal?: AbortSignal, shallow = false, expectedEndpoint?: string): Promise<ServerDirectoryManifest> {
     const path = remoteDeploymentDirectory(directory)
     const quoted = shellQuote(path)
     const depth = shallow ? '-maxdepth 1 ' : ''
     const hashesCommand = shallow ? '' : 'find . -type f -exec sha256sum -z -- {} +'
     const command = `set -eu; d=${quoted}; if [ -L "$d" ]; then exit 45; fi; if [ ! -e "$d" ]; then printf '__LING_ABSENT__\\0'; exit 0; fi; [ -d "$d" ] || exit 45; cd "$d"; printf '__LING_PRESENT__\\0__LING_DIRS__\\0'; find . -mindepth 1 ${depth}-type d -print0; printf '__LING_LINKS__\\0'; find . -mindepth 1 ${depth}-type l -print0; printf '__LING_FILES__\\0'; find . -mindepth 1 ${depth}-type f -print0; printf '__LING_OTHER__\\0'; find . -mindepth 1 ${depth}! -type d ! -type l ! -type f -print0; printf '__LING_HASHES__\\0'; ${hashesCommand}`
     const chunks: Buffer[] = []
-    const result = await this.execute(id, '/', command, signal, undefined, chunk => { chunks.push(Buffer.from(chunk)) }, Number.MAX_SAFE_INTEGER)
+    const result = await this.execute(id, '/', command, signal, undefined, chunk => { chunks.push(Buffer.from(chunk)) }, Number.MAX_SAFE_INTEGER, undefined, undefined, expectedEndpoint)
     if (result.exitCode !== 0) throw new Error(result.stderr.trim() || '无法读取远端目录清单。')
     const fields = Buffer.concat(chunks).toString('utf8').split('\0')
     if (fields.at(-1) !== '') throw new Error('远端目录清单不完整。')
@@ -335,10 +339,10 @@ export class ServerBroker {
   }
 
   /** Keep an interactive PTY alive independently of a Renderer tab. */
-  async terminalOpen(id: string, cwd: string, cols: number, rows: number, signal?: AbortSignal): Promise<{ terminalId: string }> {
+  async terminalOpen(id: string, cwd: string, cols: number, rows: number, signal?: AbortSignal, expectedEndpoint?: string): Promise<{ terminalId: string }> {
     if (!posix.isAbsolute(cwd) || cwd.includes('\0') || cwd.length > 4096) throw new Error('远端目录无效。')
     if (!Number.isInteger(cols) || cols < 2 || cols > 500 || !Number.isInteger(rows) || rows < 1 || rows > 200) throw new Error('终端尺寸无效。')
-    const runtime = await this.runtime(id, signal)
+    const runtime = await this.runtime(id, signal, expectedEndpoint)
     const handle = await runtime.terminal(cwd, cols, rows, signal)
     const terminalId = randomUUID()
     const terminal: { serverId: string; handle: SubprocessTerminalHandle; output: TerminalOutput; closed: boolean; exitCode?: number; error?: string } = {
@@ -378,14 +382,18 @@ export class ServerBroker {
   async terminalClose(terminalId: string): Promise<void> {
     const terminal = this.terminals.get(terminalId)
     if (!terminal) return
-    await terminal.handle.terminate()
-    terminal.closed = true
-    this.terminals.delete(terminalId)
+    try {
+      if (!terminal.closed) await terminal.handle.terminate()
+    } finally {
+      // Explicitly dismissed terminals must not reappear when cleanup loses SSH.
+      terminal.closed = true
+      this.terminals.delete(terminalId)
+    }
   }
 
   /** Deploy one reviewed local file through the pinned SSH connection, without exposing credentials. */
   async upload(id: string, root: string, source: string, destination: string,
-    expectedSha256: string, expectedRemoteSha256: string | null, signal?: AbortSignal): Promise<ServerUploadResult> {
+    expectedSha256: string, expectedRemoteSha256: string | null, signal?: AbortSignal, expectedEndpoint?: string): Promise<ServerUploadResult> {
     const file = await localDeploymentFile(root, source)
     const target = remoteDeploymentPath(destination)
     if (!/^[a-f0-9]{64}$/.test(expectedSha256) || file.sha256 !== expectedSha256)
@@ -408,7 +416,7 @@ export class ServerBroker {
       'trap - EXIT HUP INT TERM',
       'printf "__LING_DEPLOYED__\\n"',
     ].join('; ')
-    const result = await this.execute(id, '/', command, signal, file.path)
+    const result = await this.execute(id, '/', command, signal, file.path, undefined, undefined, undefined, undefined, expectedEndpoint)
     if (result.exitCode !== 0 || !result.stdout.includes('__LING_DEPLOYED__'))
       throw new Error(result.stderr.trim() || '远端部署失败，目标文件未确认更新。')
     return { destination: target, bytes: file.bytes, sha256: file.sha256 }
@@ -416,14 +424,14 @@ export class ServerBroker {
 
   /** Fetch one reviewed remote file into the local workspace, with version checks on both sides. */
   async download(id: string, root: string, source: string, destination: string,
-    expectedSha256: string, expectedLocalSha256: string | null, signal?: AbortSignal): Promise<ServerDownloadResult> {
+    expectedSha256: string, expectedLocalSha256: string | null, signal?: AbortSignal, expectedEndpoint?: string): Promise<ServerDownloadResult> {
     const remote = remoteDeploymentPath(source)
     if (!/^[a-f0-9]{64}$/.test(expectedSha256) ||
       (expectedLocalSha256 !== null && !/^[a-f0-9]{64}$/.test(expectedLocalSha256))) throw new Error('文件校验值无效。')
     const local = await localDownloadTarget(root, destination)
     if (local.sha256 !== expectedLocalSha256) throw new Error('本地目标已变化，请重新预览取回。')
     const checkRemote = async () => {
-      const result = await this.run(id, '/', remoteFileHashCommand(remote), signal)
+      const result = await this.run(id, '/', remoteFileHashCommand(remote), signal, undefined, undefined, undefined, expectedEndpoint)
       if (result.exitCode !== 0) throw new Error(result.stderr.trim() || '无法读取远端文件状态。')
       if (parseRemoteFileHash(result.stdout) !== expectedSha256) throw new Error('远端文件已变化，请重新预览取回。')
     }
@@ -438,7 +446,7 @@ export class ServerBroker {
         hash.update(chunk)
         let offset = 0
         while (offset < chunk.length) offset += writeSync(handle.fd, chunk, offset, chunk.length - offset)
-      }, Number.MAX_SAFE_INTEGER)
+      }, Number.MAX_SAFE_INTEGER, undefined, undefined, expectedEndpoint)
       if (result.exitCode !== 0) throw new Error(result.stderr.trim() || '远端文件取回失败。')
       const sha256 = hash.digest('hex')
       if (sha256 !== expectedSha256) throw new Error('远端文件传输期间发生变化，请重新预览。')
@@ -456,21 +464,23 @@ export class ServerBroker {
   }
 
   /** Execute one explicitly approved remote command. The secret never leaves this process. */
-  async run(id: string, cwd: string, command: string, signal?: AbortSignal, outputLimit = 256 * 1024, onOutput?: (chunk: ServerOutput) => void, policy?: RemotePolicy): Promise<ServerCommandResult> {
+  async run(id: string, cwd: string, command: string, signal?: AbortSignal, outputLimit = 256 * 1024, onOutput?: (chunk: ServerOutput) => void, policy?: RemotePolicy, expectedEndpoint?: string): Promise<ServerCommandResult> {
     if (!Number.isSafeInteger(outputLimit) || outputLimit < 1 || outputLimit > 16 * 1024 * 1024) throw new Error('远端输出预算无效。')
-    return this.execute(id, cwd, command, signal, undefined, undefined, outputLimit, onOutput, policy)
+    return this.execute(id, cwd, command, signal, undefined, undefined, outputLimit, onOutput, policy, expectedEndpoint)
   }
 
-  async readFile(id: string, path: string, signal?: AbortSignal, root?: string, maxBytes?: number) {
-    return (await this.runtime(id, signal)).readFile(path, signal, root, maxBytes)
+  async readFile(id: string, path: string, signal?: AbortSignal, root?: string, maxBytes?: number, expectedEndpoint?: string) {
+    return (await this.runtime(id, signal, expectedEndpoint)).readFile(path, signal, root, maxBytes)
   }
-  async writeFile(id: string, path: string, text: string, expected: string | null, policy: RemotePolicy, signal?: AbortSignal) {
-    return (await this.runtime(id, signal)).writeFile(path, text, expected, policy, signal)
+  async writeFile(id: string, path: string, text: string, expected: string | null, policy: RemotePolicy, signal?: AbortSignal, expectedEndpoint?: string) {
+    return (await this.runtime(id, signal, expectedEndpoint)).writeFile(path, text, expected, policy, signal)
   }
-  async listFiles(id: string, path: string, signal?: AbortSignal, root?: string) {
-    return (await this.runtime(id, signal)).listFiles(path, signal, root)
+  async listFiles(id: string, path: string, signal?: AbortSignal, root?: string, expectedEndpoint?: string) {
+    return (await this.runtime(id, signal, expectedEndpoint)).listFiles(path, signal, root)
   }
   async close(): Promise<void> {
+    for (const copy of this.copies.keys()) copy.abort()
+    await Promise.allSettled([...this.copies.values()])
     await this.fileManager.close()
     const sftp = [...this.sftpSessions.values()]
     this.sftpSessions.clear()
@@ -479,19 +489,57 @@ export class ServerBroker {
     this.runtimes.clear()
     await Promise.allSettled(records.map(async record => (await record.runtime).close()))
   }
-  manageFiles(id: string, request: LingRemoteFileRequest, signal?: AbortSignal) {
-    return this.fileManager.request(id, request, signal)
+  async copy(id: string, value: ServerCopyRequest, signal: AbortSignal, onProgress?: (progress: CopyProgress) => void, expectedEndpoint?: string): Promise<ServerCopyResult> {
+    const started = Date.now()
+    const request = parseCopyRequest(value)
+    const controller = new AbortController()
+    const copySignal = AbortSignal.any([signal, controller.signal])
+    let channel: import('ssh2').SFTPWrapper | undefined
+    const abort = () => channel?.end()
+    copySignal.addEventListener('abort', abort, { once: true })
+    let finished!: () => void
+    this.copies.set(controller, new Promise(resolve => { finished = resolve }))
+    try {
+      copySignal.throwIfAborted()
+      const tree = await scanCopySource(request, copySignal)
+      const { client, files } = await this.sftp(id, expectedEndpoint)
+      copySignal.throwIfAborted()
+      let method: 'sftp' | 'rsync' = 'sftp'
+      if (request.method === 'rsync' || request.method === 'auto' && tree.directory && !request.dryRun) {
+        if (await supportsRsync(client, copySignal)) method = 'rsync'
+        else if (request.method === 'rsync') throw new Error('本机或服务器不支持 rsync。可改用 method=sftp；也可先通过 server_exec 安装远端 rsync 后重试。')
+      }
+      channel = await new Promise<import('ssh2').SFTPWrapper>((resolve, reject) => client.sftp((error, value) => error ? reject(error) : resolve(value)))
+      if (copySignal.aborted) { channel.end(); copySignal.throwIfAborted() }
+      const scopedFiles = new SftpFiles(channel)
+      onProgress?.({ phase: 'scan', copied: 0, skipped: 0, bytes: 0, totalBytes: tree.files.reduce((sum, file) => sum + file.bytes, 0), files: tree.files.length })
+      const plan = await prepareCopy(scopedFiles, tree, request, copySignal)
+      const result = method === 'rsync' ? await copyRsync(client, tree, request, plan, copySignal, onProgress)
+        : await copySftp(scopedFiles, files, request, plan, copySignal, onProgress)
+      return { ...result, durationMs: Date.now() - started }
+    } catch (error) {
+      if (copySignal.aborted && !(error instanceof Error && error.message.includes('取消'))) throw new Error('拷贝已取消。')
+      throw error
+    } finally { copySignal.removeEventListener('abort', abort); channel?.end(); this.copies.delete(controller); finished() }
+  }
+  manageFiles(id: string, request: LingRemoteFileRequest, signal?: AbortSignal, expectedEndpoint?: string) {
+    return this.fileManager.request(id, request, signal, expectedEndpoint === undefined ? undefined : async () => (await this.sftp(id, expectedEndpoint)).files)
   }
   /** A separate pooled SSH channel keeps file transfers independent of helper/terminal lifecycle. */
-  private async sftp(id: string): Promise<{ client: ssh2.Client; files: SftpFiles }> {
+  private async sftp(id: string, expectedEndpoint?: string): Promise<{ client: ssh2.Client; files: SftpFiles; endpoint: string }> {
     // Revalidate inventory/vault identity even when reusing a live connection.
     const server = await this.server(id)
+    if (expectedEndpoint !== undefined && expectedEndpoint !== endpoint(server)) throw new Error('服务器连接目标已变化，请重新确认后再执行。')
     const entry = (await this.read()).entries[id]
     if (!entry?.fingerprint || entry.endpoint !== endpoint(server)) throw new Error('请先确认当前服务器的主机指纹。')
     if (!entry.credential) throw new Error('请先保存服务器密码或私钥。')
     const storedCredential = entry.credential
     const existing = this.sftpSessions.get(id)
-    if (existing) return existing
+    if (existing) {
+      const cached = await existing
+      if (cached.endpoint !== endpoint(server)) throw new Error('服务器连接目标已变化，请重新连接。')
+      return cached
+    }
     const opening = (async () => {
       if (!(await this.codec.available())) throw new Error('系统安全存储不可用，无法读取凭证。')
       const credential = JSON.parse(await this.codec.decrypt(Buffer.from(storedCredential.encrypted, 'base64'))) as Credential
@@ -521,15 +569,16 @@ export class ServerBroker {
           client.end()
         })
         channel.on('error', () => { client.end() })
-        return { client, files: new SftpFiles(channel) }
+        return { client, files: new SftpFiles(channel), endpoint: endpoint(server) }
       } catch (error) { client.end(); throw error }
     })()
     this.sftpSessions.set(id, opening)
     void opening.catch(() => { if (this.sftpSessions.get(id) === opening) this.sftpSessions.delete(id) })
     return opening
   }
-  private async runtime(id: string, signal?: AbortSignal): Promise<DshRemoteRuntime> {
+  private async runtime(id: string, signal?: AbortSignal, expectedEndpoint?: string): Promise<DshRemoteRuntime> {
     const server = await this.server(id)
+    if (expectedEndpoint !== undefined && expectedEndpoint !== endpoint(server)) throw new Error('服务器连接目标已变化，请重新确认后再执行。')
     const entry = (await this.read()).entries[id]
     if (!entry?.fingerprint || entry.endpoint !== endpoint(server)) throw new Error('请先确认当前服务器的主机指纹。')
     if (!entry.credential) throw new Error('请先保存服务器密码或私钥。')
@@ -571,10 +620,10 @@ export class ServerBroker {
   }
   private async execute(id: string, cwd: string, command: string, signal?: AbortSignal, inputPath?: string,
     onStdout?: (chunk: Buffer) => void, maxOutputBytes = 256 * 1024, onOutput?: (chunk: ServerOutput) => void,
-    policy: RemotePolicy = { mode: 'danger-full-access', workspaceRoot: cwd }): Promise<ServerCommandResult> {
+    policy: RemotePolicy = { mode: 'danger-full-access', workspaceRoot: cwd }, expectedEndpoint?: string): Promise<ServerCommandResult> {
     if (!posix.isAbsolute(cwd) || cwd.includes('\0') || cwd.length > 4096) throw new Error('远端目录无效。')
     if (!command.trim() || command.length > 16384 || command.includes('\0')) throw new Error('远端命令无效。')
-    return (await this.runtime(id, signal)).execute(cwd, command, policy, signal,
+    return (await this.runtime(id, signal, expectedEndpoint)).execute(cwd, command, policy, signal,
       { inputPath, onStdout, limit: maxOutputBytes, onOutput })
   }
 }

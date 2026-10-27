@@ -1,7 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { LingPendingInteraction, LingPendingMessage, LingPromptAttachment, LingRuntimeSnapshot, LingTimelineItem } from '../src/runtime/contract.js'
+import type { LingPendingInteraction, LingPendingMessage, LingPromptAttachment, LingRuntimeSnapshot, LingTimelineItem, LingReadResult } from '../src/runtime/contract.js'
+import type { LingTaskServers } from '../src/runtime/servers.js'
 import { createDshRuntimeAdapter, type DshRuntimeFacades } from '../src/runtime/dsh-adapter.js'
 import { toComposerWorkspaceContext } from '../src/ui/attachments.js'
+
+function serverFixture(ids = ['server-1', 'server-2']) {
+  const taskServers = vi.fn(async (_taskId: string): Promise<LingReadResult<LingTaskServers>> => ({ ok: true, value: { revision: 0, servers: [] } }))
+  const setTaskServers = vi.fn(async (_taskId: string, request: { expectedRevision: number; serverIds: readonly string[]; developmentServerId?: string }) => ({
+    ok: true as const, value: { revision: request.expectedRevision + 1, servers: request.serverIds.map(serverId => ({ serverId })),
+      ...(request.developmentServerId ? { developmentServerId: request.developmentServerId } : {}) },
+  }))
+  const copyTaskServers = vi.fn(async (sourceTaskId: string, _targetTaskId: string): Promise<LingReadResult<LingTaskServers>> => {
+    const source = await taskServers(sourceTaskId)
+    return source.ok ? { ok: true, value: { ...source.value, revision: 1 } } : source
+  })
+  const list = vi.fn(async () => ({ ok: true as const, value: ids.map(id => ({ id, name: id })) }))
+  return { taskServers, setTaskServers, copyTaskServers, list }
+}
 
 class Source<Value> {
   private readonly listeners = new Set<() => void>()
@@ -479,40 +494,49 @@ describe('DSH runtime adapter', () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 
-  it('binds a selected server before the first remote task prompt and uses the verified login directory', async () => {
+  it('associates every server before the first remote task prompt and preflights only the primary', async () => {
     const { facades, create, prompt } = fixture()
-    const bindTask = vi.fn(async () => ({ ok: true as const, value: { serverId: 'server-1', cwd: '/home/tester' } }))
+    const servers = serverFixture()
     const broker = { status: vi.fn(async () => ({ trusted: true, credential: 'password' as const })),
       probe: vi.fn(async () => ({ home: '/home/tester' })), credentials: vi.fn(async () => {}) }
     Object.assign(globalThis, { __LING_SERVER_BROKER__: broker })
     try {
-      const adapter = createDshRuntimeAdapter({ ...facades,
-        servers: { bindTask, taskBinding: async () => ({ ok: true as const, value: null }) } as unknown as DshRuntimeFacades['servers'] })
-      const result = await adapter.dispatch({ type: 'task.create', requestId: 'remote-create', prompt: '检查远端项目', serverId: 'server-1' })
+      const adapter = createDshRuntimeAdapter({ ...facades, servers: servers as unknown as DshRuntimeFacades['servers'] })
+      const result = await adapter.dispatch({ type: 'task.create', requestId: 'remote-create', prompt: '检查远端项目', serverIds: ['server-1', 'server-2'], developmentServerId: 'server-1' })
       expect(result).toMatchObject({ accepted: true, output: { taskId: 'session-created' } })
       expect(create).toHaveBeenCalledWith({})
-      expect(bindTask).toHaveBeenCalledWith('session-created', 'server-1', '/home/tester')
-      expect(bindTask.mock.invocationCallOrder[0]).toBeLessThan(prompt.mock.invocationCallOrder[0]!)
+      expect(servers.setTaskServers).toHaveBeenCalledWith('session-created', { expectedRevision: 0, serverIds: ['server-1', 'server-2'], developmentServerId: 'server-1' })
+      expect(servers.setTaskServers.mock.invocationCallOrder[0]).toBeLessThan(prompt.mock.invocationCallOrder[0]!)
+      expect(broker.probe).toHaveBeenCalledExactlyOnceWith('server-1')
       expect(broker.credentials).not.toHaveBeenCalled()
     } finally { delete (globalThis as { __LING_SERVER_BROKER__?: unknown }).__LING_SERVER_BROKER__ }
   })
 
-  it('attaches an operations server without moving a local workspace task to the remote server', async () => {
+  it('associates offline resource servers without moving a local task or opening SSH', async () => {
     const { facades, create, prompt } = fixture()
-    const attachOperations = vi.fn(async () => ({ ok: true as const, value: { serverId: 'server-1', cwd: '/home/tester' } }))
-    const broker = { status: vi.fn(async () => ({ trusted: true, credential: 'key' as const })),
-      probe: vi.fn(async () => ({ home: '/home/tester' })), credentials: vi.fn(async () => {}) }
+    const servers = serverFixture()
+    const broker = { status: vi.fn(async () => { throw new Error('offline') }), probe: vi.fn() }
     Object.assign(globalThis, { __LING_SERVER_BROKER__: broker })
     try {
-      const adapter = createDshRuntimeAdapter({ ...facades,
-        servers: { attachOperations } as unknown as DshRuntimeFacades['servers'] })
-      const result = await adapter.dispatch({ type: 'task.create', requestId: 'local-ops', prompt: '查看远端状态', workspaceId: 'workspace-1', operationsServerId: 'server-1' })
+      const adapter = createDshRuntimeAdapter({ ...facades, servers: servers as unknown as DshRuntimeFacades['servers'] })
+      const result = await adapter.dispatch({ type: 'task.create', requestId: 'local-ops', prompt: '查看远端状态', workspaceId: 'workspace-1', serverIds: ['server-1', 'server-2'] })
       expect(result).toMatchObject({ accepted: true, output: { taskId: 'session-created' } })
       expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
-      expect(attachOperations).toHaveBeenCalledWith('session-created', 'server-1', '/home/tester')
-      expect(attachOperations.mock.invocationCallOrder[0]).toBeLessThan(prompt.mock.invocationCallOrder[0]!)
-      expect(broker.credentials).not.toHaveBeenCalled()
+      expect(servers.setTaskServers).toHaveBeenCalledWith('session-created', { expectedRevision: 0, serverIds: ['server-1', 'server-2'] })
+      expect(servers.setTaskServers.mock.invocationCallOrder[0]).toBeLessThan(prompt.mock.invocationCallOrder[0]!)
+      expect(broker.status).not.toHaveBeenCalled()
     } finally { delete (globalThis as { __LING_SERVER_BROKER__?: unknown }).__LING_SERVER_BROKER__ }
+  })
+
+  it('rejects unknown, duplicate or missing primary associations before creating a task', async () => {
+    const { facades, create } = fixture()
+    const servers = serverFixture()
+    const adapter = createDshRuntimeAdapter({ ...facades, servers: servers as unknown as DshRuntimeFacades['servers'] })
+    for (const options of [{ serverIds: ['missing'] }, { serverIds: ['server-1', 'server-1'] }, { serverIds: ['server-1'], developmentServerId: 'server-2' }, { serverIds: ['server-1'], developmentServerId: 'server-1', workspaceId: 'workspace-1' }]) {
+      expect(await adapter.dispatch({ type: 'task.create', requestId: 'invalid', prompt: 'check', ...options })).toMatchObject({ accepted: false, reason: 'invalid-command' })
+    }
+    expect(create).not.toHaveBeenCalled()
+    expect(servers.setTaskServers).not.toHaveBeenCalled()
   })
 
   it('does not create a remote task when fingerprint confirmation remains incomplete', async () => {
@@ -521,8 +545,8 @@ describe('DSH runtime adapter', () => {
       probe: vi.fn(async () => ({ home: '/home/tester' })), credentials: vi.fn(async () => {}) }
     Object.assign(globalThis, { __LING_SERVER_BROKER__: broker })
     try {
-      const adapter = createDshRuntimeAdapter({ ...facades, servers: { bindTask: vi.fn() } as unknown as DshRuntimeFacades['servers'] })
-      await expect(adapter.dispatch({ type: 'task.create', requestId: 'untrusted', prompt: '检查远端项目', serverId: 'server-1' })).resolves.toMatchObject({ accepted: false })
+      const adapter = createDshRuntimeAdapter({ ...facades, servers: serverFixture() as unknown as DshRuntimeFacades['servers'] })
+      await expect(adapter.dispatch({ type: 'task.create', requestId: 'untrusted', prompt: '检查远端项目', serverIds: ['server-1'], developmentServerId: 'server-1' })).resolves.toMatchObject({ accepted: false })
       expect(broker.credentials).toHaveBeenCalledOnce()
       expect(create).not.toHaveBeenCalled()
     } finally { delete (globalThis as { __LING_SERVER_BROKER__?: unknown }).__LING_SERVER_BROKER__ }
@@ -1377,18 +1401,28 @@ describe('DSH runtime adapter', () => {
     })
   })
 
-  it('retains the operations target when forking a local task', async () => {
+  it('asks the Host to copy every fork directory and the primary without accepting renderer-supplied paths', async () => {
     const { facades, fork } = fixture()
-    const attachOperations = vi.fn(async () => ({ ok: true as const, value: { serverId: 'server-1', cwd: '/home/tester' } }))
-    const adapter = createDshRuntimeAdapter({ ...facades,
-      servers: {
-        taskBinding: async () => ({ ok: true as const, value: null }),
-        operationsBinding: async () => ({ ok: true as const, value: { serverId: 'server-1', cwd: '/home/tester' } }),
-        attachOperations,
-      } as unknown as DshRuntimeFacades['servers'] })
-    await expect(adapter.dispatch({ type: 'task.fork', requestId: 'fork-ops', taskId: 'session-1' })).resolves.toMatchObject({ accepted: true, output: { taskId: 'session-forked' } })
+    const servers = serverFixture()
+    servers.taskServers.mockImplementation(async taskId => ({ ok: true as const, value: taskId === 'session-1'
+      ? { revision: 3, servers: [{ serverId: 'server-1', cwd: '/srv/ops' }, { serverId: 'server-2', cwd: '/srv/project/.worktrees/feature' }], developmentServerId: 'server-2' }
+      : { revision: 0, servers: [] } }))
+    const adapter = createDshRuntimeAdapter({ ...facades, servers: servers as unknown as DshRuntimeFacades['servers'] })
+    await expect(adapter.dispatch({ type: 'task.fork', requestId: 'fork-servers', taskId: 'session-1' })).resolves.toMatchObject({ accepted: true, output: { taskId: 'session-forked' } })
     expect(fork).toHaveBeenCalledOnce()
-    expect(attachOperations).toHaveBeenCalledWith('session-forked', 'server-1', '/home/tester')
+    expect(servers.copyTaskServers).toHaveBeenCalledExactlyOnceWith('session-1', 'session-forked')
+    expect(servers.setTaskServers).not.toHaveBeenCalled()
+  })
+
+  it('does not admit a fork whose Host-owned server bindings could not be copied', async () => {
+    const { facades } = fixture()
+    const servers = serverFixture()
+    servers.taskServers.mockResolvedValue({ ok: true, value: { revision: 1, servers: [{ serverId: 'server-1', cwd: '/srv/project' }] } })
+    servers.copyTaskServers.mockResolvedValue({ ok: false, reason: 'invalid-command', message: '目标会话已有关联服务器，无法覆盖。', retryable: false })
+    const adapter = createDshRuntimeAdapter({ ...facades, servers: servers as unknown as DshRuntimeFacades['servers'] })
+    await expect(adapter.dispatch({ type: 'task.fork', requestId: 'fork-conflict', taskId: 'session-1' }))
+      .resolves.toMatchObject({ accepted: false, message: '目标会话已有关联服务器，无法覆盖。' })
+    expect(servers.setTaskServers).not.toHaveBeenCalled()
   })
 
   it('reads turn changes and file diffs through the changes projection', async () => {

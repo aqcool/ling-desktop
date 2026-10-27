@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { LingServer } from '../../runtime/servers.js'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { LingServer, LingTaskServers } from '../../runtime/servers.js'
 import type { GitRequest } from '../GitPanel.js'
 import type { LingShellProps } from './types.js'
 
@@ -30,60 +30,62 @@ export async function remoteIssue(serverId: string): Promise<RemoteIssue | undef
   }
 }
 
-export function useShellRemote(props: Pick<LingShellProps, 'newTaskOperationsServerId' | 'newTaskServerId' | 'screen' | 'selectedTask' | 'serverManager' | 'timeline'>) {
+export function useShellRemote(props: Pick<LingShellProps, 'newTaskServerIds' | 'newTaskDevelopmentServerId' | 'screen' | 'selectedTask' | 'serverManager' | 'timeline'>) {
   const { selectedTask, timeline } = props
   const [servers, setServers] = useState<readonly LingServer[]>([])
-  const [taskServerId, setTaskServerId] = useState<string>()
-  const [taskRemoteCwd, setTaskRemoteCwd] = useState<string>()
-  const [taskFileBindingReady, setTaskFileBindingReady] = useState<string>()
+  const [binding, setBinding] = useState<{ taskId: string; value: LingTaskServers }>()
+  const [taskServersError, setTaskServersError] = useState<string>()
+  const scope = useRef({ taskId: selectedTask?.taskId, service: props.serverManager, revision: 0 })
+  if (scope.current.taskId !== selectedTask?.taskId || scope.current.service !== props.serverManager) {
+    scope.current = { taskId: selectedTask?.taskId, service: props.serverManager, revision: 0 }
+  }
+  const taskServers = binding?.taskId === selectedTask?.taskId ? binding?.value : undefined
+  const serverIds = selectedTask ? taskServers?.servers.map(server => server.serverId) ?? [] : props.newTaskServerIds
+  const activeServerId = selectedTask ? taskServers?.developmentServerId : props.newTaskDevelopmentServerId
+  const taskRemoteCwd = taskServers?.servers.find(server => server.serverId === activeServerId)?.cwd
+  const taskFileBindingReady = taskServers ? selectedTask?.taskId : undefined
+  const refreshTaskServers = useCallback(async () => {
+    const current = scope.current
+    if (!current.taskId || !current.service) return
+    const revision = ++current.revision
+    try {
+      const result = await current.service.taskServers(current.taskId)
+      if (scope.current !== current || current.revision !== revision) return
+      if (result.ok) { setBinding({ taskId: current.taskId, value: result.value }); setTaskServersError(undefined) }
+      else setTaskServersError(result.message)
+    } catch {
+      if (scope.current === current && current.revision === revision) setTaskServersError('无法读取关联服务器。')
+    }
+  }, [selectedTask?.taskId, props.serverManager])
   const [remoteGitBranch, setRemoteGitBranch] = useState<string | null>(null)
-  const remoteGitRequest = useCallback<GitRequest>((taskId, request) => props.serverManager
-    ? props.serverManager.gitRequest(taskId, request)
-    : Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '远端 Git 服务不可用。', retryable: true }), [props.serverManager])
-  const [taskOperationsBinding, setTaskOperationsBinding] = useState<{ taskId: string; serverId: string }>()
-  const activeServerId = selectedTask ? taskServerId : props.newTaskServerId
-  const activeOperationsServerId = activeServerId ? undefined : selectedTask
-    ? taskOperationsBinding?.taskId === selectedTask.taskId ? taskOperationsBinding.serverId : undefined
-    : props.newTaskOperationsServerId
-  const issueServerId = selectedTask ? taskServerId ?? activeOperationsServerId : undefined
+  const remoteGitRequest = useCallback<GitRequest>((taskId, request) => props.serverManager && activeServerId
+    ? props.serverManager.gitRequest(taskId, activeServerId, request)
+    : Promise.resolve({ ok: false, reason: 'runtime-unavailable', message: '远端 Git 服务不可用。', retryable: true }), [props.serverManager, activeServerId])
+  const issueServerId = selectedTask ? activeServerId : undefined
   const [serverIssue, setServerIssue] = useState<RemoteIssue>()
   const [serverIssuePending, setServerIssuePending] = useState(false)
   useEffect(() => {
     if (!props.serverManager) return
     let active = true
-    void props.serverManager.list().then(result => { if (active && result.ok) setServers(result.value) })
-    return () => { active = false }
+    const refresh = () => { void props.serverManager!.list().then(result => { if (active && result.ok) setServers(result.value) }).catch(() => {}) }
+    refresh()
+    window.addEventListener('ling:servers-changed', refresh)
+    return () => { active = false; window.removeEventListener('ling:servers-changed', refresh) }
   }, [props.serverManager, props.screen])
   useEffect(() => {
-    setTaskServerId(undefined)
-    setTaskRemoteCwd(undefined)
-    setTaskFileBindingReady(undefined)
+    const current = scope.current
+    setBinding(undefined)
+    setTaskServersError(undefined)
     setRemoteGitBranch(null)
     setServerIssue(undefined)
-    if (!selectedTask || !props.serverManager) return
-    let active = true
-    void props.serverManager.taskBinding(selectedTask.taskId).then(result => {
-      if (active && result.ok) { setTaskServerId(result.value?.serverId); setTaskRemoteCwd(result.value?.cwd); setTaskFileBindingReady(selectedTask.taskId) }
-    })
-    return () => { active = false }
-  }, [selectedTask?.taskId, props.serverManager])
-  useEffect(() => {
-    if (!selectedTask || !props.serverManager || !taskServerId) return
-    let active = true
-    void props.serverManager.taskBinding(selectedTask.taskId).then(result => {
-      if (active && result.ok) setTaskRemoteCwd(result.value?.cwd)
-    })
-    return () => { active = false }
-  }, [selectedTask?.taskId, props.serverManager, taskServerId, timeline.length])
-  useEffect(() => {
-    setTaskOperationsBinding(undefined)
-    if (!selectedTask || !props.serverManager) return
-    let active = true
-    void props.serverManager.operationsBinding(selectedTask.taskId).then(result => {
-      if (active && result.ok && result.value) setTaskOperationsBinding({ taskId: selectedTask.taskId, serverId: result.value.serverId })
-    })
-    return () => { active = false }
-  }, [selectedTask?.taskId, props.serverManager])
+    void refreshTaskServers()
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === selectedTask?.taskId) void refreshTaskServers()
+    }
+    window.addEventListener('ling:task-servers-changed', changed)
+    return () => { current.revision++; window.removeEventListener('ling:task-servers-changed', changed) }
+  }, [refreshTaskServers, selectedTask?.taskId])
+  useEffect(() => { if (activeServerId) void refreshTaskServers() }, [activeServerId, timeline.length, refreshTaskServers])
   useEffect(() => {
     setServerIssue(undefined)
     if (!issueServerId || props.screen !== 'workspace') return
@@ -109,17 +111,17 @@ export function useShellRemote(props: Pick<LingShellProps, 'newTaskOperationsSer
     return () => { active = false; if (timer) clearTimeout(timer); window.removeEventListener('focus', check) }
   }, [issueServerId, props.screen])
   return {
-    setTaskOperationsBinding,
     servers,
-    taskServerId,
+    serverIds,
+    taskServers,
+    taskServersError,
+    refreshTaskServers,
     taskRemoteCwd,
-    setTaskRemoteCwd,
     taskFileBindingReady,
     remoteGitBranch,
     setRemoteGitBranch,
     remoteGitRequest,
     activeServerId,
-    activeOperationsServerId,
     issueServerId,
     serverIssue,
     setServerIssue,

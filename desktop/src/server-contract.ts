@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { LingGitRequest, LingGitResult, LingServerExecution } from 'ling-desktop/runtime'
 import type { LingRemoteFileRequest, LingRemoteFileResult } from 'ling-desktop/runtime'
 import { sftpRequestSchema, sftpResultSchema } from './sftp-contract.ts'
+import { taskServersSchema, taskServersUpdateSchema } from './server-task-contract.ts'
+import type { LingTaskServers, LingTaskServersUpdate, LingServerTerminalScope } from 'ling-desktop/runtime'
 
 export const serverEnvironmentSchema = z.enum(['development', 'staging', 'production'])
 export const serverInputSchema = z.object({
@@ -53,22 +55,21 @@ export interface LingServersRemote {
   forget(id: string): Promise<RemoteResult<{ readonly ok: true }>>
   probe(id: string, signal?: AbortSignal): Promise<RemoteResult<LingServerProbe>>
   directories(id: string, path: string, signal?: AbortSignal): Promise<RemoteResult<LingServerDirectory>>
-  bindTask(taskId: string, serverId: string, home: string): Promise<RemoteResult<{ readonly serverId: string; readonly cwd: string }>>
-  taskBinding(taskId: string): Promise<RemoteResult<{ readonly serverId: string; readonly cwd: string } | null>>
-  attachOperations(taskId: string, serverId: string, home: string): Promise<RemoteResult<{ readonly serverId: string; readonly cwd: string }>>
-  operationsBinding(taskId: string): Promise<RemoteResult<{ readonly serverId: string; readonly cwd: string } | null>>
-  takeTerminalUiRequest(taskId: string): Promise<RemoteResult<{ readonly open: boolean }>>
-  terminalList(taskId: string): Promise<RemoteResult<readonly string[]>>
-  terminalScope(serverId: string, placement: 'side' | 'bottom', signal?: AbortSignal): Promise<RemoteResult<{ readonly ownerId: string }>>
-  terminalOpen(taskId: string, cols: number, rows: number, signal?: AbortSignal): Promise<RemoteResult<{ readonly terminalId: string }>>
-  terminalPoll(taskId: string, terminalId: string, offset: number, signal?: AbortSignal): Promise<RemoteResult<LingServerTerminalSnapshot>>
-  terminalWrite(taskId: string, terminalId: string, data: string, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
-  terminalResize(taskId: string, terminalId: string, cols: number, rows: number, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
-  terminalClose(taskId: string, terminalId: string, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
-  filesList(taskId: string, path: string, signal?: AbortSignal): Promise<RemoteResult<LingServerFilesDirectory>>
-  filesRead(taskId: string, path: string, signal?: AbortSignal): Promise<RemoteResult<LingServerTextFile>>
-  filesSave(taskId: string, path: string, text: string, expectedSha256: string | null, signal?: AbortSignal): Promise<RemoteResult<{ readonly path: string; readonly sha256: string }>>
-  gitRequest(taskId: string, request: LingGitRequest, signal?: AbortSignal): Promise<RemoteResult<LingGitResult>>
+  taskServers(taskId: string): Promise<RemoteResult<LingTaskServers>>
+  setTaskServers(taskId: string, request: LingTaskServersUpdate): Promise<RemoteResult<LingTaskServers>>
+  copyTaskServers(sourceTaskId: string, targetTaskId: string): Promise<RemoteResult<LingTaskServers>>
+  takeTerminalUiRequest(taskId: string): Promise<RemoteResult<{ readonly open: boolean; readonly serverId?: string }>>
+  terminalList(ownerId: string): Promise<RemoteResult<readonly string[]>>
+  terminalScope(request: LingServerTerminalScope, signal?: AbortSignal): Promise<RemoteResult<{ readonly ownerId: string }>>
+  terminalOpen(ownerId: string, cols: number, rows: number, signal?: AbortSignal): Promise<RemoteResult<{ readonly terminalId: string }>>
+  terminalPoll(ownerId: string, terminalId: string, offset: number, signal?: AbortSignal): Promise<RemoteResult<LingServerTerminalSnapshot>>
+  terminalWrite(ownerId: string, terminalId: string, data: string, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
+  terminalResize(ownerId: string, terminalId: string, cols: number, rows: number, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
+  terminalClose(ownerId: string, terminalId: string, signal?: AbortSignal): Promise<RemoteResult<{ readonly ok: true }>>
+  filesList(taskId: string, serverId: string, path: string, signal?: AbortSignal): Promise<RemoteResult<LingServerFilesDirectory>>
+  filesRead(taskId: string, serverId: string, path: string, signal?: AbortSignal): Promise<RemoteResult<LingServerTextFile>>
+  filesSave(taskId: string, serverId: string, path: string, text: string, expectedSha256: string | null, signal?: AbortSignal): Promise<RemoteResult<{ readonly path: string; readonly sha256: string }>>
+  gitRequest(taskId: string, serverId: string, request: LingGitRequest, signal?: AbortSignal): Promise<RemoteResult<LingGitResult>>
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -82,10 +83,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'lingServers/forget': LingServersRemote['forget']
     'lingServers/probe': LingServersRemote['probe']
     'lingServers/directories': LingServersRemote['directories']
-    'lingServers/bindTask': LingServersRemote['bindTask']
-    'lingServers/taskBinding': LingServersRemote['taskBinding']
-    'lingServers/attachOperations': LingServersRemote['attachOperations']
-    'lingServers/operationsBinding': LingServersRemote['operationsBinding']
+    'lingServers/taskServers': LingServersRemote['taskServers']
+    'lingServers/setTaskServers': LingServersRemote['setTaskServers']
+    'lingServers/copyTaskServers': LingServersRemote['copyTaskServers']
     'lingServers/takeTerminalUiRequest': LingServersRemote['takeTerminalUiRequest']
     'lingServers/terminalList': LingServersRemote['terminalList']
     'lingServers/terminalScope': LingServersRemote['terminalScope']
@@ -124,22 +124,21 @@ const descriptors: readonly InvocationDescriptor[] = [
   descriptor('forget', [parameter('forget', 'id', z.string().uuid())], z.object({ ok: z.literal(true) }).strict()),
   descriptor('probe', [parameter('probe', 'id', z.string().uuid())], z.object({ home: z.string().startsWith('/') }).strict(), true),
   descriptor('directories', [parameter('directories', 'id', z.string().uuid()), parameter('directories', 'path', z.string().startsWith('/').max(4096))], z.object({ path: z.string(), directories: z.array(directorySchema) }).strict(), true),
-  descriptor('bindTask', [parameter('bindTask', 'taskId', z.string().min(1).max(128)), parameter('bindTask', 'serverId', z.string().uuid()), parameter('bindTask', 'home', z.string().startsWith('/').max(4096))], z.object({ serverId: z.string().uuid(), cwd: z.string() }).strict()),
-  descriptor('taskBinding', [parameter('taskBinding', 'taskId', z.string().min(1).max(128))], z.object({ serverId: z.string().uuid(), cwd: z.string() }).strict().nullable()),
-  descriptor('attachOperations', [parameter('attachOperations', 'taskId', z.string().min(1).max(128)), parameter('attachOperations', 'serverId', z.string().uuid()), parameter('attachOperations', 'home', z.string().startsWith('/').max(4096))], z.object({ serverId: z.string().uuid(), cwd: z.string() }).strict()),
-  descriptor('operationsBinding', [parameter('operationsBinding', 'taskId', z.string().min(1).max(128))], z.object({ serverId: z.string().uuid(), cwd: z.string() }).strict().nullable()),
-  descriptor('takeTerminalUiRequest', [parameter('takeTerminalUiRequest', 'taskId', z.string().min(1).max(128))], z.object({ open: z.boolean() }).strict()),
-  descriptor('terminalList', [parameter('terminalList', 'taskId', z.string().min(1).max(128))], z.array(z.string().uuid())),
-  descriptor('terminalScope', [parameter('terminalScope', 'serverId', z.string().uuid()), parameter('terminalScope', 'placement', z.enum(['side', 'bottom']))], z.object({ ownerId: z.string().min(1).max(128) }).strict(), true),
-  descriptor('terminalOpen', [parameter('terminalOpen', 'taskId', z.string().min(1).max(128)), parameter('terminalOpen', 'cols', z.number().int().min(2).max(500)), parameter('terminalOpen', 'rows', z.number().int().min(1).max(200))], z.object({ terminalId: z.string().uuid() }).strict(), true),
-  descriptor('terminalPoll', [parameter('terminalPoll', 'taskId', z.string().min(1).max(128)), parameter('terminalPoll', 'terminalId', z.string().uuid()), parameter('terminalPoll', 'offset', z.number().int().min(0))], z.object({ terminalId: z.string().uuid(), offset: z.number().int().min(0), data: z.string(), closed: z.boolean(), truncated: z.boolean().optional(), exitCode: z.number().int().optional(), error: z.string().optional() }).strict(), true),
-  descriptor('terminalWrite', [parameter('terminalWrite', 'taskId', z.string().min(1).max(128)), parameter('terminalWrite', 'terminalId', z.string().uuid()), parameter('terminalWrite', 'data', z.string().max(64 * 1024))], z.object({ ok: z.literal(true) }).strict(), true),
-  descriptor('terminalResize', [parameter('terminalResize', 'taskId', z.string().min(1).max(128)), parameter('terminalResize', 'terminalId', z.string().uuid()), parameter('terminalResize', 'cols', z.number().int().min(2).max(500)), parameter('terminalResize', 'rows', z.number().int().min(1).max(200))], z.object({ ok: z.literal(true) }).strict(), true),
-  descriptor('terminalClose', [parameter('terminalClose', 'taskId', z.string().min(1).max(128)), parameter('terminalClose', 'terminalId', z.string().uuid())], z.object({ ok: z.literal(true) }).strict(), true),
-  descriptor('filesList', [parameter('filesList', 'taskId', z.string().min(1).max(128)), parameter('filesList', 'path', z.string().max(4096))], z.object({ path: z.string(), entries: z.array(z.object({ name: z.string(), type: z.enum(['directory', 'file', 'other']) }).strict()) }).strict(), true),
-  descriptor('filesRead', [parameter('filesRead', 'taskId', z.string().min(1).max(128)), parameter('filesRead', 'path', z.string().min(1).max(4096))], z.object({ path: z.string(), text: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/), truncated: z.boolean() }).strict(), true),
-  descriptor('filesSave', [parameter('filesSave', 'taskId', z.string().min(1).max(128)), parameter('filesSave', 'path', z.string().min(1).max(4096)), parameter('filesSave', 'text', z.string()), parameter('filesSave', 'expectedSha256', z.string().regex(/^[a-f0-9]{64}$/).nullable())], z.object({ path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), true),
-  descriptor('gitRequest', [parameter('gitRequest', 'taskId', z.string().min(1).max(128)), parameter('gitRequest', 'request', gitRequestSchema)], gitResultSchema, true),
+  descriptor('taskServers', [parameter('taskServers', 'taskId', z.string().min(1).max(128))], taskServersSchema),
+  descriptor('setTaskServers', [parameter('setTaskServers', 'taskId', z.string().min(1).max(128)), parameter('setTaskServers', 'request', taskServersUpdateSchema)], taskServersSchema),
+  descriptor('copyTaskServers', [parameter('copyTaskServers', 'sourceTaskId', z.string().min(1).max(128)), parameter('copyTaskServers', 'targetTaskId', z.string().min(1).max(128))], taskServersSchema),
+  descriptor('takeTerminalUiRequest', [parameter('takeTerminalUiRequest', 'taskId', z.string().min(1).max(128))], z.object({ open: z.boolean(), serverId: z.string().uuid().optional() }).strict()),
+  descriptor('terminalList', [parameter('terminalList', 'ownerId', z.string().min(1).max(128))], z.array(z.string().uuid())),
+  descriptor('terminalScope', [parameter('terminalScope', 'request', z.object({ taskId: z.string().min(1).max(128).optional(), serverId: z.string().uuid(), placement: z.enum(['side', 'bottom']) }).strict())], z.object({ ownerId: z.string().min(1).max(128) }).strict(), true),
+  descriptor('terminalOpen', [parameter('terminalOpen', 'ownerId', z.string().min(1).max(128)), parameter('terminalOpen', 'cols', z.number().int().min(2).max(500)), parameter('terminalOpen', 'rows', z.number().int().min(1).max(200))], z.object({ terminalId: z.string().uuid() }).strict(), true),
+  descriptor('terminalPoll', [parameter('terminalPoll', 'ownerId', z.string().min(1).max(128)), parameter('terminalPoll', 'terminalId', z.string().uuid()), parameter('terminalPoll', 'offset', z.number().int().min(0))], z.object({ terminalId: z.string().uuid(), offset: z.number().int().min(0), data: z.string(), closed: z.boolean(), truncated: z.boolean().optional(), exitCode: z.number().int().optional(), error: z.string().optional() }).strict(), true),
+  descriptor('terminalWrite', [parameter('terminalWrite', 'ownerId', z.string().min(1).max(128)), parameter('terminalWrite', 'terminalId', z.string().uuid()), parameter('terminalWrite', 'data', z.string().max(64 * 1024))], z.object({ ok: z.literal(true) }).strict(), true),
+  descriptor('terminalResize', [parameter('terminalResize', 'ownerId', z.string().min(1).max(128)), parameter('terminalResize', 'terminalId', z.string().uuid()), parameter('terminalResize', 'cols', z.number().int().min(2).max(500)), parameter('terminalResize', 'rows', z.number().int().min(1).max(200))], z.object({ ok: z.literal(true) }).strict(), true),
+  descriptor('terminalClose', [parameter('terminalClose', 'ownerId', z.string().min(1).max(128)), parameter('terminalClose', 'terminalId', z.string().uuid())], z.object({ ok: z.literal(true) }).strict(), true),
+  descriptor('filesList', [parameter('filesList', 'taskId', z.string().min(1).max(128)), parameter('filesList', 'serverId', z.string().uuid()), parameter('filesList', 'path', z.string().max(4096))], z.object({ path: z.string(), entries: z.array(z.object({ name: z.string(), type: z.enum(['directory', 'file', 'other']) }).strict()) }).strict(), true),
+  descriptor('filesRead', [parameter('filesRead', 'taskId', z.string().min(1).max(128)), parameter('filesRead', 'serverId', z.string().uuid()), parameter('filesRead', 'path', z.string().min(1).max(4096))], z.object({ path: z.string(), text: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/), truncated: z.boolean() }).strict(), true),
+  descriptor('filesSave', [parameter('filesSave', 'taskId', z.string().min(1).max(128)), parameter('filesSave', 'serverId', z.string().uuid()), parameter('filesSave', 'path', z.string().min(1).max(4096)), parameter('filesSave', 'text', z.string()), parameter('filesSave', 'expectedSha256', z.string().regex(/^[a-f0-9]{64}$/).nullable())], z.object({ path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), true),
+  descriptor('gitRequest', [parameter('gitRequest', 'taskId', z.string().min(1).max(128)), parameter('gitRequest', 'serverId', z.string().uuid()), parameter('gitRequest', 'request', gitRequestSchema)], gitResultSchema, true),
 ]
 export const LING_SERVERS_REMOTE: TypertRemoteContribution = { package: 'ling-desktop-host/servers', descriptors }
 export const LING_SERVERS_HOST: TypertContribution = {

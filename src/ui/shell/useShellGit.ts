@@ -12,7 +12,7 @@ interface WorkspaceGitOptions {
   readonly remoteGitRequest: GitRequest
   readonly remoteGitBranch: string | null
   readonly setRemoteGitBranch: (branch: string | null) => void
-  readonly setTaskRemoteCwd: (cwd: string | undefined) => void
+  readonly refreshTaskServers: () => Promise<void>
   readonly serverManager?: LingServerService
   readonly loadWorkspaceBranch?: LingShellProps['loadWorkspaceBranch']
 }
@@ -26,7 +26,7 @@ export function useShellGit({
   remoteGitRequest,
   remoteGitBranch,
   setRemoteGitBranch,
-  setTaskRemoteCwd,
+  refreshTaskServers,
   serverManager,
   loadWorkspaceBranch,
 }: WorkspaceGitOptions) {
@@ -61,15 +61,13 @@ export function useShellGit({
   const onGitChanged = (branch: string | null) => {
     if (activeServerId) {
       setRemoteGitBranch(branch)
-      if (taskId && serverManager) void serverManager.taskBinding(taskId).then(result => {
-        if (result.ok) setTaskRemoteCwd(result.value?.cwd)
-      })
+      void refreshTaskServers()
     } else if (activeWorkspaceId) setWorkspaceGit({ workspaceId: activeWorkspaceId, branch })
   }
   useEffect(() => {
     if (!activeServerId || !taskId || !serverManager) return
     let active = true
-    void serverManager.gitRequest(taskId, { type: 'inspect' }).then(result => {
+    void serverManager.gitRequest(taskId, activeServerId, { type: 'inspect' }).then(result => {
       if (active && result.ok) setRemoteGitBranch(result.value.snapshot.branch)
     })
     return () => { active = false }

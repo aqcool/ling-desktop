@@ -55,7 +55,7 @@ export class SftpManager {
     })
     return { type: 'job', job: this.snapshot(job) }
   }
-  async request(serverId: string, input: LingRemoteFileRequest, signal?: AbortSignal): Promise<LingRemoteFileResult> {
+  async request(serverId: string, input: LingRemoteFileRequest, signal?: AbortSignal, resolveFiles = this.files): Promise<LingRemoteFileResult> {
     const request = sftpRequestSchema.parse(input)
     signal?.throwIfAborted()
     if (request.type === 'jobs') return { type: 'jobs', jobs: [...this.jobs.values()].filter(job => job.serverId === serverId).map(job => this.snapshot(job)) }
@@ -65,7 +65,7 @@ export class SftpManager {
       job.abort.abort(); await job.done
       return { type: 'ok' }
     }
-    const files = await this.files(serverId)
+    const files = await resolveFiles(serverId)
     signal?.throwIfAborted()
     if (request.type === 'list') return { type: 'directory', directory: await files.list(request.path, signal) }
     if (request.type === 'read') return { type: 'document', document: await files.document(request.path, signal) }

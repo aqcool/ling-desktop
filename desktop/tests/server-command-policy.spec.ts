@@ -37,7 +37,7 @@ describe('server command policy', () => {
     expect(serverToolDecision('server_exec', { command: 'pwd' }, { remote: false, operations: true }, allow)).toBe(allow)
     expect(serverToolDecision('remote_run', { command: 'pwd' }, { remote: true, operations: false }, ask)).toBe(ask)
     expect(serverToolDecision('server_exec', { command: 'rm file' }, { remote: false, operations: false }, allow)).toBe(allow)
-    for (const name of ['server_exec', 'remote_run', 'remote_write', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply']) {
+    for (const name of ['server_exec', 'remote_run', 'remote_write', 'server_copy', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply']) {
       expect(serverToolDecision(name, { command: 'rm file' }, { remote: true, operations: true }, allow).kind).toBe('ask')
     }
   })
@@ -54,7 +54,7 @@ describe('server command policy', () => {
     const allow = { kind: 'allow' } as const
     const ask = { kind: 'ask', reason: 'another guard' } as const
     const deny = { kind: 'deny', reason: 'another guard' } as const
-    for (const name of ['server_exec', 'remote_run', 'remote_write', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply']) {
+    for (const name of ['server_exec', 'remote_run', 'remote_write', 'server_copy', 'server_deploy_apply', 'server_deploy_directory_apply', 'server_download_apply']) {
       expect(serverToolDecision(name, { command: 'systemctl restart app' }, { ...binding, mode: 'danger-full-access' }, allow)).toBe(allow)
       expect(serverToolDecision(name, { command: 'systemctl restart app' }, { ...binding, mode: 'read-only' }, ask).kind).toBe('deny')
       expect(serverToolDecision(name, {}, { ...binding, mode: 'danger-full-access' }, deny)).toBe(deny)
@@ -63,6 +63,9 @@ describe('server command policy', () => {
     expect(serverToolDecision('remote_write', { path: 'src/app.ts' }, { ...binding, mode: 'workspace-write' }, allow)).toBe(allow)
     expect(serverToolDecision('remote_write', { path: '../outside.txt' }, { ...binding, mode: 'workspace-write' }, allow).kind).toBe('ask')
     expect(serverToolDecision('remote_write', { path: '/srv/project-other/app.ts' }, { ...binding, mode: 'workspace-write' }, allow).kind).toBe('ask')
+    expect(serverToolDecision('server_copy', { dryRun: true }, { ...binding, mode: 'read-only' }, allow)).toBe(allow)
+    expect(serverToolDecision('server_copy', { dryRun: true }, { ...binding, mode: 'read-only' }, deny)).toBe(deny)
+    expect(serverToolDecision('server_copy', { dryRun: 'true' }, { ...binding, mode: 'read-only' }, allow).kind).toBe('deny')
   })
 
 })
