@@ -23,13 +23,22 @@ export function verifyBootstrapArchive(asar, archive) {
   if (asar.extractFile(archive, 'main.mjs').toString() !== BOOTSTRAP) throw new Error('Packaged bootstrap does not match LING')
 }
 
-/** Resolve package manifests even when exports intentionally hide package.json. */
-export async function installedPackage(name, anchor) {
+function within(root, path) { return path === root || path.startsWith(`${root}${sep}`) }
+
+/** Resolve only the installed closure, including packages hiding package.json. */
+export async function installedPackage(name, anchor, boundary) {
   if (!/^(?:@[^/]+\/)?[^/]+$/.test(name) || name === '.' || name === '..') throw new Error(`Invalid dependency name: ${name}`)
-  for (const directory of createRequire(anchor).resolve.paths(name) ?? []) {
+  const root = await realpath(boundary)
+  const packageAnchor = await realpath(anchor)
+  if (!within(root, packageAnchor)) throw new Error(`Package anchor escapes the installed dependency tree: ${anchor}`)
+  for (const directory of createRequire(packageAnchor).resolve.paths(name) ?? []) {
+    // Node also searches ancestor/global node_modules. An absent optional peer
+    // there must remain absent from this workspace's frozen production graph.
+    if (!within(root, resolve(directory))) continue
     const candidate = join(directory, name, 'package.json')
     try {
       const path = await realpath(candidate)
+      if (!within(root, path)) continue
       return { root: dirname(path), manifest: await json(path) }
     } catch (error) { if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error }
   }
@@ -69,8 +78,10 @@ function stagedDependency(name, parent, runtime, packages) {
   }
 }
 
-export async function materializeRuntime({ hostRoot, runtime, target, sourceRevision }) {
+export async function materializeRuntime({ hostRoot, runtime, target, sourceRevision, dependencyRoot = hostRoot }) {
   hostRoot = await realpath(hostRoot)
+  dependencyRoot = await realpath(dependencyRoot)
+  if (!within(dependencyRoot, hostRoot)) throw new Error('Host is outside the installed dependency tree')
   runtime = resolve(runtime)
   if (runtime === hostRoot || hostRoot.startsWith(`${runtime}${sep}`)) throw new Error('Runtime destination would contain the source')
   await mkdir(join(runtime, 'node_modules'), { recursive: true })
@@ -106,7 +117,7 @@ export async function materializeRuntime({ hostRoot, runtime, target, sourceRevi
   const host = await copyPackage({ root: hostRoot, manifest: sourceManifest }, join(runtime, 'node_modules', HOST_NAME))
   async function dependency(name, parent, optional) {
     let source
-    try { source = await installedPackage(name, join(parent.source, 'package.json')) }
+    try { source = await installedPackage(name, join(parent.source, 'package.json'), dependencyRoot) }
     catch (error) {
       if (optional && error.code === 'MODULE_NOT_FOUND') { skippedOptional.push(name); return }
       throw error
@@ -180,7 +191,7 @@ export async function verifyRuntime(runtime, target) {
     const required = new Set([...Object.keys(metadata.dependencies ?? {}), ...Object.keys(metadata.peerDependencies ?? {}).filter(name => metadata.peerDependenciesMeta?.[name]?.optional !== true)])
     for (const name of required) {
       if (metadata.optionalDependencies?.[name] !== undefined) continue
-      const dependency = await installedPackage(name, packageAnchor)
+      const dependency = await installedPackage(name, packageAnchor, runtime)
       if (!dependency.root.startsWith(`${resolve(runtime)}${sep}`)) throw new Error(`Dependency escaped installed runtime: ${name}`)
     }
   }

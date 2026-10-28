@@ -43,6 +43,7 @@ import { WorkspaceActionOutput, WorkspaceToolsToolbar, useWorkspaceTools } from 
 import { toComposerQuote, workspaceContextScope, type WorkspaceContextReference } from './attachments.js'
 import { updateBehavior, useBehavior } from './behavior-preferences.js'
 import { ShellSettings, useShellSettingsRouting } from './shell/ShellSettings.js'
+import { ApplicationUpdateReadyNotice } from './ApplicationUpdateSettings.js'
 import { EnvironmentPanel } from './shell/TaskMonitor.js'
 import { WorkbenchHeaderAction, WorkbenchHomeAction, WorkbenchTabs } from './shell/WorkbenchControls.js'
 import { WorkspaceSection } from './shell/WorkspaceSection.js'
@@ -922,6 +923,8 @@ export function LingShell(props: LingShellProps) {
           </section>
         ) : null}
       </main>
+
+      <ApplicationUpdateReadyNotice onOpenSettings={() => { onSettingsOpen(); props.onSettingsTabChange('updates') }} />
 
       {gitOpen && activeGitId && activeGitRequest ? <GitDialog onReview={() => { setReviewSource('git'); openWorkbenchTab('review') }} onAddWorkspace={activeServerId ? undefined : props.onCreateWorkspace} key={activeGitId} onChanged={onGitChanged} onClose={() => setGitOpen(false)} request={activeGitRequest} workspaceId={activeGitId} /> : null}
 

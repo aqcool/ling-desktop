@@ -6,6 +6,7 @@ import type {
   LingWorkspaceDocument,
   LingWorkspaceEntry,
 } from '../runtime/contract.js'
+import type { LingUpdateBridge } from '../runtime/application-update.js'
 import {
   parseStoredDocumentPaths,
   serializeDocumentPaths,
@@ -205,6 +206,22 @@ function FileTreeEntry({ entry, depth, loadDirectory, onSelect, onAddContext, re
 
 // Keep unsaved buffers when the workbench changes tabs. Never persist source text in settings.
 const unsavedBuffers = new Map<string, Map<string, { document: LingWorkspaceDocument; text: string }>>()
+const updateGuardBridges = new WeakSet<LingUpdateBridge>()
+function registerUnsavedFileUpdateGuard() {
+  const bridge = window.__LING_UPDATE__
+  if (!bridge?.beforeInstall || updateGuardBridges.has(bridge)) return
+  // Buffers outlive views, so keep this guard until the Renderer exits.
+  bridge.beforeInstall(() => {
+    let hasLocalChanges = false
+    for (const [scope, buffers] of unsavedBuffers) {
+      if (!buffers.size) continue
+      if (scope.startsWith('sftp:')) return '有未保存的远程文件，请先保存后再更新。'
+      hasLocalChanges = true
+    }
+    return hasLocalChanges ? '有未保存的文件，请先保存后再更新。' : undefined
+  })
+  updateGuardBridges.add(bridge)
+}
 const toolbarButton = 'inline-grid size-control-sm shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)] disabled:opacity-40'
 
 // A wide workbench should give its extra space to the document, not the file tree.
@@ -217,6 +234,7 @@ const clampWidth = (width: number, range: { min: number; max: number }) => Math.
 
 export function FileBrowser({ loadDirectory, loadDocument, saveDocument, onAddContext, taskId, stateScope, workspaceLabel, rootPath = '', refreshToken = 0, entryActions, showHidden, absolutePaths, mutation }: FileBrowserProps) {
   const scope = stateScope ?? taskId
+  useEffect(registerUnsavedFileUpdateGuard, [])
   const [revision, setRevision] = useState(0)
   const [documentRevision, setDocumentRevision] = useState(0)
   const [directory, setDirectory] = useState<LingWorkspaceDirectory>()

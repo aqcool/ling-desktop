@@ -11,6 +11,7 @@ import { rememberCreatedTaskMode } from './task-work-modes.js'
 import { tw } from './tailwind.js'
 import { MessageQueue } from './MessageQueue.js'
 import { useTaskMode } from './use-task-mode.js'
+import { useApplicationUpdateGuard } from './use-application-update-guard.js'
 
 export interface SideTaskState {
   readonly error?: string
@@ -35,6 +36,8 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
   const behavior = useBehavior()
   const [busy, setBusy] = useState(false)
   const [readingFiles, setReadingFiles] = useState(false)
+  const readingFilesRef = useRef(false)
+  useApplicationUpdateGuard(() => readingFilesRef.current ? '侧边任务正在读取附件，请等待完成后再更新。' : undefined)
   const [error, setError] = useState<string>(state.error ?? '')
   const [permission, setPermission] = useState<LingTaskPermission>()
   const [revision, setRevision] = useState(0)
@@ -114,8 +117,10 @@ export function SideTaskPanel({ runtime, state, modelSettings, onUpdate, onTitle
     return queueResult(result)
   }
   const addFiles = async (files: File[]) => {
+    readingFilesRef.current = true
     setReadingFiles(true)
     const results = await Promise.allSettled(files.map(toComposerAttachment))
+    readingFilesRef.current = false
     const added = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
     if (!mounted.current) { added.forEach(releaseComposerAttachment); return }
     onUpdate({ attachments: [...latest.current.state.attachments, ...added] })

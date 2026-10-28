@@ -28,6 +28,7 @@ export const settingsGroups = [
     { id: 'archived', label: '已归档', icon: 'archive' },
   ] },
   { label: '其他', items: [
+    { id: 'updates', label: '软件更新', icon: 'download' },
     { id: 'experimental', label: '实验功能', icon: 'flask' },
     { id: 'network', label: '网络', icon: 'globe' },
   ] },

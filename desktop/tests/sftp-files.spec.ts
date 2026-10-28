@@ -120,8 +120,10 @@ describe('native SFTP file operations', () => {
     }
     const progress = await value.broker.manageFiles(value.serverId, { type: 'jobs' })
     expect(progress).toMatchObject({ jobs: [{ status: 'running', bytes: expect.any(Number) }] })
+    expect(value.broker.hasActiveTransfers).toBe(true)
     await value.broker.manageFiles(value.serverId, { type: 'cancel', jobId: started.job.id })
     expect((await settled(value, started)).status).toBe('cancelled')
+    expect(value.broker.hasActiveTransfers).toBe(false)
     expect(await readdir(value.home)).toEqual([])
     expect(await value.broker.manageFiles(value.serverId, { type: 'list', path: '.' })).toMatchObject({ type: 'directory' })
   }, 30000)

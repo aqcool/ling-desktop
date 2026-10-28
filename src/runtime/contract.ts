@@ -979,3 +979,4 @@ export interface LingRuntimeAdapter {
 }
 export type { LingPresentedFile, LingReplyFeatures } from './reply-features.js'
 export { redactDiagnostic, rendererFailure, type LingRendererFailure } from './diagnostics.js'
+export type { LingUpdateBridge, LingUpdateChannel, LingUpdatePhase, LingUpdateState } from './application-update.js'

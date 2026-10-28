@@ -6,6 +6,7 @@ import { EditorView } from '@codemirror/view'
 import { undo } from '@codemirror/commands'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LingReadResult, LingWorkspaceDirectory, LingWorkspaceDocument } from '../src/runtime/contract.js'
+import type { LingUpdateBridge, LingUpdateState } from '../src/runtime/application-update.js'
 import { FileBrowser } from '../src/ui/FileBrowser.js'
 
 type Props = ComponentProps<typeof FileBrowser>
@@ -88,6 +89,48 @@ function deferred<Value>() {
 }
 
 describe('workspace file editor integration', () => {
+  it('blocks updates for unsaved local and remote files even after their views unmount, then releases the block after saving', async () => {
+    const guards: Array<() => string | undefined> = []
+    const unregister = vi.fn()
+    const state: LingUpdateState = { currentVersion: '1.0.0', channel: 'stable', phase: 'downloaded', version: '1.1.0' }
+    const bridge: LingUpdateBridge = {
+      get: async () => state, check: async () => state, install: async () => state,
+      setChannel: async channel => ({ ...state, channel }), subscribe: () => () => {},
+      beforeInstall: vi.fn(callback => { guards.push(callback); return unregister }),
+    }
+    vi.stubGlobal('__LING_UPDATE__', bridge)
+    const local = fixture()
+    const first = await mount(local.props)
+    expect(guards).toHaveLength(1)
+    expect(guards[0]!()).toBeUndefined()
+    await click(first.container, '打开文件 first.ts')
+    await replace(editor(first.container), 'unsaved local update guard content')
+    expect(guards[0]!()).toBe('有未保存的文件，请先保存后再更新。')
+    await first.unmount()
+    expect(unregister).not.toHaveBeenCalled()
+    expect(guards[0]!()).toBe('有未保存的文件，请先保存后再更新。')
+    const restoredLocal = await mount(local.props)
+    expect(editor(restoredLocal.container).state.sliceDoc()).toBe('unsaved local update guard content')
+    await click(restoredLocal.container, '保存文件')
+    expect(guards[0]!()).toBeUndefined()
+    await restoredLocal.unmount()
+
+    const remote = fixture({ stateScope: 'sftp:update-guard-server' })
+    const second = await mount(remote.props)
+    await click(second.container, '打开文件 first.ts')
+    await replace(editor(second.container), 'unsaved remote update guard content')
+    expect(guards[0]!()).toBe('有未保存的远程文件，请先保存后再更新。')
+    await second.unmount()
+    expect(guards[0]!()).toBe('有未保存的远程文件，请先保存后再更新。')
+    const restoredRemote = await mount(remote.props)
+    expect(editor(restoredRemote.container).state.sliceDoc()).toBe('unsaved remote update guard content')
+    await click(restoredRemote.container, '保存文件')
+    expect(guards[0]!()).toBeUndefined()
+    expect(bridge.beforeInstall).toHaveBeenCalledTimes(1)
+    expect(unregister).not.toHaveBeenCalled()
+    expect(window.localStorage.getItem('ling.workspaceDocuments')).not.toContain('unsaved')
+  })
+
   it('bounds the file tree in pixels, restores its preferred width after shrinking, and stops resizing when the drag ends', async () => {
     let width = 600
     let measure: (() => void) | undefined

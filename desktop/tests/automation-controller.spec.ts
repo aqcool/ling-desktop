@@ -12,10 +12,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LingAutomationController } from '../src/host/automation-controller.ts'
 import { newAutomation } from '../../src/ui/automation-view.ts'
+import { updateAdmission } from '../src/update-admission.ts'
 const cleanup: (() => void | Promise<void>)[] = []
 afterEach(async () => {
+  updateAdmission.unlock()
   for (const fn of cleanup.splice(0).reverse()) await fn()
   vi.unstubAllEnvs()
+  vi.useRealTimers()
 })
 async function fixture(gateway = false) {
   const home = await mkdtemp(join(tmpdir(), 'ling-auto-controller-'))
@@ -107,6 +110,17 @@ async function fixture(gateway = false) {
   return { controller, ctx, tasks, create, prompt, stream, spec }
 }
 describe('automation uses the public DSH session boundary', () => {
+  it('defers scheduled ticks during update admission and resumes after unlocking', async () => {
+    vi.useFakeTimers()
+    const { controller } = await fixture()
+    await updateAdmission.lock()
+    const tick = vi.spyOn(controller.engine, 'tick')
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(tick).not.toHaveBeenCalled()
+    updateAdmission.unlock()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(tick).toHaveBeenCalledTimes(1)
+  })
   it('round trips plans through the published browser Remote and Host Gateway without creating tasks', async () => {
     const { ctx: host, spec, create } = await fixture(true),
       client = new Context()

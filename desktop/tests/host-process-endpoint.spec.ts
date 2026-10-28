@@ -31,7 +31,7 @@ async function fixture() {
   await starting
   const bridge = new ServerBridge(message => { child.emit('message', message) })
   child.onSend = message => { bridge.receive(message) }
-  return { child, bridge, run, file, failure }
+  return { child, host, bridge, run, file, failure }
 }
 
 it('preserves the admitted endpoint through Bridge IPC to command and file callbacks', async () => {
@@ -45,6 +45,19 @@ it('preserves the admitted endpoint through Bridge IPC to command and file callb
   const request = { action: 'read' as const, serverId: id, path: '/remote/file' }
   await expect(bridge.file(request, signal, expectedEndpoint)).resolves.toMatchObject({ text: 'ok' })
   expect(file).toHaveBeenCalledExactlyOnceWith(request, expect.any(AbortSignal), expectedEndpoint)
+  expect(failure).not.toHaveBeenCalled()
+})
+
+it('settles update control queries by request id and propagates drain failures', async () => {
+  const { child, host, failure } = await fixture()
+  child.onSend = message => {
+    const request = message as { type: string; requestId: number; action: string }
+    if (request.type === 'update-tasks') child.emit('message', { type: 'update-tasks', requestId: request.requestId,
+      active: request.action === 'inspect', ...(request.action === 'lock' ? { error: 'still draining' } : {}) })
+  }
+  await expect(host.updateTasks('inspect')).resolves.toBe(true)
+  await expect(host.updateTasks('lock')).rejects.toThrow('still draining')
+  await expect(host.updateTasks('unlock')).resolves.toBe(false)
   expect(failure).not.toHaveBeenCalled()
 })
 

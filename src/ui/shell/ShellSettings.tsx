@@ -1,5 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { AgentPresetSettings, BuiltinPluginSettings } from '../AgentSettings.js'
+import { ApplicationUpdateSettings } from '../ApplicationUpdateSettings.js'
 import { ArchivedSettings } from '../ArchivedSettings.js'
 import { BehaviorSettings } from '../BehaviorSettings.js'
 import { CatalogSettings } from '../CatalogSettings.js'
@@ -152,6 +153,8 @@ export function ShellSettings({
             tasks={tasks.filter(task => task.archived)}
             workspaces={workspaces}
           />
+        ) : props.settingsTab === 'updates' ? (
+          <ApplicationUpdateSettings version={props.version} />
         ) : props.settingsTab === 'connections' ? (
           <ServerSettings service={props.serverManager} />
         ) : props.settingsTab === 'memory' ? (

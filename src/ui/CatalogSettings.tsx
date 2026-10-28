@@ -6,7 +6,7 @@ import { type IconName } from './Icon.js'
 import type { LingSettingsTab } from './settings-navigation.js'
 import { tw } from './tailwind.js'
 
-type CatalogTab = Exclude<LingSettingsTab, 'usage' | 'shortcuts' | 'appearance' | 'models' | 'archived' | 'monitor' | 'git' | 'worktrees' | 'general' | 'modes' | 'agent-presets' | 'builtin-plugins' | 'connections' | 'control' | 'hooks'>
+type CatalogTab = Exclude<LingSettingsTab, 'updates' | 'usage' | 'shortcuts' | 'appearance' | 'models' | 'archived' | 'monitor' | 'git' | 'worktrees' | 'general' | 'modes' | 'agent-presets' | 'builtin-plugins' | 'connections' | 'control' | 'hooks'>
 type Control = { kind: 'toggle'; selected?: boolean } | { kind: 'select' | 'button' | 'input'; label: string } | { kind: 'none' }
 interface Row { title: string; description: string; icon: IconName; control?: Control }
 interface Group { title?: string; rows: readonly Row[]; empty?: { title: string } }

@@ -5,10 +5,15 @@ import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { test } from 'node:test'
 import { BOOTSTRAP, excludedFile, installedPackage, materializeRuntime, supportsTarget, verifyBootstrapArchive, verifyRuntime } from './runtime.mjs'
-import { localBuildEnvironment, packageConfiguration, nativeTarget, applicationLayout, RELEASE_TARGETS, targetName } from './config.mjs'
+import { localBuildEnvironment, releaseBuildEnvironment, releaseBuild, updateChannel, updatePolicy, packageConfiguration, nativeTarget, applicationLayout, RELEASE_TARGETS, targetName, isPackageArtifact } from './config.mjs'
+import { isMachO } from './signing.mjs'
 
 const target = { platform: 'darwin', arch: 'arm64' }
 const require = createRequire(import.meta.url)
+test('Builder diagnostics are not updater feeds or release artifacts', () => {
+  for (const name of ['builder-debug.yml', 'builder-effective-config.yaml', 'notes.yml']) assert.equal(isPackageArtifact(name), false)
+  for (const name of ['dev-mac.yml', 'latest-linux.yml', 'latest.yml', 'LING-1.0.0-mac-arm64.zip', 'LING-1.0.0-win-x64.exe.blockmap']) assert.equal(isPackageArtifact(name), true)
+})
 async function packageAt(path, manifest, body = 'module.exports = 1') {
   await mkdir(path, { recursive: true })
   await writeFile(join(path, 'package.json'), JSON.stringify({ main: 'index.cjs', ...manifest }))
@@ -64,7 +69,7 @@ test('materialized Node graph preserves nested versions and works after the sour
     const require = createRequire(join(runtime, 'node_modules/ling-desktop-host/package.json'))
     assert.equal(require('a'), 'v1')
     assert.equal(require('b'), 'v2')
-    assert.equal((await installedPackage('shared', join(runtime, 'node_modules/b/package.json'))).manifest.version, '2.0.0')
+    assert.equal((await installedPackage('shared', join(runtime, 'node_modules/b/package.json'), runtime)).manifest.version, '2.0.0')
     assert.equal(manifest.packages.filter(item => item.name === 'shared').length, 2)
   } finally { await rm(scratch, { recursive: true, force: true }) }
 })
@@ -74,6 +79,39 @@ test('missing required production dependency fails preparation instead of shippi
   try {
     await hostAt(join(scratch, 'source'), { unavailable: '1.0.0' })
     await assert.rejects(materializeRuntime({ hostRoot: join(scratch, 'source'), runtime: join(scratch, 'runtime'), target }), /Missing production dependency/)
+  } finally { await rm(scratch, { recursive: true, force: true }) }
+})
+
+test('absent optional peers ignore ancestor and external symlink packages while workspace hoisting still resolves', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ling-dependency-boundary-'))
+  const workspace = join(scratch, 'workspace'), source = join(workspace, 'desktop'), runtime = join(scratch, 'runtime')
+  try {
+    await hostAt(source, { consumer: '1.0.0', hoisted: '1.0.0' })
+    await packageAt(join(source, 'node_modules/consumer'), { name: 'consumer', version: '1.0.0',
+      peerDependencies: { '@modelcontextprotocol/sdk': '1.0.0', 'linked-peer': '1.0.0', 'local-peer': '1.0.0' },
+      peerDependenciesMeta: { '@modelcontextprotocol/sdk': { optional: true }, 'linked-peer': { optional: true }, 'local-peer': { optional: true } } })
+    await packageAt(join(workspace, 'node_modules/hoisted'), { name: 'hoisted', version: '1.0.0' })
+    await packageAt(join(source, 'node_modules/local-peer'), { name: 'local-peer', version: '1.0.0' })
+    // Reproduce a user's unrelated home install with an incomplete dependency graph.
+    await packageAt(join(scratch, 'node_modules/@modelcontextprotocol/sdk'), { name: '@modelcontextprotocol/sdk', version: '1.0.0', dependencies: { '@hono/node-server': '1.0.0' } })
+    const external = join(scratch, 'external-peer')
+    await packageAt(external, { name: 'linked-peer', version: '1.0.0' })
+    await symlink(external, join(source, 'node_modules/linked-peer'), process.platform === 'win32' ? 'junction' : 'dir')
+    const manifest = await materializeRuntime({ hostRoot: source, runtime, target, dependencyRoot: workspace })
+    assert.deepEqual(manifest.skippedOptional, ['@modelcontextprotocol/sdk', 'linked-peer'])
+    assert.deepEqual(manifest.packages.map(item => item.name).sort(), ['consumer', 'hoisted', 'ling-desktop-host', 'local-peer'])
+    await assert.rejects(installedPackage('@modelcontextprotocol/sdk', join(source, 'package.json'), workspace), { code: 'MODULE_NOT_FOUND' })
+    await assert.rejects(installedPackage('linked-peer', join(source, 'package.json'), workspace), { code: 'MODULE_NOT_FOUND' })
+  } finally { await rm(scratch, { recursive: true, force: true }) }
+})
+
+test('required dependencies cannot be satisfied by unrelated ancestor installs', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ling-required-boundary-'))
+  try {
+    const source = join(scratch, 'workspace')
+    await hostAt(source, { 'ancestor-only': '1.0.0' })
+    await packageAt(join(scratch, 'node_modules/ancestor-only'), { name: 'ancestor-only', version: '1.0.0' })
+    await assert.rejects(materializeRuntime({ hostRoot: source, runtime: join(scratch, 'runtime'), target }), /Missing production dependency ancestor-only/)
   } finally { await rm(scratch, { recursive: true, force: true }) }
 })
 
@@ -131,6 +169,45 @@ test('release targets have distinct native installers and predictable applicatio
     if (target.platform === 'darwin') assert.deepEqual(config.mac.target[0].arch, [target.arch])
     if (target.platform === 'win32') { assert.equal(config.win.target[0].target, 'nsis'); assert.equal(config.nsis.deleteAppDataOnUninstall, false) }
     if (target.platform === 'linux') assert.deepEqual(config.linux.target.map(item => item.target), ['AppImage', 'deb'])
+  }
+})
+
+test('update feeds require explicit CI signing credentials and isolate preview from stable', () => {
+  assert.equal(releaseBuild(target, {}), false)
+  assert.throws(() => releaseBuild(target, { LING_RELEASE_BUILD: '1' }), /requires CI/)
+  assert.throws(() => releaseBuild(target, { LING_RELEASE_BUILD: '1', CI: 'true' }), /CSC_LINK.*APPLE_TEAM_ID/)
+  const environment = { LING_RELEASE_BUILD: '1', CI: 'true', CSC_LINK: 'test-certificate', CSC_KEY_PASSWORD: 'test-password', CSC_NAME: 'Developer ID Application: LING (TESTTEAM)', APPLE_ID: 'test', APPLE_APP_SPECIFIC_PASSWORD: 'test', APPLE_TEAM_ID: 'TESTTEAM' }
+  assert.equal(releaseBuild(target, environment), true)
+  assert.throws(() => releaseBuild(nativeTarget('win32', 'x64'), environment), /WIN_CSC_LINK.*LING_WINDOWS_PUBLISHER_NAME/)
+  assert.equal(releaseBuild(nativeTarget('linux', 'x64'), environment), true)
+  for (const [version, channel] of [['1.0.0-dev.11', 'dev'], ['1.0.0', 'latest']]) {
+    assert.equal(updateChannel(version), channel)
+    const config = packageConfiguration({ target, appRoot: '/app', runtimeRoot: '/runtime', output: '/out', electronDist: '/electron', icon: '/icon', version, release: true, environment })
+    assert.equal(config.publish.channel, channel)
+    assert.equal(config.publish.tagNamePrefix, 'ling-v')
+    assert.equal(config.generateUpdatesFilesForAllChannels, false)
+    assert.equal(config.forceCodeSigning, true)
+    assert.equal(config.mac.hardenedRuntime, true)
+    assert.equal(config.mac.notarize, true)
+    assert.equal(config.mac.identity, 'LING (TESTTEAM)')
+    assert.deepEqual(config.mac.target.map(item => item.target), ['dmg', 'zip'])
+    assert.deepEqual(config.mac.signIgnore, ['/Contents/Resources/runtime(?:/|$)'])
+    assert.equal(updatePolicy(version, false).enabled, false)
+  }
+  assert.equal(releaseBuildEnvironment({ CSC_LINK: 'test', GH_TOKEN: 'test', GITHUB_TOKEN: 'test' }).CSC_LINK, 'test')
+  assert.equal(releaseBuildEnvironment({ GH_TOKEN: 'test' }).GH_TOKEN, undefined)
+  assert.equal(isMachO(Buffer.from('cffaedfe', 'hex')), true)
+  assert.equal(isMachO(Buffer.from('7f454c46', 'hex')), false)
+  assert.equal(isMachO(Buffer.from('1f8b0800', 'hex')), false)
+})
+
+test('release configurations validate against the pinned Builder schema on every platform', async () => {
+  const builderRequire = createRequire(require.resolve('electron-builder'))
+  const { validateConfiguration } = builderRequire('app-builder-lib/out/util/config/config')
+  for (const target of RELEASE_TARGETS) {
+    const config = packageConfiguration({ target, appRoot: '/app', runtimeRoot: '/runtime', output: '/out', electronDist: '/electron', icon: '/icon.png',
+      version: '1.0.0-dev.1', release: true, environment: { CSC_NAME: 'Developer ID Application: Test (TEAM)', LING_WINDOWS_PUBLISHER_NAME: 'Test' } })
+    await validateConfiguration(config, {})
   }
 })
 

@@ -24,6 +24,7 @@ import {
 } from '../automation-contract.ts'
 import { AutomationStore } from '../automation/store.ts'
 import { AutomationEngine } from '../automation/engine.ts'
+import { updateAdmission } from '../update-admission.ts'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     lingAutomation: LingAutomationController
@@ -50,15 +51,19 @@ export class LingAutomationController extends TypertRemoteService {
     })
     ctx.effect(() => ctx.typert.register(LING_AUTOMATION_HOST), 'LING automation Remote')
     ctx.effect(() => {
-      void this.engine.tick().catch((error) => console.error('LING automation', error))
+      void this.tick().catch((error) => console.error('LING automation', error))
       const timer = setInterval(() => {
-        void this.engine.tick().catch((error) => console.error('LING automation', error))
+        void this.tick().catch((error) => console.error('LING automation', error))
       }, 5000)
       return () => {
         clearInterval(timer)
         this.engine.close()
       }
     }, 'LING local automation scheduler')
+  }
+  private async tick(): Promise<void> {
+    if (updateAdmission.isLocked) return
+    await updateAdmission.run(() => this.engine.tick())
   }
   private workspace(spec: AutomationSpec) {
     if (spec.workspaceId === null) return undefined

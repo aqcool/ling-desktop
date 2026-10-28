@@ -23,7 +23,29 @@ export function applicationLayout(output, target) {
   const app = join(output, target.platform === 'win32' ? 'win-unpacked' : 'linux-unpacked')
   return { app, executable: join(app, target.platform === 'win32' ? 'LING.exe' : 'ling-desktop-app'), resources: join(app, 'resources') }
 }
-export function packageConfiguration({ appRoot, runtimeRoot, output, electronDist, version, icon, target }) {
+export function updateChannel(version) { return version.includes('-') ? 'dev' : 'latest' }
+export function isPackageArtifact(name) {
+  return /^LING-.+\.(dmg|zip|exe|AppImage|deb|blockmap)$/.test(name)
+    || /^(dev|latest)(-mac|-linux)?\.yml$/.test(name)
+}
+export function updateMetadataName(version, target) {
+  return `${updateChannel(version)}${target.platform === 'darwin' ? '-mac' : target.platform === 'linux' ? '-linux' : ''}.yml`
+}
+export function releaseBuild(target, environment) {
+  if (environment.LING_RELEASE_BUILD !== '1') return false
+  if (environment.CI !== 'true') throw new Error('LING_RELEASE_BUILD=1 requires CI=true; local packages do not enable automatic updates')
+  const required = target.platform === 'darwin'
+    ? ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']
+    : target.platform === 'win32' ? ['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'LING_WINDOWS_PUBLISHER_NAME'] : []
+  const missing = required.filter(name => !environment[name]?.trim())
+  if (missing.length) throw new Error(`Signed LING release requires configured credentials: ${missing.join(', ')}`)
+  if (target.platform === 'darwin' && !environment.CSC_NAME.startsWith('Developer ID Application:')) throw new Error('CSC_NAME must identify a Developer ID Application certificate')
+  return true
+}
+export function updatePolicy(version, enabled) {
+  return { schemaVersion: 1, enabled, channel: updateChannel(version), provider: 'github', owner: 'aqcool', repo: 'ling-desktop' }
+}
+export function packageConfiguration({ appRoot, runtimeRoot, output, electronDist, version, icon, target, release = false, environment = {}, policyPath }) {
   const common = {
     appId: 'com.ling.desktop', productName: 'LING', electronVersion: '44.0.0',
     artifactName: `LING-\${version}-${targetName(target)}.\${ext}`,
@@ -36,20 +58,27 @@ export function packageConfiguration({ appRoot, runtimeRoot, output, electronDis
     extraResources: [
       { from: runtimeRoot, to: 'runtime', filter: ['**/*'] },
       { from: `${runtimeRoot}/node_modules`, to: 'runtime/node_modules', filter: ['**/*'] },
+      ...(policyPath ? [{ from: policyPath, to: 'ling-update-policy.json' }] : []),
     ],
     electronFuses: { runAsNode: true, resetAdHocDarwinSignature: true },
-    publish: null,
+    // Generate feed files without uploading. Only the final release job publishes.
+    publish: release ? { provider: 'github', owner: 'aqcool', repo: 'ling-desktop', tagNamePrefix: 'ling-v', channel: updateChannel(version) } : null,
+    detectUpdateChannel: false, generateUpdatesFilesForAllChannels: false, electronUpdaterCompatibility: '>=6.8.11',
+    forceCodeSigning: release && target.platform !== 'linux',
   }
   if (target.platform === 'darwin') return { ...common,
-    mac: { target: [{ target: 'dmg', arch: [target.arch] }], icon, category: 'public.app-category.developer-tools',
-      identity: '-', hardenedRuntime: false, notarize: false,
+    mac: { target: ['dmg', 'zip'].map(value => ({ target: value, arch: [target.arch] })), icon, category: 'public.app-category.developer-tools',
+      // Builder chooses the Developer ID certificate class and rejects the type
+      // prefix in its qualifier; CI stores the complete identity for clarity.
+      identity: release ? environment.CSC_NAME.replace(/^Developer ID Application:\s*/, '') : '-', hardenedRuntime: release, notarize: release,
       signIgnore: ['/Contents/Resources/runtime(?:/|$)'] },
-    dmg: { sign: false, writeUpdateInfo: false },
+    dmg: { sign: release, writeUpdateInfo: release },
   }
   if (target.platform === 'win32') return { ...common,
     // The retained long-path installer manifest requires modern makensis.
     toolsets: { nsis: '1.2.1' },
-    win: { target: [{ target: 'nsis', arch: [target.arch] }], icon },
+    win: { target: [{ target: 'nsis', arch: [target.arch] }], icon,
+      ...(release ? { signtoolOptions: { publisherName: environment.LING_WINDOWS_PUBLISHER_NAME }, verifyUpdateCodeSignature: true } : {}) },
     nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true,
       deleteAppDataOnUninstall: false, createDesktopShortcut: false },
   }
@@ -59,8 +88,11 @@ export function packageConfiguration({ appRoot, runtimeRoot, output, electronDis
       maintainer: 'LING Desktop <aqcool@users.noreply.github.com>' },
   }
 }
+export function releaseBuildEnvironment(environment) {
+  return { ...Object.fromEntries(Object.entries(environment).filter(([name]) => !/^(?:GH_TOKEN|GITHUB_TOKEN|GITHUB_RELEASE_TOKEN)$/.test(name))), CSC_IDENTITY_AUTO_DISCOVERY: 'true' }
+}
 export function localBuildEnvironment(environment) {
   return Object.fromEntries([...Object.entries(environment).filter(([name]) =>
-    !/^(?:CSC_|WIN_CSC_|APPLE_|DSH_DESKTOP_.*(?:SIGN|TOKEN|CER|PIN|NOTAR|COS|UPDATE)|GH_TOKEN$|GITHUB_TOKEN$)/i.test(name)),
+    !/^(?:CSC_|WIN_CSC_|APPLE_|DSH_DESKTOP_.*(?:SIGN|TOKEN|CER|PIN|NOTAR|COS|UPDATE)|GH_TOKEN$|GITHUB_TOKEN$|GITHUB_RELEASE_TOKEN$)/i.test(name)),
   ['CSC_IDENTITY_AUTO_DISCOVERY', 'false']])
 }

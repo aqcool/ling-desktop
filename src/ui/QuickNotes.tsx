@@ -5,6 +5,7 @@ import { Icon } from './Icon.js'
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu.js'
 import { Markdown } from './Markdown.js'
 import { tw } from './tailwind.js'
+import { useApplicationUpdateGuard } from './use-application-update-guard.js'
 import { applyAppearance, useAppearance } from '../theme.js'
 import { nativeQuickNotes, type NoteWindowAction } from './quick-notes-native.js'
 import { archiveQuickNote, discardNoteImages, groupQuickNotes, readNoteDraft, readNoteImage, readQuickNote, readQuickNotesSnapshot, removeQuickNote, saveNoteImage, saveQuickNote, taskNotesEvent, writeNoteDraft, type NoteDraft, type NoteImage, type NoteOrigin, type QuickNote } from './quick-notes-store.js'
@@ -49,6 +50,12 @@ export function QuickNotes({ initialOrigin, onAction, onClose, native = false }:
   const fileInput = useRef<HTMLInputElement>(null)
   const editor = useRef<HTMLTextAreaElement>(null)
   const draftRef = useRef(draft); draftRef.current = draft
+  useApplicationUpdateGuard(() => {
+    if (busy) return '速记正在处理图片或发送内容，请等待完成后再更新。'
+    try { if (draftRef.current) writeNoteDraft(draftRef.current) }
+    catch { return '速记草稿未能保存，请先保存后再更新。' }
+    return undefined
+  })
   const message = (cause: unknown) => setError(cause instanceof Error ? cause.message : '速记操作失败，请重试。')
   const act = (operation: () => void) => { try { operation(); setError(undefined); return true } catch (cause) { message(cause); return false } }
   useEffect(() => {

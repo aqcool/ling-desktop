@@ -478,6 +478,7 @@ export class ServerBroker {
   async listFiles(id: string, path: string, signal?: AbortSignal, root?: string, expectedEndpoint?: string) {
     return (await this.runtime(id, signal, expectedEndpoint)).listFiles(path, signal, root)
   }
+  get hasActiveTransfers(): boolean { return this.copies.size > 0 || this.fileManager.active }
   async close(): Promise<void> {
     for (const copy of this.copies.keys()) copy.abort()
     await Promise.allSettled([...this.copies.values()])

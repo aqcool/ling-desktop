@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, powerSaveBlocker, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type NativeImage } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, Tray, powerSaveBlocker, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type NativeImage } from 'electron'
 import { DesktopHostProcess } from './host-process.ts'
 import { APP_URL, IPC } from './ipc.ts'
 import { readWorkspaceBranch, WorkspaceGit } from './workspace-git.ts'
@@ -21,6 +21,10 @@ import { quickNotesUrl, parseNoteWindowContext, parseNoteWindowAction } from './
 import { SnapshotShortcut } from './snapshot-shortcut.ts'
 import { ApplicationIconController, FileApplicationIconStore, applyNativeApplicationIcon, type ApplicationIconStyle } from './application-icon.ts'
 import { DesktopFailureRecovery, parseRendererFailure, type FailureSource } from './failure-recovery.ts'
+import { createApplicationUpdater, type ApplicationUpdater } from './application-updater.ts'
+import { UpdateInstallation } from './update-installation.ts'
+import { UpdateRendererChecks } from './update-renderer-checks.ts'
+import { configureLingReleaseFeed } from './application-update-feed.ts'
 
 const root = dirname(LING_HOST_PACKAGE)
 const workspaceGit = new WorkspaceGit(path => shell.openPath(path))
@@ -70,6 +74,7 @@ let hostCookie: string | undefined
 let injections: readonly unknown[] = []
 let startup: Promise<void> = Promise.resolve()
 let quitting = false
+let applicationUpdater: ApplicationUpdater | undefined
 let tray: Tray | undefined
 let automationAwakeId: number | undefined
 function setAutomationAwake(awake: boolean) {
@@ -262,6 +267,77 @@ async function startHost(): Promise<void> {
 
 async function main(): Promise<void> {
   await app.whenReady()
+  const showUpdateDialog = (options: Electron.MessageBoxOptions) => {
+    const owner = [...windows].find(window => window.isFocused() && !window.isDestroyed()) ?? mainWindow
+    return owner && !owner.isDestroyed() ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options)
+  }
+  const rendererChecks = new UpdateRendererChecks()
+  const releaseRendererState = () => {
+    for (const window of windows) if (!window.isDestroyed()) window.webContents.send(IPC.updateUnlock)
+  }
+  ipcMain.handle(IPC.updatePrepared, (event, token: unknown, reason: unknown) => {
+    assertAppSender(event)
+    rendererChecks.acknowledge(event.sender.id, token, reason)
+  })
+  const installation = new UpdateInstallation({
+    tasks: async action => {
+      if (quitting || !host) throw new Error('LING Host is unavailable for update')
+      return host.updateTasks(action)
+    },
+    hasTransfers: () => serverBroker.hasActiveTransfers,
+    validateState: async freeze => {
+      const reasons = await Promise.all([...windows].filter(window => !window.isDestroyed()).map(window =>
+        rendererChecks.request(window.webContents.id, token => window.webContents.send(IPC.updatePrepare, token, freeze))))
+      const reason = reasons.find(Boolean)
+      if (!reason) return true
+      await showUpdateDialog({ type: 'info', title: '请先保存当前内容', message: reason,
+        detail: '更新包已保留，处理好后可再次选择重启安装。', buttons: ['知道了'], noLink: true })
+      return false
+    },
+    releaseState: releaseRendererState,
+    confirm: async () => (await showUpdateDialog({ type: 'question', title: '重启安装更新',
+      message: '现在重启 LING 并安装更新？',
+      detail: '当前会话和已保存的草稿会保留。打开的本地及远程终端会断开，重启后不会自动重新执行终端命令。',
+      buttons: ['重启并安装', '稍后'], defaultId: 1, cancelId: 1, noLink: true })).response === 0,
+    busy: async () => { await showUpdateDialog({ type: 'info', title: '稍后安装更新',
+      message: '还有任务或文件传输正在运行。', detail: '更新包已保留，请在任务和传输结束后再次选择重启安装。',
+      buttons: ['知道了'], noLink: true }) },
+    saveState: async () => {
+      for (const session of new Set([...windows].filter(window => !window.isDestroyed()).map(window => window.webContents.session))) {
+        session.flushStorageData()
+        await session.cookies.flushStore()
+      }
+    },
+    stop: async () => { await host!.stop(true); await serverBroker.close() },
+    recover: async () => {
+      if (quitting) return
+      try {
+        await host?.stop()
+        await serverBroker.close()
+        hostUrl = undefined; hostCookie = undefined
+        await startHost()
+        for (const window of windows) if (!window.isDestroyed()) window.webContents.reload()
+      } finally { releaseRendererState() }
+    },
+  })
+  applicationUpdater = createApplicationUpdater({
+    currentVersion: app.getVersion(), isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, home,
+    prepareInstall: () => installation.prepare(), recoverInstall: () => installation.recover(),
+    configureFeed: (backend, channel) => configureLingReleaseFeed(backend, channel, app.getVersion(), net.fetch.bind(net)),
+    onState: state => {
+      for (const window of windows) {
+        if (!window.isDestroyed()) window.webContents.send(IPC.updateChanged, state)
+      }
+    },
+  })
+  ipcMain.handle(IPC.updateGet, event => { assertAppSender(event); return applicationUpdater!.get() })
+  ipcMain.handle(IPC.updateCheck, event => { assertAppSender(event); return applicationUpdater!.check() })
+  ipcMain.handle(IPC.updateChannel, (event, channel: unknown) => {
+    assertAppSender(event)
+    if (channel !== 'stable' && channel !== 'preview') throw new Error('更新通道无效。')
+    return applicationUpdater!.setChannel(channel)
+  })
+  ipcMain.handle(IPC.updateInstall, event => { assertAppSender(event); return applicationUpdater!.install() })
   await applicationIcon.restore().catch(error => console.error(error))
   await rm(join(home, 'ling-server-terminals'), { recursive: true, force: true })
   ipcMain.handle(IPC.applicationIcon, event => { assertAppSender(event); return applicationIcon.snapshot() })
@@ -572,6 +648,7 @@ async function main(): Promise<void> {
     })
   })
   openMain()
+  applicationUpdater.start()
   app.on('activate', openMain)
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !tray) app.quit() })
 }
@@ -587,6 +664,7 @@ app.on('before-quit', event => {
   workspaceTools.dispose()
   void Promise.all([host?.stop(), serverBroker.close()]).then(() => app.quit(), error => { console.error(error); app.exit(1) })
 })
+app.on('will-quit', () => applicationUpdater?.dispose())
 if (claimDesktopSingleInstance(app, () => { mainWindow?.show(); mainWindow?.focus() })) {
   process.on('uncaughtException', error => reportFailure(error))
   void main().catch(error => reportFailure(error))

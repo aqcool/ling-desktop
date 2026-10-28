@@ -1,13 +1,14 @@
 /** Build and qualify a native LING package without opening UI. */
 import { execFile, spawn } from 'node:child_process'
-import { chmod, cp, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { packageConfiguration, nativeTarget, targetName, applicationLayout, localBuildEnvironment } from './packaging/config.mjs'
+import { packageConfiguration, nativeTarget, targetName, applicationLayout, localBuildEnvironment, releaseBuild, releaseBuildEnvironment, updatePolicy, isPackageArtifact } from './packaging/config.mjs'
 import { BOOTSTRAP, json, materializeRuntime, verifyBootstrapArchive, verifyRuntime } from './packaging/runtime.mjs'
+import { signMacRuntime, verifyReleaseSignature } from './packaging/signing.mjs'
 
 const execute = promisify(execFile)
 const hostRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -21,7 +22,9 @@ const expectedPlatform = process.argv.find(value => value.startsWith('--platform
 if (expectedPlatform && expectedPlatform !== target.platform) throw new Error('Use a native runner for the requested package platform')
 if (process.argv.slice(2).some(value => !['--dir', '--verify', '--platform=darwin', '--platform=win32', '--platform=linux'].includes(value))) throw new Error('Usage: package-desktop.mjs [--dir] [--verify] [--platform=darwin|win32|linux]')
 
-const environment = localBuildEnvironment(process.env)
+const release = releaseBuild(target, process.env)
+if (release && directoryOnly) throw new Error('Signed update releases require installers, not --dir')
+const environment = release ? releaseBuildEnvironment(process.env) : localBuildEnvironment(process.env)
 const staging = join(hostRoot, '.packaging', name)
 const output = join(hostRoot, 'dist', name)
 await mkdir(staging, { recursive: true })
@@ -99,25 +102,29 @@ try {
       const commit = (await execute('git', ['rev-parse', 'HEAD'], { cwd: repository })).stdout.trim()
       const dirty = (await execute('git', ['status', '--porcelain'], { cwd: repository })).stdout.trim() !== ''
       await chmod(join(hostRoot, 'scripts/node-bin/node'), 0o755)
-      const manifest = await materializeRuntime({ hostRoot, runtime, target, sourceRevision: { commit, dirty } })
+      if (release && dirty) throw new Error('Signed update releases require a clean source checkout')
+      let manifest = await materializeRuntime({ hostRoot, runtime, target, dependencyRoot: repository, sourceRevision: { commit, dirty } })
       await verifyRuntime(runtime, target)
       const electronDist = join(dirname(require.resolve('electron/package.json')), 'dist')
       await smoke(electronExecutable, runtime)
       await mkdir(app)
       await writeFile(join(app, 'package.json'), `${JSON.stringify({ name: 'ling-desktop-app', productName: 'LING', version, private: true, type: 'module', main: 'main.mjs', description: 'LING local desktop application', license: 'MIT', homepage: 'https://github.com/aqcool/ling-desktop', author: { name: 'LING Desktop', email: 'aqcool@users.noreply.github.com' }, desktopName: 'com.ling.desktop' }, null, 2)}\n`)
       await writeFile(join(app, 'main.mjs'), BOOTSTRAP)
+      const policyPath = join(build, 'ling-update-policy.json')
+      await writeFile(policyPath, `${JSON.stringify(updatePolicy(version, release))}\n`)
       const config = packageConfiguration({ appRoot: app, runtimeRoot: runtime, output, electronDist, version,
-        icon: join(hostRoot, 'assets/application-icons/fold-coral.png'), target })
+        icon: join(hostRoot, 'assets/application-icons/fold-coral.png'), target, release, environment, policyPath })
+      if (release && target.platform === 'darwin') config.afterPack = context => signMacRuntime(context, target)
       const { build: buildElectron, Platform, Arch } = require('electron-builder')
       const paths = await buildElectron({ projectDir: hostRoot, config,
-        targets: Platform.fromString(target.platform).createTarget(directoryOnly ? ['dir'] : target.platform === 'linux' ? ['AppImage', 'deb'] : [target.format], Arch[target.arch]), publish: 'never' })
+        targets: Platform.fromString(target.platform).createTarget(directoryOnly ? ['dir'] : target.platform === 'linux' ? ['AppImage', 'deb'] : target.platform === 'darwin' ? ['dmg', 'zip'] : [target.format], Arch[target.arch]), publish: 'never' })
       // Audit the actual output bytes and package bootstrap, then relocate a
       // complete .app outside the checkout to detect source-path dependencies.
       const builderRequire = createRequire(require.resolve('electron-builder'))
       const asar = createRequire(builderRequire.resolve('app-builder-lib'))('@electron/asar')
       const archive = join(layout.resources, 'app.asar')
       verifyBootstrapArchive(asar, archive)
-      await verifyRuntime(finalRuntime, target)
+      manifest = await verifyRuntime(finalRuntime, target)
       const relocated = await mkdtemp(join(tmpdir(), 'ling-installed-app-'))
       let report
       try {
@@ -134,12 +141,19 @@ try {
         await execute('/usr/bin/plutil', ['-lint', join(appPath, 'Contents/Info.plist')])
       }
       for (const path of paths.filter(path => path.endsWith('.dmg'))) await verifyDiskImage(path)
+      if (release) {
+        await verifyReleaseSignature(target.platform === 'win32' ? layout.executable : appPath, target)
+        if (target.platform === 'win32') for (const path of paths.filter(path => path.endsWith('.exe'))) await verifyReleaseSignature(path, target)
+      }
+      const artifacts = (await readdir(output)).filter(isPackageArtifact).map(file => join(output, file))
+      if (!release && artifacts.some(path => path.endsWith('.yml'))) throw new Error('Local packages must not expose update feeds; remove stale output and rebuild')
       const reportPath = join(output, 'packaging-report.json')
       const reportTemporary = `${reportPath}.tmp`
       await writeFile(reportTemporary, `${JSON.stringify({ schemaVersion: 1, version, upstreamVersion: manifest.upstreamVersion,
-        target, signed: target.platform === 'darwin' ? 'ad-hoc' : false, notarized: false, packageCount: manifest.packages.length,
+        target, signed: target.platform === 'darwin' ? release ? 'developer-id' : 'ad-hoc' : target.platform === 'win32' && release ? 'authenticode' : false,
+        notarized: target.platform === 'darwin' && release, autoUpdate: release, updateChannel: updatePolicy(version, release).channel, packageCount: manifest.packages.length,
         runtimeBytes: manifest.files.reduce((sum, file) => sum + file.size, 0), runtimeFiles: manifest.files.length,
-        artifacts: [appPath, ...paths.filter(path => /\.(dmg|exe|AppImage|deb)$/.test(path))], relocatedRuntime: report }, null, 2)}\n`)
+        artifacts: [appPath, ...artifacts], relocatedRuntime: report }, null, 2)}\n`)
       await rename(reportTemporary, reportPath)
       console.log(`LING ${name} package verified: ${appPath}`)
       for (const path of paths.filter(path => /\.(dmg|exe|AppImage|deb)$/.test(path))) console.log(`LING installer: ${path}`)

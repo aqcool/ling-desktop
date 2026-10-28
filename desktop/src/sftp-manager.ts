@@ -33,6 +33,7 @@ async function localTree(root: string, signal: AbortSignal, relative = '', outpu
 export class SftpManager {
   private readonly jobs = new Map<string, Job>()
   constructor(private readonly files: (serverId: string) => Promise<SftpFiles>, private readonly picker?: TransferPicker) {}
+  get active(): boolean { return [...this.jobs.values()].some(job => job.status === 'running') }
   async close(serverId?: string): Promise<void> {
     const selected = [...this.jobs.values()].filter(job => !serverId || job.serverId === serverId)
     for (const job of selected) job.abort.abort()

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LingPresentedFile } from '../../runtime/reply-features.js'
 import type { LingServer, LingTerminalTarget } from '../../runtime/servers.js'
+import { useApplicationUpdateGuard } from '../use-application-update-guard.js'
 import type { BrowserAnnotation } from '../BrowserPanel.js'
 import { deliveryName } from '../DeliveryCards.js'
 import type { SideTaskState } from '../SideTaskPanel.js'
@@ -54,6 +55,12 @@ export function useWorkbench({ props, activeServerId, serverIds = [], servers = 
   const [browserNavigation, setBrowserNavigation] = useState<BrowserNavigationRequest>()
   const [browserAnnotations, setBrowserAnnotations] = useState<readonly BrowserAnnotation[]>([])
   const [browserAnnotationResetKey, setBrowserAnnotationResetKey] = useState(0)
+  useApplicationUpdateGuard(() => {
+    if (workbenchTabs.some(tab => tab.sideTask && (tab.sideTask.prompt || tab.sideTask.attachments.length || tab.sideTask.recordedAttachments?.attachments.length))) return '侧边任务有未发送的草稿，请先发送或移除后再更新。'
+    if (workbenchTabs.some(tab => tab.sideTask?.pending)) return '侧边任务正在提交，请等待完成后再更新。'
+    if (browserAnnotations.length) return '有未发送的网页批注，请先发送或移除后再更新。'
+    return undefined
+  })
   const activeWorkbenchTab = workbenchTabs.find(tab => tab.id === activeWorkbenchTabId)
   const clearBrowserAnnotations = () => {
     setBrowserAnnotations([])

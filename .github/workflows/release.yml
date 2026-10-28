@@ -87,6 +87,7 @@ jobs:
       DSH_TELEMETRY_DISABLED: '1'
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       TARGET: ${{ matrix.target }}
+      LING_RELEASE_BUILD: '1'
     steps:
       - name: Enable Windows long paths
         if: runner.os == 'Windows'
@@ -111,15 +112,40 @@ jobs:
           key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches/**', 'vendor/**') }}
       - run: corepack pnpm install --frozen-lockfile
       - run: node scripts/release-version.mjs --check "$RELEASE_VERSION"
+      - name: Require macOS release signing and notarization credentials
+        if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ secrets.LING_MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.LING_MAC_CSC_KEY_PASSWORD }}
+          CSC_NAME: ${{ secrets.LING_MAC_CSC_NAME }}
+          APPLE_ID: ${{ secrets.LING_APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.LING_APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.LING_APPLE_TEAM_ID }}
+        run: node --input-type=module -e "import {releaseBuild,nativeTarget} from './desktop/scripts/packaging/config.mjs'; releaseBuild(nativeTarget(),process.env)"
+      - name: Require Windows release signing credentials
+        if: runner.os == 'Windows'
+        env:
+          WIN_CSC_LINK: ${{ secrets.LING_WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.LING_WIN_CSC_KEY_PASSWORD }}
+          LING_WINDOWS_PUBLISHER_NAME: ${{ secrets.LING_WINDOWS_PUBLISHER_NAME }}
+        run: node --input-type=module -e "import {releaseBuild,nativeTarget} from './desktop/scripts/packaging/config.mjs'; releaseBuild(nativeTarget(),process.env)"
       - name: Build, test and qualify the native package
+        env:
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.LING_MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.LING_MAC_CSC_KEY_PASSWORD || '' }}
+          CSC_NAME: ${{ runner.os == 'macOS' && secrets.LING_MAC_CSC_NAME || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.LING_APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.LING_APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.LING_APPLE_TEAM_ID || '' }}
+          WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.LING_WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.LING_WIN_CSC_KEY_PASSWORD || '' }}
+          LING_WINDOWS_PUBLISHER_NAME: ${{ runner.os == 'Windows' && secrets.LING_WINDOWS_PUBLISHER_NAME || '' }}
         run: corepack pnpm dist
-      - name: Collect installers and qualification report
+      - name: Collect qualified installers, updater payloads and metadata
         run: |
           set -euo pipefail
           mkdir release-assets
-          cp "desktop/dist/$TARGET/packaging-report.json" "release-assets/LING-$RELEASE_VERSION-$TARGET-report.json"
-          find "desktop/dist/$TARGET" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} release-assets/ \;
-          node scripts/release-assets.mjs release-assets "$RELEASE_VERSION" "$TARGET"
+          node scripts/release-assets.mjs --collect "desktop/dist/$TARGET" release-assets "$RELEASE_VERSION" "$TARGET"
       - uses: actions/upload-artifact@v7
         with:
           name: ling-${{ matrix.target }}
@@ -145,6 +171,8 @@ jobs:
           pattern: ling-*
           path: release-assets
           merge-multiple: true
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify all targets and write checksums
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
@@ -158,5 +186,22 @@ jobs:
           set -euo pipefail
           args=()
           if [[ "$RELEASE_VERSION" == *-* ]]; then args+=(--prerelease); fi
-          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --title "LING $RELEASE_VERSION" \
-            --notes-file .github/release-notes.md "${args[@]}"
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-state.txt 2>/dev/null; then
+            if [ "$(cat release-state.txt)" != true ]; then
+              echo 'Refusing to modify an already published release.'
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --title "LING $RELEASE_VERSION" \
+              --notes-file .github/release-notes.md "${args[@]}"
+          fi
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > existing-assets.txt
+          while IFS= read -r asset; do
+            if [[ "$asset" == */* ]] || [ ! -f "release-assets/$asset" ]; then
+              echo 'Draft contains an unexpected asset; refusing to publish it.'
+              exit 1
+            fi
+          done < existing-assets.txt
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          if [[ "$RELEASE_VERSION" != *-* ]]; then args+=(--latest); fi
+          gh release edit "$RELEASE_TAG" --draft=false "${args[@]}"

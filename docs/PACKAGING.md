@@ -11,9 +11,9 @@ corepack pnpm install --frozen-lockfile
 
 | Platform | Architecture | Installer | GitHub runner |
 | --- | --- | --- | --- |
-| macOS | arm64 | DMG | macos-15 |
-| macOS | x64 | DMG | macos-15-intel |
-| Windows | x64 | NSIS EXE | windows-2025 |
+| macOS | arm64 | DMG, ZIP, blockmaps | macos-15 |
+| macOS | x64 | DMG, ZIP, blockmaps | macos-15-intel |
+| Windows | x64 | NSIS EXE, blockmap | windows-2025 |
 | Linux | x64 | AppImage, DEB | ubuntu-24.04 |
 
 Build on the matching native machine; cross-compiling the native runtime is not
@@ -34,10 +34,18 @@ size and relocated-runtime probe. The installed `runtime/ling-runtime.json`
 records the source revision, dependency versions and individual file hashes.
 Preparation copies, smoke profiles and mounted images are removed afterward.
 
-macOS builds use ad-hoc signatures without Apple notarization. Windows builds
-are unsigned. These packages may produce OS installation warnings; signing
-credentials and an in-app update feed are not configured. Uninstalling the
-Windows package keeps user data. LING remains a local desktop application.
+Local builds use ad-hoc macOS signatures without notarization and unsigned
+Windows executables. They write `ling-update-policy.json` with `enabled:false`,
+never emit an update feed, and remain available without signing credentials.
+Uninstalling the Windows package keeps user data.
+
+Release builds explicitly set `LING_RELEASE_BUILD=1` and require `CI=true`.
+macOS and Windows fail before packaging when their complete credential set is
+missing; they never fall back to an unsigned update release. Linux uses the
+qualified AppImage/DEB payloads and HTTPS plus SHA-512 integrity. These packages
+write `enabled:true` in the policy only as part of this release path.
+`app-update.yml` and the policy live beside the physical `runtime/`, outside the
+bootstrap ASAR. The main process refuses automatic updates without both files.
 
 ## Version, tag and release automation
 
@@ -48,9 +56,12 @@ Run **LING Release** in GitHub Actions, enter a SemVer version such as
 2. commits the version change and atomically pushes the branch and annotated
    `ling-vVERSION` tag, refusing to replace an existing tag;
 3. builds and qualifies the same commit on all four native runners;
-4. verifies the complete artifact matrix and writes `SHA256SUMS`;
-5. publishes one GitHub Release only when every build succeeds. Versions with
-   a prerelease suffix are marked as prereleases.
+4. checks every update metadata reference against the payload size and SHA-512,
+   checks external blockmaps and the signing/notarization qualification reports,
+   merges the two macOS architecture feeds, and writes `SHA256SUMS`;
+5. uploads the complete matrix to a private draft, then publishes it in one final
+   operation. A partially uploaded feed is never visible to update clients.
+   Versions with a prerelease suffix are marked as prereleases.
 
 The build jobs run in the same workflow as tag creation, so they do not depend
 on a second workflow being triggered by a `GITHUB_TOKEN` push. Only tag creation
@@ -102,3 +113,93 @@ checksums. Only the artifact closure used by LING remains in the checkout.
 `check:runtime` verifies artifacts and patch hashes against the lockfile.
 The bundled SSH helper retains Linux/macOS native slices for x64 and arm64.
 LING and upstream DSH keep separate version identities.
+
+## Signing configuration for release CI
+
+Configure these GitHub Actions repository/environment secrets before running
+**LING Release**. The workflow validates presence without printing their values;
+this repository does not provision certificates or alter GitHub secrets.
+
+| Secret | Required value |
+| --- | --- |
+| `LING_MAC_CSC_LINK` | Base64-encoded Developer ID Application PKCS#12 certificate including its private key, as supported by electron-builder `CSC_LINK` |
+| `LING_MAC_CSC_KEY_PASSWORD` | PKCS#12 password |
+| `LING_MAC_CSC_NAME` | Full `Developer ID Application: Organization (TEAMID)` identity |
+| `LING_APPLE_ID` | Apple account permitted to notarize this application |
+| `LING_APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
+| `LING_APPLE_TEAM_ID` | Team ID matching the signing identity |
+| `LING_WIN_CSC_LINK` | Base64-encoded Authenticode PKCS#12 certificate including private key |
+| `LING_WIN_CSC_KEY_PASSWORD` | Windows PKCS#12 password |
+| `LING_WINDOWS_PUBLISHER_NAME` | Certificate subject common name used by NSIS update verification |
+
+The macOS configuration uses hardened runtime, Developer ID signing, Apple
+notarization and stapling. Qualification checks `codesign --deep --strict`,
+`spctl --assess` and `stapler validate`; Windows checks Authenticode on the app
+and installer. Missing credentials, a rejected notarization or an invalid
+signature stops the matrix and publication. Existing ad-hoc/unsigned
+installations must first be replaced manually with a qualified signed release;
+adding an updater cannot upgrade the trust of the old installation.
+
+The external runtime remains excluded from Builder's recursive signing. A
+release-only `afterPack` hook uses the pinned Builder 26.15.7 temporary keychain
+to sign only raw Mach-O binaries matching the native architecture, then rewrites
+the runtime hash manifest before the outer app is sealed. A foreign raw Mach-O
+fails qualification. ELF/PE files and the multi-platform SSH helper tarballs are
+never unpacked or resigned. The final signed physical runtime is checked again
+and exercised by the relocated headless smoke. This keeps the remote SSH
+payload's upstream hashes and platform slices intact. A real signed/notarized
+CI build is still required to qualify Apple acceptance of this payload; local
+unit tests do not constitute notarization or OS acceptance.
+
+## Update channels and release resources
+
+The updater dependency is pinned to `electron-updater` 6.8.11, compatible with
+the existing `electron-builder` 26.15.7. The UI channel `stable` uses `latest`;
+`preview` uses `dev`. Stable versions emit `latest.yml`, `latest-mac.yml` and
+`latest-linux.yml`; prereleases such as `0.1.0-dev.12` emit only the corresponding
+`dev*.yml`. Preview releases never overwrite a stable feed. The updater downloads
+in the background; installation and restart require the user's explicit action.
+
+The client resolves published `ling-vVERSION` tags through GitHub's Releases API,
+then pins the updater's generic feed to that release's asset directory. This
+preserves the existing tag scheme, which the upstream GitHub provider cannot
+parse for preview selection. Preview includes all supported prerelease labels
+(including dev, beta and rc) and newer stable versions; neither channel downgrades
+the installed application. GitHub errors remain visible and are not treated as
+"up to date".
+
+Users can open **设置 → 软件更新** to select a channel, check manually, read the
+release notes, and choose **重启并安装** or **稍后**. Qualified packages first check
+after 20 seconds, then every six hours. Ordinary application exit does not install
+a downloaded update. Development mode and unsigned local builds show an explicit
+unavailable state; Linux application updates support AppImage, while DEB installs
+are upgraded with a new installer.
+
+Installation checks every LING window for unsaved content, confirms terminal
+disconnection, locks Host admission, and rechecks tasks, queues, jobs, scheduled
+runs and file transfers. Persisted conversation drafts are flushed; unpersisted
+attachments, side-task drafts and unsaved file edits require the user to handle
+them first. Final window acknowledgements freeze editing until handoff or recovery.
+The Host must exit gracefully before the installer is called. Failed preparation
+does not authorize installation; handoff failure restores the old runtime when
+possible and never replays terminal commands. These updates replace the application
+on restart; they do not swap Renderer or Host code in a running process.
+
+macOS requires the signed ZIP in addition to the DMG. Both have external
+`.blockmap` files; NSIS also has an external blockmap, while Linux AppImage uses
+an embedded blockmap. Each native job stages its metadata under a unique
+`LING-VERSION-TARGET-update.yml` name to prevent architecture collisions during
+artifact download. The publication job validates all staged files and combines
+both macOS architectures into a single channel feed. It rejects missing
+installers, mismatched hashes/sizes, invalid blockmaps, unsigned reports, and
+unexpected channel files. Staged metadata and checksums remain in the release
+as qualification evidence.
+
+Build jobs always call Builder with `publish: never` and cannot publish. Only
+the final job receives repository write permission. A retry can finish a draft;
+it refuses to change a published release. A draft left after an upload failure
+is not an update feed and can safely be retried after the full matrix passes.
+
+References: [electron-builder v26 publishing](https://www.electron.build/v26/docs/publish/),
+[v26 macOS targets](https://www.electron.build/v26/docs/mac/),
+and [electron-updater 6.8.11](https://www.npmjs.com/package/electron-updater/v/6.8.11).

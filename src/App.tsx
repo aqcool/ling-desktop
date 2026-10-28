@@ -3,6 +3,7 @@ import { acceptDraft, type ComposerDraft as Draft } from './ui/composer-draft.js
 import { useBehavior } from './ui/behavior-preferences.js'
 import { readTaskWorkModes, rememberCreatedTaskMode } from './ui/task-work-modes.js'
 import { useBehaviorNotifications } from './ui/behavior-notifications.js'
+import { useApplicationUpdateGuard } from './ui/use-application-update-guard.js'
 import { nativeBehavior } from './ui/BehaviorSettings.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createOfflineRuntimeAdapter } from './runtime/offline-adapter.js'
@@ -233,6 +234,17 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
   const resolvedSlots = useLingUiSlots(extensions, slots)
   const draftsRef = useRef(drafts)
   draftsRef.current = drafts
+  const readingAttachments = useRef(0)
+  useApplicationUpdateGuard(() => {
+    try { window.localStorage.setItem(draftStorageKey, serializeDrafts(draftsRef.current)) }
+    catch { return '对话草稿未能保存，请先保存草稿后再更新。' }
+    if (readingAttachments.current) return '还有附件正在读取，请等待完成后再更新。'
+    if (Object.values(draftsRef.current).some(value => value.attachments.length)) return '有未发送的附件或引用，请先发送或移除后再更新。'
+    const staged = draftsRef.current[newTaskKey]
+    if (staged && (staged.text || staged.recordedAttachments?.attachments.length || staged.serverIds?.length)
+      && (newTaskWorkspaceId || newTaskWithoutWorkspace || newTaskAgentPreset)) return '新任务的运行位置或预设尚未保存，请先发送该任务后再更新。'
+    return undefined
+  })
   const workspaceContextScopes = useRef(new Map<string, string>())
 
   const draftKey = selectedTask?.taskId ?? newTaskKey
@@ -687,12 +699,13 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
 
   const addFiles = useCallback((files: File[]) => {
     const key = draftKey
+    readingAttachments.current++
     void Promise.all(files.map(file => toComposerAttachment(file))).then(attachments => {
       const current = draftsRef.current[key] ?? emptyDraft
       writeDraft(key, { attachments: [...current.attachments, ...attachments] })
     }).catch(() => {
       showNotice('部分附件无法读取。')
-    })
+    }).finally(() => { readingAttachments.current-- })
   }, [draftKey, showNotice, writeDraft])
 
   const addWorkspaceContext = useCallback((reference: WorkspaceContextReference, scope?: string) => {

@@ -219,6 +219,11 @@ export class DesktopHostProcess {
         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
       }
       else if (message.type === 'fatal') this.fail(new Error(message.message))
+      else if (message.type === 'update-tasks') {
+        const query = this.taskQueries.get(message.requestId)
+        if (message.error) query?.reject(new Error(message.error))
+        else query?.resolve(message.active)
+      }
       else if (message.type === 'desktop-action') {
         if (!this.stopping && !this.failureReported) this.onRestart?.()
       }
@@ -277,11 +282,6 @@ export class DesktopHostProcess {
         }).finally(() => { this.serverRequests.delete(message.requestId) })
       }
       else if (message.type === 'server-cancel') this.serverRequests.get(message.requestId)?.abort()
-      else {
-        const query = this.taskQueries.get(message.requestId)
-        if (message.error === undefined) query?.resolve(message.active)
-        else query?.reject(new Error(message.error))
-      }
     })
     child.once('error', (error) => { this.fail(error) })
     this.exitPromise = new Promise<void>((resolve) => {

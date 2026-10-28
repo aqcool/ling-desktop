@@ -11,6 +11,7 @@ import { loadLingProfile, LING_HOST_PACKAGE } from '../profile.ts'
 import { bundledPnpmEntry } from '../extensions.ts'
 import { withSystemProxy } from './system-proxy.ts'
 import { ServerBridge, installServerBridge } from './server-bridge.ts'
+import { guardUpdateGateway, handleUpdateTaskRequest, isUpdateTaskRequest, updateWorkActive } from '../update-admission.ts'
 
 export async function main(): Promise<void> {
   const runtimeDir = process.argv[2]
@@ -50,10 +51,17 @@ export async function main(): Promise<void> {
   })()
   process.on('message', (value: unknown) => {
     if (serverBridge.receive(value)) return
+    if (isUpdateTaskRequest(value)) {
+      void application.then(async ({ ctx }) => send(await handleUpdateTaskRequest(value, () => updateWorkActive(ctx)))).catch(() => {
+        void send({ type: 'update-tasks', requestId: value.requestId, active: true, error: '无法检查当前任务，请稍后重试更新。' }).catch(() => {})
+      })
+      return
+    }
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'shutdown') void stop().catch(fatal)
   })
   process.once('disconnect', () => { serverBridge.close(); void stop().catch(fatal) })
   const { ctx } = await application
+  ctx.effect(() => guardUpdateGateway(ctx.typertGateway), 'LING update request admission')
   // Plain browsers need the same stylesheet Electron maps from the package dist.
   const stylesheet = join(dirname(createRequire(LING_HOST_PACKAGE).resolve('ling-desktop/package.json')), 'dist', 'renderer.css')
   ctx.webServer.register({ kind: 'exact', path: '/ling-renderer.css', handler: async (_req, res) => {

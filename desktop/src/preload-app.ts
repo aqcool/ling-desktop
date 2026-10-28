@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc.ts'
 import { markDocumentPlatform } from './preload-platform.ts'
 import type { ApplicationIconSnapshot, ApplicationIconStyle } from './application-icon.ts'
-import type { LingRendererFailure } from 'ling-desktop/runtime'
+import type { LingRendererFailure, LingUpdateBridge, LingUpdateChannel, LingUpdateState } from 'ling-desktop/runtime'
 
 declare global {
   interface Window {
@@ -17,6 +17,47 @@ declare global {
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   markDocumentPlatform()
+  const updateChecks = new Set<() => string | undefined>()
+  let updateFrozen = false
+  let previouslyInert = false
+  const freezeForUpdate = (freeze: boolean) => {
+    if (freeze === updateFrozen) return
+    if (freeze) previouslyInert = document.body.inert
+    document.body.inert = freeze || previouslyInert
+    updateFrozen = freeze
+  }
+  for (const event of ['keydown', 'keyup', 'beforeinput', 'pointerdown', 'click', 'dblclick', 'contextmenu', 'drop', 'paste', 'cut', 'submit']) {
+    window.addEventListener(event, input => {
+      if (!updateFrozen) return
+      input.preventDefault()
+      input.stopImmediatePropagation()
+    }, { capture: true })
+  }
+  ipcRenderer.on(IPC.updateUnlock, () => freezeForUpdate(false))
+  ipcRenderer.on(IPC.updatePrepare, (_event, token: unknown, freeze: unknown) => {
+    if (typeof token !== 'string') return
+    let reason: string | undefined
+    try {
+      for (const check of updateChecks) {
+        reason = check()
+        if (reason) break
+      }
+      if (!reason && freeze === true) freezeForUpdate(true)
+    } catch { reason = '窗口内容尚未保存，请稍后重试更新。' }
+    void ipcRenderer.invoke(IPC.updatePrepared, token, reason).catch(() => undefined)
+  })
+  contextBridge.exposeInMainWorld('__LING_UPDATE__', {
+    beforeInstall: (check: () => string | undefined) => { updateChecks.add(check); return () => { updateChecks.delete(check) } },
+    get: () => ipcRenderer.invoke(IPC.updateGet),
+    check: () => ipcRenderer.invoke(IPC.updateCheck),
+    setChannel: (channel: LingUpdateChannel) => ipcRenderer.invoke(IPC.updateChannel, channel),
+    install: () => ipcRenderer.invoke(IPC.updateInstall),
+    subscribe: (callback: (state: LingUpdateState) => void) => {
+      const listener = (_event: unknown, state: LingUpdateState) => callback(state)
+      ipcRenderer.on(IPC.updateChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.updateChanged, listener)
+    },
+  } satisfies LingUpdateBridge)
   contextBridge.exposeInMainWorld('__LING_RECOVERY__', {
     ready: () => ipcRenderer.invoke(IPC.rendererReady),
     report: (failure: LingRendererFailure) => ipcRenderer.invoke(IPC.rendererFailure, failure),
