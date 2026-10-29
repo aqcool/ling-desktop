@@ -134,7 +134,7 @@ describe('explicit task server targets', () => {
     const { controller, a, b, execute, sent } = await fixture()
     await controller.setTaskServers('task', { expectedRevision: 0, serverIds: [a.id, b.id] })
     const results = await Promise.all([execute('server_exec', a.id), execute('server_exec', b.id)])
-    expect(results.map(result => result.isError)).toEqual([false, false])
+    expect(results.map(result => result.isError), JSON.stringify(results)).toEqual([false, false])
     const calls = sent.filter(request => request.command === 'pwd')
     expect(calls.map(request => request.serverId).sort()).toEqual([a.id, b.id].sort())
     expect((await controller.taskServers('task')).revision).toBe(1)

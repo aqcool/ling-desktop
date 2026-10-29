@@ -1,8 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ServerSessions } from '../src/server-sessions.ts'
+vi.mock('node:fs/promises', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...fs, readFile: vi.fn(fs.readFile), rename: vi.fn(fs.rename) }
+})
 const a = '4a26673e-b38d-4e92-bfb8-0e7fd886e445'
 const b = '8c77cad8-c7f8-414d-88ba-20716896efce'
 async function fixture(run: (sessions: ServerSessions, file: string, home: string) => Promise<void>) {
@@ -41,6 +45,45 @@ describe('multiple non-secret task servers', () => {
     await sessions.changeDirectory('task', a, '/two')
     await expect(sessions.changeDirectory('task', a, '/three', { revision: state.revision, cwd: '/one' })).rejects.toThrow('已变化')
     expect((await sessions.get('task')).servers).toEqual([{ serverId: a, cwd: '/two' }])
+  }))
+  it('orders reads with concurrent directory initialization and continues after a rejected mutation', async () => fixture(async sessions => {
+    await sessions.set('task', { expectedRevision: 0, serverIds: [a, b] })
+    const first = sessions.changeDirectory('task', a, '/srv/alpha', { revision: 1 }, true)
+    const afterFirst = sessions.get('task')
+    const second = sessions.changeDirectory('task', b, '/srv/beta', { revision: 1 }, true)
+    const afterBoth = sessions.get('task')
+    await Promise.all([first, second])
+    expect((await afterFirst).servers).toEqual([{ serverId: a, cwd: '/srv/alpha' }, { serverId: b }])
+    expect((await afterBoth).servers).toEqual([{ serverId: a, cwd: '/srv/alpha' }, { serverId: b, cwd: '/srv/beta' }])
+    const rejected = sessions.set('task', { expectedRevision: 0, serverIds: [] })
+    const afterFailure = sessions.get('task')
+    await expect(rejected).rejects.toThrow('已变化')
+    expect(await afterFailure).toEqual(await afterBoth)
+  }))
+  it('waits for an open read handle before replacing the task record', async () => fixture(async (sessions, file) => {
+    await sessions.set('task', { expectedRevision: 0, serverIds: [a] })
+    let opened!: () => void, release!: () => void
+    const started = new Promise<void>(resolve => { opened = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    vi.mocked(readFile).mockClear().mockImplementationOnce(async () => {
+      const handle = await open(file, 'r')
+      try { opened(); await held; return await handle.readFile('utf8') }
+      finally { await handle.close() }
+    })
+    vi.mocked(rename).mockClear()
+    const reading = sessions.get('task')
+    await started
+    const writing = sessions.changeDirectory('task', a, '/srv/app')
+    try {
+      await Promise.resolve()
+      expect(readFile).toHaveBeenCalledOnce()
+      expect(rename).not.toHaveBeenCalled()
+    } finally {
+      release()
+      await Promise.all([reading, writing])
+    }
+    expect((await sessions.get('task')).servers).toEqual([{ serverId: a, cwd: '/srv/app' }])
+    expect(rename).toHaveBeenCalledOnce()
   }))
   it('copies all fork directories and the primary atomically with an independent target revision', async () => fixture(async (sessions, file) => {
     await sessions.set('source', { expectedRevision: 0, serverIds: [a, b], developmentServerId: a })

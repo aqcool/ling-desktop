@@ -17,7 +17,7 @@ export class ServerSessions {
 
   async get(taskId: string): Promise<LingTaskServers> {
     taskIdSchema.parse(taskId)
-    return (await this.read()).sessions[taskId] ?? { revision: 0, servers: [] }
+    return this.enqueue(async () => (await this.read()).sessions[taskId] ?? { revision: 0, servers: [] })
   }
 
   async set(taskId: string, input: LingTaskServersUpdate): Promise<LingTaskServers> {
@@ -78,8 +78,16 @@ export class ServerSessions {
     }
   }
 
+  // Reads share the mutation queue: callers must not see an older state after
+  // requesting a write, or hold the destination open during a Windows rename.
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pending.then(operation)
+    this.pending = result.catch(() => undefined)
+    return result
+  }
+
   private update<T>(change: (document: Document) => T): Promise<T> {
-    const result = this.pending.then(async () => {
+    return this.enqueue(async () => {
       const document = await this.read()
       const value = change(document)
       await mkdir(dirname(this.file), { recursive: true, mode: 0o700 })
@@ -88,7 +96,5 @@ export class ServerSessions {
       finally { await rm(temporary, { force: true }) }
       return value
     })
-    this.pending = result.catch(() => undefined)
-    return result
   }
 }
