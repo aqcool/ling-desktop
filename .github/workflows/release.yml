@@ -118,7 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release-assets
-          node scripts/release-assets.mjs --collect "desktop/dist/$TARGET" release-assets "$RELEASE_VERSION" "$TARGET" --manual
+          node scripts/release-assets.mjs --collect "desktop/dist.noindex/$TARGET" release-assets "$RELEASE_VERSION" "$TARGET" --manual
       - uses: actions/upload-artifact@v7
         with:
           name: ling-${{ matrix.target }}

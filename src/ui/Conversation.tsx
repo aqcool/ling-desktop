@@ -13,6 +13,7 @@ import type {
   LingTimelineAttachment,
   LingTimelineItem,
   LingTaskChanges,
+  LingTaskTimelineSync,
 } from '../runtime/contract.js'
 import { formatBytes } from './attachments.js'
 import { Icon, type IconName } from './Icon.js'
@@ -54,6 +55,8 @@ interface ConversationProps {
   readonly onReviewChanges?: (selection: ChangeSelection) => void
   readonly items: readonly LingTimelineItem[]
   readonly connection: LingRuntimeConnection
+  readonly timelineSync?: LingTaskTimelineSync
+  readonly onRetryTimelineSync?: () => void
   readonly demo: boolean
   readonly hasOlder: boolean
   readonly loadAttachment?: (
@@ -715,6 +718,8 @@ export function Conversation({
   changes,
   onReviewChanges,
   connection,
+  timelineSync,
+  onRetryTimelineSync,
   demo,
   hasOlder,
   loadAttachment,
@@ -925,10 +930,18 @@ export function Conversation({
     </div>
   )
 
+  const syncStrip = timelineSync && connection.phase === 'ready' ? (
+    <div className={tw('flex flex-none items-center gap-3 border-b border-[var(--panel-border)] bg-[var(--surface-secondary)] px-6 py-2 text-xs text-[var(--text-secondary)]')} role="status">
+      <span className={tw('min-w-0 flex-1')}>{timelineSync.message}</span>
+      {timelineSync.phase === 'failed' && onRetryTimelineSync ? <Button size="sm" variant="ghost" onPress={onRetryTimelineSync}>重试同步</Button> : null}
+    </div>
+  ) : null
+
   if (items.length === 0) {
     return (
       <div className={tw("conversation-canvas__inner flex min-w-0 flex-1 flex-col")}>
         {connectionStrip}
+        {syncStrip}
         <div className={tw("conversation-empty mx-auto flex w-full max-w-3xl flex-col items-center px-6 pb-7 pt-8 text-center")}>
           <h1 className={tw("m-0 text-2xl font-medium leading-9 tracking-tight text-[var(--foreground)]")}>想用灵创完成什么？</h1>
           {demo ? <span className={tw("mt-2 text-caption text-[var(--text-tertiary)]")}>本地演示</span> : null}
@@ -940,6 +953,7 @@ export function Conversation({
   return (
     <div className={tw("conversation-canvas__inner relative flex min-h-0 flex-1 flex-col")}>
       {connectionStrip}
+      {syncStrip}
       <div className={tw("relative flex min-h-0 min-w-0 flex-1 flex-col")}><div
         className={tw("conversation-stream conversation-scroll [scrollbar-width:auto] [&::-webkit-scrollbar]:w-[5px]! [&::-webkit-scrollbar-track]:bg-transparent! [&::-webkit-scrollbar-thumb]:min-h-6! [&::-webkit-scrollbar-thumb]:rounded-full! [&::-webkit-scrollbar-thumb]:border-y-[6px]! [&::-webkit-scrollbar-thumb]:border-solid! [&::-webkit-scrollbar-thumb]:border-transparent! [&::-webkit-scrollbar-thumb]:bg-[var(--text-tertiary)]/30! [&::-webkit-scrollbar-thumb]:bg-clip-padding! [&::-webkit-scrollbar-thumb:hover]:bg-[var(--text-tertiary)]/50! [&::-webkit-scrollbar-button]:hidden! grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-[var(--conversation-gap)] overflow-y-auto overflow-x-hidden px-[max(var(--reading-gutter),calc((100%_-_var(--reading-width))/2))] pb-6 pt-5 [overflow-anchor:none] [overscroll-behavior:contain]")}
         ref={scrollRef}
@@ -975,7 +989,7 @@ export function Conversation({
           : <TimelineRow trailingContent={itemIndex === group.items.length - 1 ? changeCards(index, true) : undefined} elapsedFormat={preferences.elapsedFormat} onOpenDelivery={onOpenDelivery} onPreviewDelivery={onPreviewDelivery} registerMessage={item.kind === 'user-message' ? registerMessage : undefined} showActions={actionIds.has(item.itemId)} item={item} key={item.itemId} live={liveItemIds.has(item.itemId)} loadAttachment={loadAttachment} onForkAt={onForkAt} onAddReply={onAddReply} forkDisabled={messageActionsDisabled} retryItem={retry?.failureId === item.itemId ? retry.message : undefined} onRetryMessage={onRetryMessage} onCompactContext={onCompactContext} compactDisabled={compactDisabled} onEditMessage={onEditMessage} onEditRequest={onEditMessage ? beginEdit : undefined} />)}
           {group.process ? changeCards(index) : null}
         </Fragment>)}
-        {running && clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} start={clockStart.current.start} preferences={preferences} showElapsed={!groups.some(group => group.process && group.items.some(item => liveItemIds.has(item.itemId) && (item.status === 'running' || item.reasoningStreaming)))} /> : null}
+        {running && !timelineSync && clockStart.current?.thread === threadKey ? <ThinkingStatus key={`${threadKey}:${clockStart.current.start}`} start={clockStart.current.start} preferences={preferences} showElapsed={!groups.some(group => group.process && group.items.some(item => liveItemIds.has(item.itemId) && (item.status === 'running' || item.reasoningStreaming)))} /> : null}
         {suggestedReply && replyFeatures && onChooseSuggestion ? <ReplySuggestions key={`${suggestedReply.taskId}:${suggestedReply.seq}`} reply={suggestedReply} service={replyFeatures} onChoose={onChooseSuggestion} /> : null}
         {readingSpace > 0 ? <div aria-hidden style={{ height: readingSpace }} /> : null}
       </div>

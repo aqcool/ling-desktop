@@ -13,7 +13,12 @@ export interface CopyFile {
 export interface CopyTree { path: string; directory: boolean; directories: string[]; files: CopyFile[] }
 export interface CopyTarget { file: CopyFile; destination: string; before?: Stats; skip: boolean }
 export interface CopyPlan { targets: CopyTarget[]; directories: string[] }
-export interface CopyProgress { phase: 'scan' | 'transfer' | 'complete'; path?: string; copied: number; skipped: number; bytes: number; totalBytes: number; files: number }
+export interface CopyProgress {
+  phase: 'scan' | 'preflight' | 'transfer' | 'verify' | 'complete'
+  path?: string; copied: number; skipped: number; bytes: number; totalBytes: number; files: number
+  /** Local and remote checksum bytes combined; separate from bytes transferred. */
+  verifiedBytes?: number; totalVerifyBytes?: number
+}
 
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path)
@@ -53,11 +58,15 @@ export async function scanCopySource(request: ServerCopyRequest, signal: AbortSi
   return tree
 }
 
-async function fileHash(file: CopyFile, signal: AbortSignal): Promise<string> {
+async function fileHash(file: CopyFile, signal: AbortSignal, onProgress?: (bytes: number) => void): Promise<string> {
   const handle = await openCopyFile(file)
   try {
     const hash = createHash('sha256')
-    for await (const chunk of handle.createReadStream({ autoClose: false })) { signal.throwIfAborted(); hash.update(chunk) }
+    let bytes = 0
+    onProgress?.(0)
+    for await (const chunk of handle.createReadStream({ autoClose: false })) {
+      signal.throwIfAborted(); hash.update(chunk); bytes += chunk.length; onProgress?.(bytes)
+    }
     await validateCopyFile(handle, file)
     return hash.digest('hex')
   } finally { await handle.close() }
@@ -90,7 +99,8 @@ async function inParallel<T>(items: readonly T[], limit: number, run: (item: T, 
 }
 
 /** Every existing parent is checked with lstat, so a remote link cannot redirect an upload. */
-export async function prepareCopy(files: SftpFiles, tree: CopyTree, request: ServerCopyRequest, signal: AbortSignal): Promise<CopyPlan> {
+export async function prepareCopy(files: SftpFiles, tree: CopyTree, request: ServerCopyRequest, signal: AbortSignal,
+  onProgress?: (progress: CopyProgress) => void): Promise<CopyPlan> {
   const destination = mutablePath(request.destination)
   if (!tree.directory && !tree.files.length) return { targets: [], directories: [] }
   const directories = new Map<string, Promise<void>>()
@@ -118,6 +128,7 @@ export async function prepareCopy(files: SftpFiles, tree: CopyTree, request: Ser
     await inParallel(tree.directories, 16, rel => directory(mutablePath(posix.join(destination, rel))))
   } else await directory(posix.dirname(destination))
   const targets: CopyTarget[] = new Array(tree.files.length)
+  const checks: CopyTarget[] = []
   await inParallel(tree.files, 16, async (file, index) => {
     signal.throwIfAborted()
     const target = tree.directory ? mutablePath(posix.join(destination, file.relative)) : destination
@@ -125,11 +136,27 @@ export async function prepareCopy(files: SftpFiles, tree: CopyTree, request: Ser
     if (before && !before.isFile()) throw new Error(`目标不是普通文件，未覆盖：${target}`)
     if (before && request.overwrite === 'error') throw new Error(`目标文件已存在：${target}`)
     let skip = before !== undefined && request.overwrite === 'skip'
-    if (before && !skip && before.size === file.bytes && (before.mode & 0o777) === file.mode) {
-      skip = request.checksum ? await fileHash(file, signal) === await files.hash(target, signal)
-        : before.mtime === Math.floor(file.mtimeMs / 1000)
+    const comparable = before && !skip && before.size === file.bytes && (before.mode & 0o777) === file.mode
+    if (comparable && !request.checksum) skip = before.mtime === Math.floor(file.mtimeMs / 1000)
+    const entry = { file, destination: target, before, skip }
+    targets[index] = entry
+    if (comparable && request.checksum) checks.push(entry)
+  })
+  const totalVerifyBytes = checks.reduce((sum, target) => sum + target.file.bytes * 2, 0)
+  const totalBytes = tree.files.reduce((sum, file) => sum + file.bytes, 0)
+  let verifiedBytes = 0
+  let skipped = targets.filter(target => target.skip).length
+  const progress = (path: string) => onProgress?.({ phase: 'preflight', path, copied: 0,
+    skipped, bytes: 0, totalBytes, files: targets.length, verifiedBytes, totalVerifyBytes })
+  await inParallel(checks, 16, async target => {
+    const track = () => {
+      let previous = 0
+      return (bytes: number) => { verifiedBytes += bytes - previous; previous = bytes; progress(target.file.relative) }
     }
-    targets[index] = { file, destination: target, before, skip }
+    progress(target.file.relative)
+    target.skip = await fileHash(target.file, signal, track()) === await files.hash(target.destination, signal, track())
+    if (target.skip) skipped++
+    progress(target.file.relative)
   })
   return { targets, directories: created }
 }
@@ -149,9 +176,12 @@ export async function copySftp(files: SftpFiles, cleanupFiles: SftpFiles, reques
     ...copyChanges(plan) }
   const totalBytes = work.reduce((sum, target) => sum + target.file.bytes, 0)
   let sent = 0
+  let verifiedBytes = 0
+  const totalVerifyBytes = request.checksum ? totalBytes * 2 : undefined
   const progress = (phase: CopyProgress['phase'], path?: string) => onProgress?.({ phase, path, copied: result.copied,
-    skipped: result.skipped, bytes: sent, totalBytes, files: targets.length })
-  if (request.dryRun) { result.durationMs = Date.now() - started; return result }
+    skipped: result.skipped, bytes: sent, totalBytes, files: targets.length,
+    ...(totalVerifyBytes === undefined ? {} : { verifiedBytes, totalVerifyBytes }) })
+  if (request.dryRun) { result.durationMs = Date.now() - started; progress('complete'); return result }
   const stopped = new AbortController()
   const transferSignal = AbortSignal.any([signal, stopped.signal])
   let next = 0
@@ -169,7 +199,15 @@ export async function copySftp(files: SftpFiles, cleanupFiles: SftpFiles, reques
         await files.putFile(temporary, handle, target.file.bytes, target.file.mode, transferSignal,
           bytes => { sent += bytes; progress('transfer', target.file.relative) })
         await validateCopyFile(handle, target.file)
-        if (request.checksum && await fileHash(target.file, transferSignal) !== await files.hash(temporary, transferSignal)) throw new Error('传输内容校验失败。')
+        if (request.checksum) {
+          const verifyProgress = () => progress(sent < totalBytes ? 'transfer' : 'verify', target.file.relative)
+          const track = () => {
+            let previous = 0
+            return (bytes: number) => { verifiedBytes += bytes - previous; previous = bytes; verifyProgress() }
+          }
+          verifyProgress()
+          if (await fileHash(target.file, transferSignal, track()) !== await files.hash(temporary, transferSignal, track())) throw new Error('传输内容校验失败。')
+        }
         await files.setAttributes(temporary, target.file.mode, Math.floor(target.file.mtimeMs / 1000))
         if (!sameRemote(target.before, await files.exists(target.destination))) throw new Error('目标文件在拷贝期间变化，未覆盖。')
         transferSignal.throwIfAborted()

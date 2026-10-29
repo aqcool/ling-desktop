@@ -536,6 +536,15 @@ export function projectPendingMessages(inbox: InboxState | undefined, session: R
   return items
 }
 
+function untilAborted<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => { reject(signal.reason) }
+    if (signal.aborted) { reject(signal.reason); return }
+    signal.addEventListener('abort', abort, { once: true })
+    pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
+}
+
 export function createDshConversationProjection(conversation: Pick<UiConversation, 'binding'>, readExecutions?: (taskId: string, callIds: readonly string[]) => Promise<readonly LingServerExecution[]>) {
   const sources = new WeakMap<SessionBinding, {
     getSnapshot(): readonly LingTimelineItem[]
@@ -564,12 +573,19 @@ export function createDshConversationProjection(conversation: Pick<UiConversatio
         let timer: ReturnType<typeof setTimeout> | undefined
         let unsubscribe: (() => void) | undefined
         let generation = 0
-        let polling = false
+        let pending: AbortController | undefined
         let dirty = false
+        let failures = 0
+        let retryAt = 0
+        let outstanding = 0
         const poll = async () => {
           clearTimeout(timer); timer = undefined
           if (!readExecutions || !listeners.size) return
-          if (polling) { dirty = true; return }
+          if (pending) { dirty = true; return }
+          // The RPC has no cancellation argument. Bound abandoned reads even
+          // if chat events keep arriving, while settled failures back off below.
+          if (outstanding >= 3) return
+          if (Date.now() < retryAt) { timer = setTimeout(() => { void poll() }, retryAt - Date.now()); return }
           const snapshot = source.getSnapshot()
           if (!snapshot) return
           const calls = serverCalls(snapshot)
@@ -578,19 +594,43 @@ export function createDshConversationProjection(conversation: Pick<UiConversatio
             .filter(id => !executions.has(id) || executions.get(id)?.status === 'running')
           if (!ids.length) return
           const current = generation
-          polling = true; dirty = false
+          const controller = new AbortController()
+          pending = controller; dirty = false
+          const deadline = setTimeout(() => controller.abort(new Error('执行日志读取超时')), 10_000)
           try {
             for (let at = 0; at < ids.length; at += 256) {
-              const values = await readExecutions(taskId, ids.slice(at, at + 256))
-              if (current !== generation || !listeners.size) return
+              outstanding++
+              const reading = Promise.resolve().then(() => readExecutions(taskId, ids.slice(at, at + 256)))
+              const settled = () => {
+                const wasFull = outstanding >= 3
+                outstanding--
+                // A timed-out RPC can settle after automatic retries paused.
+                // Its payload is obsolete, but the freed slot permits a fresh read.
+                if (listeners.size && !pending && wasFull) {
+                  failures = 0; retryAt = Math.max(retryAt, Date.now() + 1000)
+                  clearTimeout(timer)
+                  timer = setTimeout(() => { void poll() }, retryAt - Date.now())
+                }
+              }
+              void reading.then(settled, settled)
+              const values = await untilAborted(reading, controller.signal)
+              if (current !== generation || pending !== controller || !listeners.size) return
               for (const value of values) executions.set(value.callId, value)
             }
+            failures = 0; retryAt = 0
             for (const listener of listeners) listener()
-          } catch { /* Keep available logs; reconnect on the next refresh. */ }
+          } catch {
+            if (current === generation && pending === controller && listeners.size) {
+              failures = Math.min(failures + 1, 6)
+              retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** (failures - 1))
+            }
+          }
           finally {
-            polling = false
-            if (listeners.size && (dirty || running.length > 0 || ids.some(id => executions.get(id)?.status === 'running'))) {
-              timer = setTimeout(() => { void poll() }, dirty ? 0 : 350)
+            clearTimeout(deadline)
+            if (pending === controller) pending = undefined
+            if (current === generation && listeners.size && outstanding < 3
+              && (failures > 0 || dirty || running.length > 0 || ids.some(id => executions.get(id)?.status === 'running'))) {
+              timer = setTimeout(() => { void poll() }, Math.max(retryAt - Date.now(), dirty ? 0 : 350))
             }
           }
         }
@@ -602,12 +642,20 @@ export function createDshConversationProjection(conversation: Pick<UiConversatio
           subscribe: listener => {
             listeners.add(listener)
             if (listeners.size === 1) {
-              unsubscribe = source.subscribe(() => { for (const fn of listeners) fn(); void poll() })
+              failures = 0; retryAt = 0
+              unsubscribe = source.subscribe(() => {
+                for (const fn of listeners) fn()
+                void poll()
+              })
               void poll()
             }
             return () => {
               listeners.delete(listener)
-              if (!listeners.size) { generation++; clearTimeout(timer); timer = undefined; unsubscribe?.(); unsubscribe = undefined }
+              if (!listeners.size) {
+                generation++; clearTimeout(timer); timer = undefined
+                pending?.abort(new Error('执行日志订阅已关闭')); pending = undefined
+                unsubscribe?.(); unsubscribe = undefined
+              }
             }
           },
         }

@@ -28,7 +28,9 @@ corepack pnpm package:dir   # qualified application directory
 corepack pnpm check:package # recheck its installed runtime
 ```
 
-Output is in `desktop/dist/{mac-arm64,mac-x64,win-x64,linux-x64}/`.
+Output is in `desktop/dist.noindex/{mac-arm64,mac-x64,win-x64,linux-x64}/`.
+The `.noindex` directory keeps local build copies out of macOS Spotlight app
+searches; the installed application name and location are unchanged.
 `packaging-report.json` records the version, target, runtime file/package counts,
 size and relocated-runtime probe. The installed `runtime/ling-runtime.json`
 records the source revision, dependency versions and individual file hashes.

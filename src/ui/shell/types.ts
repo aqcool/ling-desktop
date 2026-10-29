@@ -33,6 +33,7 @@ import type {
   LingTaskSchedule,
   LingTaskSearchMatch,
   LingTaskSummary,
+  LingTaskTimelineSync,
   LingTerminalService,
   LingTimelineAttachment,
   LingTimelineItem,
@@ -177,6 +178,8 @@ export interface LingShellProps {
   readonly localeMessage?: string
   readonly onLocaleChange: (preference: 'zh' | 'en' | undefined) => void
   readonly timeline: readonly LingTimelineItem[]
+  readonly timelineSync?: LingTaskTimelineSync
+  readonly onRetryTimelineSync?: () => void
   readonly version: string
   readonly workspaces: readonly LingWorkspaceSummary[]
   readonly onAddFiles: (files: File[]) => void

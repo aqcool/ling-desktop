@@ -155,6 +155,128 @@ describe('DSH Conversation projection', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it('times out a stalled execution read and ignores its late response after recovery', async () => {
+    vi.useFakeTimers()
+    try {
+      const live = snapshot({ runningCalls: [{ callId: 'remote', name: 'server_copy', time: 1000 } as never] })
+      const current = { callId: 'remote', summary: '拷贝', server: '测试', cwd: '/srv', command: 'copy', output: 'current output', status: 'running' as const }
+      let finish!: (value: typeof current[]) => void
+      const read = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue([current])
+      const projection = createDshConversationProjection({ binding: () => ({ target: () => ({ getSnapshot: () => live, subscribe: () => () => {} }) }) } as never, read)
+      const timeline = projection.timeline({ sessionId: 'task' } as never)
+      const close = timeline.subscribe(vi.fn())
+      await vi.advanceTimersByTimeAsync(10_999)
+      expect(read).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(read).toHaveBeenCalledTimes(2)
+      expect(timeline.getSnapshot()[0]?.text).toBe('current output')
+      finish([{ ...current, output: 'obsolete output' }])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(timeline.getSnapshot()[0]?.text).toBe('current output')
+      close()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('bounds abandoned execution reads and resumes when a late response frees capacity', async () => {
+    vi.useFakeTimers()
+    try {
+      const live = snapshot({ runningCalls: [{ callId: 'remote', name: 'server_copy', time: 1000 } as never] })
+      const current = { callId: 'remote', summary: '拷贝', server: '测试', cwd: '/srv', command: 'copy', output: 'fresh output', status: 'completed' as const }
+      const stalled: Array<(value: typeof current[]) => void> = []
+      const read = vi.fn().mockImplementation(() => new Promise(resolve => { stalled.push(resolve) }))
+      const projection = createDshConversationProjection({ binding: () => ({ target: () => ({ getSnapshot: () => live, subscribe: () => () => {} }) }) } as never, read)
+      const timeline = projection.timeline({ sessionId: 'task' } as never)
+      const close = timeline.subscribe(vi.fn())
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(read).toHaveBeenCalledTimes(3)
+      expect(vi.getTimerCount()).toBe(0)
+      read.mockResolvedValue([current])
+      stalled[0]!([{ ...current, output: 'obsolete output' }])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(timeline.getSnapshot()[0]?.execution).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(read).toHaveBeenCalledTimes(4)
+      expect(timeline.getSnapshot()[0]?.text).toBe('fresh output')
+      stalled[1]!([{ ...current, output: 'another obsolete output' }])
+      close()
+      stalled[2]!([])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(timeline.getSnapshot()[0]?.text).toBe('fresh output')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('recovers after three rejected reads without a source update or reopening the task', async () => {
+    vi.useFakeTimers()
+    try {
+      const live = snapshot({ runningCalls: [{ callId: 'remote', name: 'server_exec', time: 1000 } as never] })
+      const current = { callId: 'remote', summary: '日志', server: '测试', cwd: '/srv', command: 'tail -f app.log', output: 'recovered output', status: 'running' as const }
+      const read = vi.fn().mockRejectedValueOnce(new Error('unavailable')).mockRejectedValueOnce(new Error('unavailable'))
+        .mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue([current])
+      const projection = createDshConversationProjection({ binding: () => ({ target: () => ({ getSnapshot: () => live, subscribe: () => () => {} }) }) } as never, read)
+      const timeline = projection.timeline({ sessionId: 'task' } as never)
+      const close = timeline.subscribe(vi.fn())
+      await vi.advanceTimersByTimeAsync(6999)
+      expect(read).toHaveBeenCalledTimes(3)
+      expect(timeline.getSnapshot()[0]?.execution).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(read).toHaveBeenCalledTimes(4)
+      expect(timeline.getSnapshot()[0]?.text).toBe('recovered output')
+      close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(read).toHaveBeenCalledTimes(4)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('caps the retry frequency for settled failures and clears the delayed probe on close', async () => {
+    vi.useFakeTimers()
+    try {
+      const live = snapshot({ runningCalls: [{ callId: 'remote', name: 'server_exec', time: 1000 } as never] })
+      const read = vi.fn().mockRejectedValue(new Error('unavailable'))
+      const projection = createDshConversationProjection({ binding: () => ({ target: () => ({ getSnapshot: () => live, subscribe: () => () => {} }) }) } as never, read)
+      const close = projection.timeline({ sessionId: 'task' } as never).subscribe(vi.fn())
+      await vi.advanceTimersByTimeAsync(60_999)
+      expect(read).toHaveBeenCalledTimes(6)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(read).toHaveBeenCalledTimes(7)
+      expect(vi.getTimerCount()).toBe(1)
+      close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(read).toHaveBeenCalledTimes(7)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('reopens an execution subscription while its previous read is unresolved', async () => {
+    vi.useFakeTimers()
+    try {
+      const live = snapshot({ runningCalls: [{ callId: 'remote', name: 'server_copy', time: 1000 } as never] })
+      const current = { callId: 'remote', summary: '拷贝', server: '测试', cwd: '/srv', command: 'copy', output: 'new subscription', status: 'running' as const }
+      let finish!: (value: typeof current[]) => void
+      const read = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue([current])
+      const projection = createDshConversationProjection({ binding: () => ({ target: () => ({ getSnapshot: () => live, subscribe: () => () => {} }) }) } as never, read)
+      const timeline = projection.timeline({ sessionId: 'task' } as never)
+      const first = vi.fn()
+      const close = timeline.subscribe(first)
+      await vi.advanceTimersByTimeAsync(0)
+      close()
+      const closeAgain = timeline.subscribe(vi.fn())
+      await vi.advanceTimersByTimeAsync(0)
+      expect(read).toHaveBeenCalledTimes(2)
+      expect(first).not.toHaveBeenCalled()
+      expect(timeline.getSnapshot()[0]?.text).toBe('new subscription')
+      finish([{ ...current, output: 'old subscription' }])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(timeline.getSnapshot()[0]?.text).toBe('new subscription')
+      closeAgain()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
   it.each(['server_exec', 'server_copy'])('finds %s nested under an orchestration tool', name => {
     const running = snapshot({ runningCalls: [{ callId: 'root', name: 'run_code', time: 1000,
       subCalls: [{ callId: 'remote', name, parentCallId: 'root', time: 1100, subCalls: [] }],

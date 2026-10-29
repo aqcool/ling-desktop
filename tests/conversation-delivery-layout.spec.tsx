@@ -20,6 +20,16 @@ function render(items: readonly LingTimelineItem[], review = true) {
 afterEach(() => vi.useRealTimers())
 
 describe('conversation turn results', () => {
+  it.each(['syncing', 'failed'] as const)('preserves messages and suppresses thinking while message sync is %s', phase => {
+    const html = renderToStaticMarkup(<Conversation connection={{ phase: 'ready' }} demo={false} hasOlder={false}
+      items={[question]} loadingOlder={false} onLoadOlder={() => {}} onReconnect={() => {}} running threadKey="task"
+      timelineSync={{ phase, message: phase === 'syncing' ? '消息同步中' : '消息恢复失败' }} onRetryTimelineSync={() => {}} />)
+    expect(html).toContain('更新入口')
+    expect(html).toContain(phase === 'syncing' ? '消息同步中' : '消息恢复失败')
+    expect(html).not.toContain('正在整理思路')
+    expect(html.includes('重试同步')).toBe(phase === 'failed')
+  })
+
   it('shows edited files once, preserves separate deliverables, and places elapsed time before the answer', () => {
     const html = render([question, answer])
     expect(html).not.toContain('aria-label="打开 app.ts"')

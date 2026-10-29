@@ -26,7 +26,7 @@ const release = releaseBuild(target, process.env)
 if (release && directoryOnly) throw new Error('Signed update releases require installers, not --dir')
 const environment = release ? releaseBuildEnvironment(process.env) : localBuildEnvironment(process.env)
 const staging = join(hostRoot, '.packaging', name)
-const output = join(hostRoot, 'dist', name)
+const output = join(hostRoot, 'dist.noindex', name)
 await mkdir(staging, { recursive: true })
 const lock = join(staging, 'lock')
 try { await mkdir(lock) } catch (error) { if (error.code === 'EEXIST') throw new Error('A LING packaging run is already active'); throw error }

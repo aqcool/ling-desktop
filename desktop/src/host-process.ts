@@ -3,6 +3,7 @@ import type { RemotePolicy } from './ssh/runtime.ts'
 import type { ServerOutput } from './server-execution.ts'
 import { serverCopyRequestSchema, type ServerCopyRequest, type ServerCopyResult } from './server-copy-contract.ts'
 import type { CopyProgress } from './server-copy.ts'
+import { createCopyProgressReporter } from './server-copy-progress.ts'
 /** Electron Node-mode child lifecycle for the shared Web application. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -238,14 +239,10 @@ export class DesktopHostProcess {
           if (this.stopping) throw new Error('远端服务暂不可用。')
           if (message.type === 'server-copy-request') {
             if (!this.onServerCopy) throw new Error('远端拷贝服务暂不可用。')
-            let lastProgress = 0
-            return this.onServerCopy(message.serverId, message.request, controller.signal, message.stream ? progress => {
-              const now = Date.now()
-              if (progress.phase !== 'complete' && now - lastProgress < 1000) return
-              lastProgress = now
+            return this.onServerCopy(message.serverId, message.request, controller.signal, message.stream ? createCopyProgressReporter(data => {
               if (child.connected && !controller.signal.aborted) child.send({ type: 'server-output', requestId: message.requestId,
-                stream: 'stdout', data: `${progress.phase} · ${progress.copied}/${progress.files} files · skipped ${progress.skipped} · ${progress.bytes}/${progress.totalBytes} bytes${progress.path ? ` · ${progress.path}` : ''}\n` })
-            } : undefined, message.expectedEndpoint)
+                stream: 'stdout', data })
+            }) : undefined, message.expectedEndpoint)
           }
           if (message.type === 'server-file-request') {
             if (!this.onServerFile) throw new Error('远端文件服务暂不可用。')

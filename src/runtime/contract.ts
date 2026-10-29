@@ -697,6 +697,11 @@ export interface LingTaskSchedule {
   readonly everySeconds?: number
 }
 
+export interface LingTaskTimelineSync {
+  readonly phase: 'syncing' | 'failed'
+  readonly message: string
+}
+
 export interface LingRuntimeSnapshot {
   readonly connection: LingRuntimeConnection
   readonly workspaces: readonly LingWorkspaceSummary[]
@@ -704,6 +709,7 @@ export interface LingRuntimeSnapshot {
   readonly pendingInteractions: readonly LingPendingInteraction[]
   readonly backgroundJobs: Readonly<Record<string, readonly LingBackgroundJob[]>>
   readonly subagents: Readonly<Record<string, LingSubagentCatalog>>
+  readonly taskTimelineSync?: Readonly<Record<string, LingTaskTimelineSync>>
 }
 
 export type LingRuntimeEvent =
@@ -976,6 +982,7 @@ export interface LingRuntimeAdapter {
   subscribeModelSettings(listener: () => void): () => void
   subscribeTaskModel?(taskId: string, listener: (model: LingModelSelection | undefined) => void): () => void
   subscribeTaskTimeline(taskId: string, listener: (items: readonly LingTimelineItem[]) => void): () => void
+  retryTaskTimeline?(taskId: string): void
 }
 export type { LingPresentedFile, LingReplyFeatures } from './reply-features.js'
 export { redactDiagnostic, rendererFailure, type LingRendererFailure } from './diagnostics.js'

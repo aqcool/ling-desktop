@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { serverCopyRequestSchema, type ServerCopyOptions } from '../src/server-copy-contract.ts'
 import { shellQuote } from '../src/server-deployment.ts'
+import type { CopyProgress } from '../src/server-copy.ts'
 import { sftpFixture } from './fixtures/sftp-server.ts'
 
 const cleanups: Array<() => Promise<void>> = []
@@ -18,6 +19,40 @@ function copy(value: Awaited<ReturnType<typeof fixture>>, options: ServerCopyOpt
 }
 
 describe('agent copy using saved authentication', () => {
+  it('reports transfer completion before separately tracking both sides of checksum verification', async () => {
+    const value = await fixture()
+    const data = Buffer.alloc(256 * 1024, 7)
+    await writeFile(join(value.local, 'verified.bin'), data)
+    const progress: CopyProgress[] = []
+    const result = await copy(value, { source: 'verified.bin', destination: '/home/tester/verified.bin', checksum: true }, signal(), item => progress.push(item))
+    const uploaded = progress.findIndex(item => item.phase === 'transfer' && item.bytes === data.length)
+    const verifying = progress.findIndex(item => item.phase === 'verify')
+    expect(uploaded).toBeGreaterThanOrEqual(0)
+    expect(verifying).toBeGreaterThan(uploaded)
+    expect(progress[verifying]).toMatchObject({ bytes: data.length, verifiedBytes: 0, totalVerifyBytes: data.length * 2 })
+    expect(progress.some(item => item.phase === 'verify' && item.verifiedBytes! > 0 && item.verifiedBytes! < data.length * 2)).toBe(true)
+    expect(progress.at(-1)).toMatchObject({ phase: 'complete', copied: 1, bytes: data.length, verifiedBytes: data.length * 2, totalVerifyBytes: data.length * 2 })
+    expect(result).toMatchObject({ copied: 1, bytes: data.length })
+  })
+
+  it('reports checksum preflight progress when existing files can be skipped, including empty files', async () => {
+    const value = await fixture()
+    await mkdir(join(value.local, 'tree'))
+    const data = Buffer.alloc(128 * 1024, 11)
+    await writeFile(join(value.local, 'tree/file'), data)
+    await writeFile(join(value.local, 'tree/empty'), '')
+    await copy(value, { source: 'tree', destination: '/home/tester/tree' })
+    const progress: CopyProgress[] = []
+    expect(await copy(value, { source: 'tree', destination: '/home/tester/tree', checksum: true }, signal(), item => progress.push(item)))
+      .toMatchObject({ copied: 0, skipped: 2, bytes: 0 })
+    const checking = progress.filter(item => item.phase === 'preflight')
+    expect(checking[0]).toMatchObject({ bytes: 0, verifiedBytes: 0, totalVerifyBytes: data.length * 2 })
+    expect(checking.at(-1)).toMatchObject({ verifiedBytes: data.length * 2, skipped: 2 })
+    expect(checking.some(item => item.path === 'empty')).toBe(true)
+    expect(progress.some(item => item.phase === 'transfer')).toBe(false)
+    expect(progress.at(-1)).toMatchObject({ phase: 'complete', copied: 0, skipped: 2, totalBytes: 0 })
+  })
+
   it.each([false, true])('copies arbitrary binary data with saved %s key authentication, pipelined writes and no remote helper', async key => {
     const value = await fixture({ key, atomicRename: true }, 10)
     const data = Buffer.alloc(2 * 1024 * 1024); for (let i = 0; i < data.length; i++) data[i] = i % 251

@@ -42,11 +42,10 @@ function applyRuntimeEvent(
   snapshot: LingRuntimeSnapshot | undefined,
   event: LingRuntimeEvent,
 ): LingRuntimeSnapshot | undefined {
+  if (event.type === 'snapshot.replaced') return event.snapshot
   if (!snapshot) return snapshot
 
   switch (event.type) {
-    case 'snapshot.replaced':
-      return event.snapshot
     case 'connection.changed':
       return { ...snapshot, connection: event.connection }
     case 'task.upsert': {
@@ -101,8 +100,9 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
 
   useEffect(() => {
     let active = true
+    setSnapshot(undefined)
     void runtime.getSnapshot().then(nextSnapshot => {
-      if (active) setSnapshot(nextSnapshot)
+      if (active) setSnapshot(current => current ?? nextSnapshot)
     })
     return () => {
       active = false
@@ -141,6 +141,10 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
 
   const backgroundJobs = selectedTaskId === undefined ? [] : (snapshot?.backgroundJobs[selectedTaskId] ?? [])
   const subagents = selectedTaskId === undefined ? undefined : snapshot?.subagents[selectedTaskId]
+  const timelineSync = selectedTaskId === undefined ? undefined : snapshot?.taskTimelineSync?.[selectedTaskId]
+  const retryTimelineSync = useCallback(() => {
+    if (selectedTaskId) runtime.retryTaskTimeline?.(selectedTaskId)
+  }, [runtime, selectedTaskId])
   const supportsSubagents = runtime.setTaskSubagentsOpen !== undefined
 
   useEffect(() => {
@@ -162,6 +166,7 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     }
 
     let active = true
+    setTimeline([])
     const unsubscribe = runtime.subscribeTaskTimeline(selectedTaskId, items => {
       if (active) setTimeline(items)
     })
@@ -841,6 +846,8 @@ export function useLingRuntime(runtime: LingRuntimeAdapter, initialTaskId?: stri
     tasks,
     testProvider,
     timeline,
+    timelineSync,
+    retryTimelineSync,
     updateCustomProvider,
     workspaces,
   }

@@ -228,6 +228,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
     tasks,
     testProvider,
     timeline,
+    timelineSync,
+    retryTimelineSync,
     updateCustomProvider,
     workspaces,
   } = useLingRuntime(runtime)
@@ -1342,6 +1344,8 @@ export function App({ extensions = lingUiExtensions, runtime = offlineRuntime, s
       localeMessage={localeMessage}
       onLocaleChange={changeLocalePreference}
       timeline={timeline}
+      timelineSync={timelineSync}
+      onRetryTimelineSync={retryTimelineSync}
       version={LING_RENDERER_VERSION}
       workspaces={workspaces}
       onAddFiles={addFiles}

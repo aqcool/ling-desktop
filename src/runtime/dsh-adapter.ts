@@ -57,6 +57,7 @@ import type {
   LingTaskSearchMatch,
   LingTaskSummary,
   LingTaskTerminal,
+  LingTaskTimelineSync,
   LingTerminalService,
   LingTokenUsage,
   LingTimelineItem,
@@ -554,13 +555,14 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
   const listeners = new Set<(event: LingRuntimeEvent) => void>()
   const terminalStatuses = new Map<string, LingTaskStatus>()
   const historyStates = new Map<string, boolean>()
-  const timelineReaders = new Map<string, number>()
+  const timelineReaders = new Map<string, ReturnType<typeof createTimelineReader>>()
+  const timelineSync = new Map<string, LingTaskTimelineSync>()
   const subagentReaders = new Map<string, number>()
   const directoryPicker = facades.directoryPicker
   let disposeSources: (() => void) | undefined
 
   const currentSnapshot = () => {
-    const snapshot = snapshotProjection(facades, terminalStatuses, historyStates)
+    const snapshot = { ...snapshotProjection(facades, terminalStatuses, historyStates), ...(timelineSync.size ? { taskTimelineSync: Object.fromEntries(timelineSync) } : {}) }
     return deletedTasks.size ? { ...snapshot, tasks: snapshot.tasks.filter(task => !deletedTasks.has(task.taskId)) } : snapshot
   }
   const publishSnapshot = () => {
@@ -583,6 +585,136 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       terminalStatuses.set(taskId, status)
     }
     publishSnapshot()
+  }
+
+  function createTimelineReader(taskId: string) {
+    const subscribers = new Set<(items: readonly LingTimelineItem[]) => void>()
+    let cached: readonly LingTimelineItem[] | undefined
+    let reference: ReturnType<ISessions['retain']> | undefined
+    let abort: AbortController | undefined
+    let disposeEvents: (() => void) | undefined
+    let disposeSession: (() => void) | undefined
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let openTimer: ReturnType<typeof setTimeout> | undefined
+    let stableTimer: ReturnType<typeof setTimeout> | undefined
+    let generation = 0
+    let retries = 0
+    let disposed = false
+    const retryDelays = [1_000, 2_000, 5_000]
+    const setSync = (state: LingTaskTimelineSync | undefined) => {
+      if (timelineSync.get(taskId)?.phase === state?.phase && timelineSync.get(taskId)?.message === state?.message) return
+      if (state) timelineSync.set(taskId, state)
+      else timelineSync.delete(taskId)
+      publishSnapshot()
+    }
+    const detach = () => {
+      disposeEvents?.(); disposeEvents = undefined
+      disposeSession?.(); disposeSession = undefined
+      clearTimeout(openTimer); openTimer = undefined
+      clearTimeout(stableTimer); stableTimer = undefined
+    }
+    const open = () => {
+      if (disposed) return
+      clearTimeout(retryTimer); retryTimer = undefined
+      const attempt = ++generation
+      let failed = false
+      detach()
+      abort?.abort()
+      abort = new AbortController()
+      const currentAbort = abort
+      setSync({ phase: 'syncing', message: '消息同步中，正在恢复会话更新…' })
+      const fail = (error: unknown) => {
+        if (disposed || attempt !== generation || failed) return
+        failed = true
+        detach()
+        currentAbort.abort()
+        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+        const message = error instanceof Error ? error.message : error && typeof error === 'object' && 'message' in error ? String(error.message) : ''
+        const recoverable = !/permission|forbidden|unauthorized|not.?found|invalid|protocol|unsupported/i.test(code)
+          && (!code || code === 'gateway/internal' || isTransientFailure({ code, message }))
+        const delay = recoverable ? retryDelays[retries] : undefined
+        if (delay === undefined) {
+          setSync({ phase: 'failed', message: '消息恢复失败，当前显示已同步的内容。可重试同步。' })
+          return
+        }
+        retries++
+        setSync({ phase: 'syncing', message: '消息同步中，正在恢复会话更新…' })
+        retryTimer = setTimeout(open, delay)
+      }
+      try {
+        // Acquiring first keeps the shared Session alive, while retain reopens a
+        // failed event stream. It never submits a prompt or restarts a tool.
+        const next = facades.sessions.retain(sessionId(taskId), { source: 'lingRenderer', signal: currentAbort.signal })
+        const previous = reference
+        reference = next
+        previous?.release()
+        openTimer = setTimeout(() => fail({ code: 'transport/timeout' }), 15_000)
+        void next.ready.then(binding => {
+          if (disposed || attempt !== generation || failed) return
+          const source = facades.conversation.timeline(binding)
+          const publish = () => {
+            if (disposed || attempt !== generation || failed) return
+            const state = binding.session.getSnapshot()
+            if (state.openState === 'error') { fail(state.openError); return }
+            if (state.openState === 'loading' || state.openState === 'cold') {
+              clearTimeout(stableTimer); stableTimer = undefined
+              setSync({ phase: 'syncing', message: '消息同步中，正在恢复会话更新…' })
+              openTimer ??= setTimeout(() => fail({ code: 'transport/timeout' }), 15_000)
+              return
+            }
+            clearTimeout(openTimer); openTimer = undefined
+            const items = source.getSnapshot()
+            cached = items
+            observeTimeline(taskId, items)
+            const hasOlder = state.hasMore === true
+            if (historyStates.get(taskId) !== hasOlder) {
+              historyStates.set(taskId, hasOlder)
+              publishSnapshot()
+            }
+            setSync(undefined)
+            // A brief successful reopen must not give a flapping stream an
+            // unlimited retry budget; stable long-running sessions can recover again.
+            if (retries > 0) stableTimer ??= setTimeout(() => {
+              retries = 0
+              stableTimer = undefined
+            }, 30_000)
+            for (const subscriber of [...subscribers]) subscriber(items)
+          }
+          disposeEvents = source.subscribe(publish)
+          disposeSession = binding.session.subscribe(publish)
+          publish()
+        }).catch(fail)
+      } catch (error) { fail(error) }
+    }
+    return {
+      subscribe(listener: (items: readonly LingTimelineItem[]) => void) {
+        const subscriber = (items: readonly LingTimelineItem[]) => listener(items)
+        subscribers.add(subscriber)
+        if (cached) subscriber(cached)
+        if (generation === 0) open()
+        let released = false
+        return () => {
+          if (released) return
+          released = true
+          subscribers.delete(subscriber)
+          if (subscribers.size) return
+          disposed = true
+          generation++
+          clearTimeout(retryTimer)
+          detach()
+          abort?.abort()
+          reference?.release()
+          timelineReaders.delete(taskId)
+          historyStates.delete(taskId)
+          setSync(undefined)
+        }
+      },
+      retry() {
+        if (disposed || timelineSync.get(taskId)?.phase !== 'failed') return
+        retries = 0
+        open()
+      },
+    }
   }
 
   return {
@@ -1380,43 +1512,12 @@ export function createDshRuntimeAdapter(facades: DshRuntimeFacades): LingRuntime
       }
     },
     subscribeTaskTimeline(taskId, listener) {
-      timelineReaders.set(taskId, (timelineReaders.get(taskId) ?? 0) + 1)
-      const abort = new AbortController()
-      const reference = facades.sessions.retain(sessionId(taskId), {
-        source: 'lingRenderer',
-        signal: abort.signal,
-      })
-      let disposeEvents: (() => void) | undefined
-      let disposeHistory: (() => void) | undefined
-      void reference.ready.then(binding => {
-        if (abort.signal.aborted) return
-        const source = facades.conversation.timeline(binding)
-        const syncHistory = () => {
-          const hasOlder = binding.session.getSnapshot().hasMore === true
-          if (historyStates.get(taskId) === hasOlder) return
-          historyStates.set(taskId, hasOlder)
-          publishSnapshot()
-        }
-        const publish = () => {
-          const items = source.getSnapshot()
-          observeTimeline(taskId, items)
-          syncHistory()
-          listener(items)
-        }
-        disposeEvents = source.subscribe(publish)
-        disposeHistory = binding.session.subscribe(syncHistory)
-        publish()
-      }).catch(() => {})
-      return () => {
-        if (abort.signal.aborted) return
-        abort.abort()
-        disposeEvents?.()
-        disposeHistory?.()
-        const remaining = Math.max(0, (timelineReaders.get(taskId) ?? 1) - 1)
-        if (remaining) timelineReaders.set(taskId, remaining)
-        else { timelineReaders.delete(taskId); historyStates.delete(taskId) }
-        reference.release()
-      }
+      let reader = timelineReaders.get(taskId)
+      if (!reader) { reader = createTimelineReader(taskId); timelineReaders.set(taskId, reader) }
+      return reader.subscribe(listener)
+    },
+    retryTaskTimeline(taskId) {
+      timelineReaders.get(taskId)?.retry()
     },
   }
 }

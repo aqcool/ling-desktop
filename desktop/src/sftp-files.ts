@@ -29,23 +29,50 @@ const binaryTypes: Record<string, { kind: 'image' | 'pdf' | 'office'; mediaType:
 
 /** Native SFTP streams; no remote executable, helper installation or shell quoting. */
 export class SftpFiles {
-  private ended = false
+  private failure?: Error
   private readonly waiting = new Set<(error: Error) => void>()
-  constructor(readonly channel: SFTPWrapper) {
-    const closed = () => {
-      this.ended = true
-      for (const fail of this.waiting) fail(new Error('SFTP 通道已关闭。'))
-      this.waiting.clear()
-    }
+  private readonly requestTimeoutMs: number
+  constructor(readonly channel: SFTPWrapper, options: { requestTimeoutMs?: number } = {}) {
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 60_000
+    if (!Number.isSafeInteger(this.requestTimeoutMs) || this.requestTimeoutMs <= 0) throw new Error('SFTP 请求超时配置无效。')
+    const closed = () => this.fail(new Error('SFTP 通道已关闭。'))
     channel.once?.('end', closed); channel.once?.('close', closed); channel.once?.('error', closed)
   }
-  private call<T>(invoke: (done: (error: Error | undefined | null, value: T) => void) => void): Promise<T> {
-    if (this.ended) return Promise.reject(new Error('SFTP 通道已关闭。'))
+  private fail(error: Error) {
+    this.failure ??= error
+    for (const reject of this.waiting) reject(this.failure)
+    this.waiting.clear()
+  }
+  private call<T>(invoke: (done: (error: Error | undefined | null, value: T) => void) => void,
+    signal?: AbortSignal, lateSuccess?: (value: T) => void): Promise<T> {
+    if (this.failure) return Promise.reject(this.failure)
+    if (signal?.aborted) return Promise.reject(signal.reason)
     return new Promise((resolve, reject) => {
-      const fail = (error: Error) => { this.waiting.delete(fail); reject(error) }
+      let settled = false
+      const finish = (error?: unknown, value?: T) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer); signal?.removeEventListener('abort', abort)
+        this.waiting.delete(fail)
+        if (error != null) reject(error); else resolve(value as T)
+      }
+      const fail = (error: Error) => finish(error)
+      const abort = () => finish(signal?.reason ?? new Error('SFTP 操作已取消。'))
+      const timer = setTimeout(() => {
+        this.fail(new Error('SFTP 请求超时，请检查服务器连接后重试。'))
+        // A timed-out mutation has an unknown outcome; close this channel rather
+        // than retrying it or allowing later operations to assume it succeeded.
+        try { this.channel.end() } catch {}
+      }, this.requestTimeoutMs)
+      timer.unref()
       this.waiting.add(fail)
-      try { invoke((error, value) => { this.waiting.delete(fail); if (error) reject(error); else resolve(value) }) }
-      catch (error) { fail(error instanceof Error ? error : new Error('SFTP 请求失败。')) }
+      signal?.addEventListener('abort', abort, { once: true })
+      try {
+        invoke((error, value) => {
+          if (settled) { if (!error) lateSuccess?.(value); return }
+          finish(error, value)
+        })
+      } catch (error) { finish(error instanceof Error ? error : new Error('SFTP 请求失败。')) }
     })
   }
   realpath(path: string) { return this.call<string>(done => this.channel.realpath(path, done)) }
@@ -114,21 +141,68 @@ export class SftpFiles {
       text, truncated, lines: text.split('\n').length, bytes: before.size,
       ...(!truncated ? { version: createHash('sha256').update(bytes).digest('hex') } : {}) }
   }
-  async hash(path: string, signal?: AbortSignal): Promise<string> {
+  async hash(path: string, signal?: AbortSignal, onProgress?: (bytes: number, totalBytes: number) => void): Promise<string> {
     signal?.throwIfAborted()
     const hash = createHash('sha256')
-    const handle = await this.call<Buffer>(done => this.channel.open(remotePath(path), 'r', done))
-    const bytes = Buffer.alloc(64 * 1024)
-    let offset = 0
+    const stopped = new AbortController()
+    const reading = signal ? AbortSignal.any([signal, stopped.signal]) : stopped.signal
+    const close = (handle: Buffer) => this.call<void>(done => this.channel.close(handle, done))
+    const handle = await this.call<Buffer>(done => this.channel.open(remotePath(path), 'r', done), reading,
+      value => { void close(value).catch(() => {}) })
+    let failed = false
     try {
-      while (true) {
-        signal?.throwIfAborted()
-        const size = await this.call<number>(done => this.channel.read(handle, bytes, 0, bytes.length, offset, (error, count) => done(error, count)))
-        if (!size) break
-        hash.update(bytes.subarray(0, size)); offset += size
+      const before = await this.call<Stats>(done => this.channel.fstat(handle, done), reading)
+      if (!before.isFile() || !Number.isSafeInteger(before.size) || before.size < 0) throw new Error('只能校验大小有效的普通文件。')
+      onProgress?.(0, before.size)
+      const chunkSize = 64 * 1024, concurrency = 32
+      let verified = 0
+      // One batch bounds buffered data to 2 MiB. Promise.all preserves file
+      // order even when READ replies arrive out of order or contain short data.
+      for (let start = 0; start < before.size; start += chunkSize * concurrency) {
+        reading.throwIfAborted()
+        const count = Math.min(concurrency, Math.ceil((before.size - start) / chunkSize))
+        const chunks = await Promise.all(Array.from({ length: count }, async (_, index) => {
+          const offset = start + index * chunkSize
+          const bytes = Buffer.alloc(Math.min(chunkSize, before.size - offset))
+          let filled = 0
+          while (filled < bytes.length) {
+            const size = await this.call<number>(done => this.channel.read(handle, bytes, filled, bytes.length - filled, offset + filled,
+              (error, read) => done(error, read)), reading)
+            if (!Number.isInteger(size) || size <= 0 || size > bytes.length - filled) throw new Error('远端文件在校验期间发生变化，请重试。')
+            filled += size
+          }
+          return bytes
+        }))
+        for (const bytes of chunks) {
+          reading.throwIfAborted()
+          hash.update(bytes); verified += bytes.length
+          if (verified < before.size) onProgress?.(verified, before.size)
+        }
       }
+      // The open handle catches growth/truncation and ordinary in-place edits;
+      // reading past its original size also rejects unexpected trailing data.
+      const extra = Buffer.alloc(1)
+      const trailing = await this.call<number>(done => this.channel.read(handle, extra, 0, 1, before.size, (error, size) => done(error, size)), reading)
+      const after = await this.call<Stats>(done => this.channel.fstat(handle, done), reading)
+      if (trailing !== 0 || before.size !== after.size || before.mtime !== after.mtime || before.mode !== after.mode) {
+        throw new Error('远端文件在校验期间发生变化，请重试。')
+      }
+      reading.throwIfAborted()
+      if (before.size) onProgress?.(before.size, before.size)
       return hash.digest('hex')
-    } finally { await this.call<void>(done => this.channel.close(handle, done)) }
+    } catch (error) { failed = true; stopped.abort(error); throw error }
+    finally {
+      const closing = close(handle)
+      // Cancellation must also be prompt while CLOSE is waiting for a reply.
+      // Keep the close request supervised by its own timeout after returning.
+      const closed = !signal ? closing : new Promise<void>((resolve, reject) => {
+        const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason) }
+        signal.addEventListener('abort', abort, { once: true })
+        void closing.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+        if (signal.aborted) abort()
+      })
+      await closed.catch(error => { if (!failed) throw error })
+    }
   }
   async create(path: string, directory: boolean, signal?: AbortSignal) {
     signal?.throwIfAborted()

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LingPendingInteraction, LingPendingMessage, LingPromptAttachment, LingRuntimeSnapshot, LingTimelineItem, LingReadResult } from '../src/runtime/contract.js'
 import type { LingTaskServers } from '../src/runtime/servers.js'
 import { createDshRuntimeAdapter, type DshRuntimeFacades } from '../src/runtime/dsh-adapter.js'
@@ -123,7 +123,7 @@ function fixture(goalLimit = false) {
     },
   }))
   const beginSubmission = vi.fn(() => ({ requestId: 'submission-1', abandon: vi.fn() }))
-  const sessionHistory = { hasMore: false, running: true }
+  const sessionHistory: { hasMore: boolean; running: boolean; openState: 'cold' | 'loading' | 'open' | 'error'; openError: { code: string } | null } = { hasMore: false, running: true, openState: 'open', openError: null }
   const sessionListeners = new Set<() => void>()
   const binding = {
     sessionId: 'session-1',
@@ -327,6 +327,8 @@ function fixture(goalLimit = false) {
 
   return {
     facades,
+    binding,
+    reference,
     adapter: createDshRuntimeAdapter(facades),
     createGoal,
     beginSubmission,
@@ -375,6 +377,11 @@ function fixture(goalLimit = false) {
     setSubagentCatalogOpen,
     setSessionHistory: (hasMore: boolean) => {
       sessionHistory.hasMore = hasMore
+      for (const listener of [...sessionListeners]) listener()
+    },
+    setSessionOpen: (openState: typeof sessionHistory.openState, code?: string) => {
+      sessionHistory.openState = openState
+      sessionHistory.openError = code ? { code } : null
       for (const listener of [...sessionListeners]) listener()
     },
     setRunning: (running: boolean) => { sessionHistory.running = running },
@@ -1958,6 +1965,133 @@ describe('side task model isolation', () => {
     const { adapter, create } = fixture()
     expect(await adapter.dispatch({ type: 'task.create', requestId: 'side', prompt: 'Do not create', model: { provider: 'missing', model: 'missing' } })).toMatchObject({ accepted: false })
     expect(create).not.toHaveBeenCalled()
+  })
+})
+
+describe('conversation subscription recovery', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('reopens a failed follow through retain and rebinds the projection without submitting work', async () => {
+    vi.useFakeTimers()
+    const { facades, reference, retain, binding, setSessionOpen, timelineSource, prompt, beginSubmission } = fixture()
+    const recoveredSource = new Source<readonly LingTimelineItem[]>([{ ...timelineSource.getSnapshot()[0]!, itemId: 'recovered', text: '恢复后的新消息' }])
+    const timeline = vi.fn().mockReturnValueOnce(timelineSource).mockReturnValue(recoveredSource)
+    const adapter = createDshRuntimeAdapter({ ...facades, conversation: { ...facades.conversation, timeline } })
+    const open = vi.fn(async () => { setSessionOpen('open') })
+    retain.mockImplementationOnce(() => reference).mockImplementation(() => ({ ...reference, ready: open().then(() => binding) }))
+    const listener = vi.fn()
+    const off = adapter.subscribeTaskTimeline('session-1', listener)
+    await Promise.resolve()
+    const cached = listener.mock.lastCall?.[0]
+    setSessionOpen('error', 'gateway/internal')
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']?.phase).toBe('syncing')
+    expect((await adapter.getSnapshot()).connection.phase).toBe('ready')
+    expect((await adapter.getSnapshot()).tasks[0]?.status).toBe('running')
+    timelineSource.set([])
+    expect(listener.mock.lastCall?.[0]).toBe(cached)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(open).toHaveBeenCalledOnce()
+    expect(retain).toHaveBeenCalledTimes(2)
+    expect(listener).toHaveBeenLastCalledWith(recoveredSource.getSnapshot())
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']).toBeUndefined()
+    timelineSource.set(cached)
+    expect(listener).toHaveBeenLastCalledWith(recoveredSource.getSnapshot())
+    expect(prompt).not.toHaveBeenCalled()
+    expect(beginSubmission).not.toHaveBeenCalled()
+    off()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('bounds retries across repeated stream failures and permits an explicit read-only retry', async () => {
+    vi.useFakeTimers()
+    const { adapter, reference, retain, setSessionOpen, prompt, release } = fixture()
+    const first = vi.fn(), second = vi.fn()
+    const offFirst = adapter.subscribeTaskTimeline('session-1', first)
+    const offSecond = adapter.subscribeTaskTimeline('session-1', second)
+    await Promise.resolve()
+    setSessionOpen('error', 'gateway/internal')
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect(retain).toHaveBeenCalledTimes(4)
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']?.phase).toBe('failed')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(retain).toHaveBeenCalledTimes(4)
+    offFirst(); offFirst()
+    retain.mockImplementationOnce(() => { setSessionOpen('open'); return reference })
+    adapter.retryTaskTimeline?.('session-1')
+    await Promise.resolve()
+    expect(retain).toHaveBeenCalledTimes(5)
+    expect(second).toHaveBeenCalledTimes(2)
+    expect(first).toHaveBeenCalledOnce()
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']).toBeUndefined()
+    expect(prompt).not.toHaveBeenCalled()
+    offSecond()
+    expect(release).toHaveBeenCalledTimes(5)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('recovers an initial rejected acquisition and stops on an explicit permanent error', async () => {
+    vi.useFakeTimers()
+    const { adapter, reference, retain, setSessionOpen } = fixture()
+    retain.mockReturnValueOnce({ ...reference, ready: Promise.reject({ code: 'transport/unavailable' }) })
+    const listener = vi.fn()
+    const off = adapter.subscribeTaskTimeline('session-1', listener)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(listener).toHaveBeenCalledOnce()
+    setSessionOpen('error', 'session/not-found')
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']?.phase).toBe('failed')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(retain).toHaveBeenCalledTimes(2)
+    off()
+  })
+
+  it('renews the retry budget after sustained health, but bounds rapidly flapping streams', async () => {
+    vi.useFakeTimers()
+    const { adapter, reference, retain, setSessionOpen } = fixture()
+    retain.mockImplementation(() => { setSessionOpen('open'); return reference })
+    const off = adapter.subscribeTaskTimeline('session-1', () => {})
+    await Promise.resolve()
+    for (let failure = 0; failure < 4; failure++) {
+      setSessionOpen('error', 'gateway/internal')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(30_000)
+    }
+    expect(retain).toHaveBeenCalledTimes(5)
+    for (const delay of [1_000, 2_000, 5_000]) {
+      setSessionOpen('error', 'gateway/internal')
+      await vi.advanceTimersByTimeAsync(delay)
+      expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']).toBeUndefined()
+    }
+    setSessionOpen('error', 'gateway/internal')
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']?.phase).toBe('failed')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(retain).toHaveBeenCalledTimes(8)
+    off()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('times out opening, fences late ready values, and cancels all recovery on the final unsubscribe', async () => {
+    vi.useFakeTimers()
+    const { adapter, reference, retain, binding, release } = fixture()
+    let resolveOpening!: (value: typeof binding) => void
+    retain.mockReturnValueOnce({ ...reference, ready: new Promise(resolve => { resolveOpening = resolve }) })
+    const stale = vi.fn()
+    const off = adapter.subscribeTaskTimeline('session-1', stale)
+    await vi.advanceTimersByTimeAsync(15_000)
+    off()
+    expect(vi.getTimerCount()).toBe(0)
+    const current = vi.fn()
+    const offCurrent = adapter.subscribeTaskTimeline('session-1', current)
+    await Promise.resolve()
+    resolveOpening(binding)
+    await Promise.resolve()
+    expect(stale).not.toHaveBeenCalled()
+    expect(current).toHaveBeenCalledOnce()
+    expect((await adapter.getSnapshot()).taskTimelineSync?.['session-1']).toBeUndefined()
+    offCurrent()
+    expect(release).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(retain).toHaveBeenCalledTimes(2)
   })
 })
 

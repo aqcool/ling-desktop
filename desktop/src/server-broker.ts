@@ -514,7 +514,7 @@ export class ServerBroker {
       if (copySignal.aborted) { channel.end(); copySignal.throwIfAborted() }
       const scopedFiles = new SftpFiles(channel)
       onProgress?.({ phase: 'scan', copied: 0, skipped: 0, bytes: 0, totalBytes: tree.files.reduce((sum, file) => sum + file.bytes, 0), files: tree.files.length })
-      const plan = await prepareCopy(scopedFiles, tree, request, copySignal)
+      const plan = await prepareCopy(scopedFiles, tree, request, copySignal, onProgress)
       const result = method === 'rsync' ? await copyRsync(client, tree, request, plan, copySignal, onProgress)
         : await copySftp(scopedFiles, files, request, plan, copySignal, onProgress)
       return { ...result, durationMs: Date.now() - started }

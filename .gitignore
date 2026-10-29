@@ -6,6 +6,7 @@ node_modules/
 !.env.example
 .build/
 dist/
+desktop/dist.noindex/
 coverage/
 desktop/lib/
 desktop/.web-serve/
