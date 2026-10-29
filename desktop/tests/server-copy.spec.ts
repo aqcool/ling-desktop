@@ -141,15 +141,23 @@ describe('agent copy using saved authentication', () => {
   })
   it('cancels a stalled checksum READ during preflight and leaves the existing target untouched', async () => {
     let notify!: () => void
+    let writes = 0
     const reading = new Promise<void>(resolve => { notify = resolve })
-    const options = { atomicRename: true, stallReads: true, onRead: () => notify() }
+    const options = { atomicRename: true, stallReads: false, onRead: () => notify(), onWrite: () => { writes++ } }
     const value = await fixture(options)
-    await writeFile(join(value.local, 'file'), 'payload'); await writeFile(join(value.home, 'file'), 'payload')
+    await writeFile(join(value.local, 'file'), 'payload')
+    // Seed POSIX permissions through SFTP; a direct Windows write reports 0666
+    // instead of the copy source's normalized 0644 and requires a replacement.
+    await copy(value, { source: 'file', destination: '/home/tester/file' })
+    writes = 0
+    options.stallReads = true
     const abort = new AbortController()
     const copying = copy(value, { source: 'file', destination: '/home/tester/file', checksum: true }, abort.signal)
     const cancelled = expect(copying).rejects.toThrow('取消')
     await reading; abort.abort(); await cancelled
+    expect(writes).toBe(0)
     expect(await readFile(join(value.home, 'file'), 'utf8')).toBe('payload')
+    expect(await readdir(value.home)).toEqual(['file'])
     options.stallReads = false
     expect(await copy(value, { source: 'file', destination: '/home/tester/file', checksum: true })).toMatchObject({ copied: 0, skipped: 1 })
     expect(value.logins).toBe(1)
