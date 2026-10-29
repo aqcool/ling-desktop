@@ -153,7 +153,28 @@ test('local configuration keeps runtime physical, ASAR small, and release creden
   assert.equal(await config.beforeBuild(), false)
   assert.equal(config.publish, null)
   assert.equal(config.mac.notarize, false)
+  assert.deepEqual(config.mac.target.map(item => item.target), ['dmg'])
   assert.deepEqual(localBuildEnvironment({ PATH: '/bin', CSC_LINK: 'secret', APPLE_ID: 'secret', GH_TOKEN: 'secret', CSC_IDENTITY_AUTO_DISCOVERY: 'true' }), { PATH: '/bin', CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
+})
+
+test('the default release workflow publishes manual installers without signing credentials', async () => {
+  const { parse } = require('yaml')
+  const workflow = parse(await readFile(new URL('../../../.github/workflows/release.yml', import.meta.url), 'utf8'))
+  const build = workflow.jobs.build
+  assert.equal(build.env.LING_RELEASE_BUILD, '0')
+  assert.equal(JSON.stringify(build).includes('secrets.LING_'), false)
+  assert.equal(build.steps.some(step => /^Require .*signing/.test(step.name ?? '')), false)
+  assert.ok(build.steps.some(step => step.run?.includes('release-assets.mjs --collect') && step.run.includes('--manual')))
+  assert.ok(workflow.jobs.publish.steps.some(step => step.run?.includes('release-assets.mjs release-assets') && step.run.includes('--all --manual')))
+  assert.deepEqual(workflow.jobs.publish.needs, ['prepare', 'build'])
+  for (const target of RELEASE_TARGETS) {
+    const signed = releaseBuild(target, { CI: 'true', ...build.env })
+    assert.equal(signed, false)
+    const config = packageConfiguration({ target, appRoot: '/app', runtimeRoot: '/runtime', output: '/out', electronDist: '/electron', icon: '/icon.png', version: '0.0.0-dev.13', release: signed })
+    assert.equal(config.publish, null)
+    assert.equal(config.forceCodeSigning, false)
+    assert.equal(updatePolicy('0.0.0-dev.13', signed).enabled, false)
+  }
 })
 
 test('release targets have distinct native installers and predictable application paths', () => {

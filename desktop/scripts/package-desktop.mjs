@@ -117,7 +117,7 @@ try {
       if (release && target.platform === 'darwin') config.afterPack = context => signMacRuntime(context, target)
       const { build: buildElectron, Platform, Arch } = require('electron-builder')
       const paths = await buildElectron({ projectDir: hostRoot, config,
-        targets: Platform.fromString(target.platform).createTarget(directoryOnly ? ['dir'] : target.platform === 'linux' ? ['AppImage', 'deb'] : target.platform === 'darwin' ? ['dmg', 'zip'] : [target.format], Arch[target.arch]), publish: 'never' })
+        targets: Platform.fromString(target.platform).createTarget(directoryOnly ? ['dir'] : target.platform === 'linux' ? ['AppImage', 'deb'] : target.platform === 'darwin' && release ? ['dmg', 'zip'] : [target.format], Arch[target.arch]), publish: 'never' })
       // Audit the actual output bytes and package bootstrap, then relocate a
       // complete .app outside the checkout to detect source-path dependencies.
       const builderRequire = createRequire(require.resolve('electron-builder'))
@@ -146,7 +146,7 @@ try {
         if (target.platform === 'win32') for (const path of paths.filter(path => path.endsWith('.exe'))) await verifyReleaseSignature(path, target)
       }
       const artifacts = (await readdir(output)).filter(isPackageArtifact).map(file => join(output, file))
-      if (!release && artifacts.some(path => path.endsWith('.yml'))) throw new Error('Local packages must not expose update feeds; remove stale output and rebuild')
+      if (!release && artifacts.some(path => path.endsWith('.yml'))) throw new Error('Manual-install packages must not expose update feeds; remove stale output and rebuild')
       const reportPath = join(output, 'packaging-report.json')
       const reportTemporary = `${reportPath}.tmp`
       await writeFile(reportTemporary, `${JSON.stringify({ schemaVersion: 1, version, upstreamVersion: manifest.upstreamVersion,

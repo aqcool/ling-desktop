@@ -87,7 +87,7 @@ jobs:
       DSH_TELEMETRY_DISABLED: '1'
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       TARGET: ${{ matrix.target }}
-      LING_RELEASE_BUILD: '1'
+      LING_RELEASE_BUILD: '0'
     steps:
       - name: Enable Windows long paths
         if: runner.os == 'Windows'
@@ -112,40 +112,13 @@ jobs:
           key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches/**', 'vendor/**') }}
       - run: corepack pnpm install --frozen-lockfile
       - run: node scripts/release-version.mjs --check "$RELEASE_VERSION"
-      - name: Require macOS release signing and notarization credentials
-        if: runner.os == 'macOS'
-        env:
-          CSC_LINK: ${{ secrets.LING_MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.LING_MAC_CSC_KEY_PASSWORD }}
-          CSC_NAME: ${{ secrets.LING_MAC_CSC_NAME }}
-          APPLE_ID: ${{ secrets.LING_APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.LING_APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.LING_APPLE_TEAM_ID }}
-        run: node --input-type=module -e "import {releaseBuild,nativeTarget} from './desktop/scripts/packaging/config.mjs'; releaseBuild(nativeTarget(),process.env)"
-      - name: Require Windows release signing credentials
-        if: runner.os == 'Windows'
-        env:
-          WIN_CSC_LINK: ${{ secrets.LING_WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.LING_WIN_CSC_KEY_PASSWORD }}
-          LING_WINDOWS_PUBLISHER_NAME: ${{ secrets.LING_WINDOWS_PUBLISHER_NAME }}
-        run: node --input-type=module -e "import {releaseBuild,nativeTarget} from './desktop/scripts/packaging/config.mjs'; releaseBuild(nativeTarget(),process.env)"
       - name: Build, test and qualify the native package
-        env:
-          CSC_LINK: ${{ runner.os == 'macOS' && secrets.LING_MAC_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.LING_MAC_CSC_KEY_PASSWORD || '' }}
-          CSC_NAME: ${{ runner.os == 'macOS' && secrets.LING_MAC_CSC_NAME || '' }}
-          APPLE_ID: ${{ runner.os == 'macOS' && secrets.LING_APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.LING_APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.LING_APPLE_TEAM_ID || '' }}
-          WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.LING_WIN_CSC_LINK || '' }}
-          WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.LING_WIN_CSC_KEY_PASSWORD || '' }}
-          LING_WINDOWS_PUBLISHER_NAME: ${{ runner.os == 'Windows' && secrets.LING_WINDOWS_PUBLISHER_NAME || '' }}
         run: corepack pnpm dist
-      - name: Collect qualified installers, updater payloads and metadata
+      - name: Collect qualified manual-install packages
         run: |
           set -euo pipefail
           mkdir release-assets
-          node scripts/release-assets.mjs --collect "desktop/dist/$TARGET" release-assets "$RELEASE_VERSION" "$TARGET"
+          node scripts/release-assets.mjs --collect "desktop/dist/$TARGET" release-assets "$RELEASE_VERSION" "$TARGET" --manual
       - uses: actions/upload-artifact@v7
         with:
           name: ling-${{ matrix.target }}
@@ -176,7 +149,7 @@ jobs:
       - name: Verify all targets and write checksums
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-        run: node scripts/release-assets.mjs release-assets "$RELEASE_VERSION" --all
+        run: node scripts/release-assets.mjs release-assets "$RELEASE_VERSION" --all --manual
       - name: Publish only after every native gate passes
         env:
           GH_TOKEN: ${{ github.token }}

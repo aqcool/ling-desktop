@@ -120,7 +120,7 @@ export function createApplicationUpdater(options: ApplicationUpdaterOptions): Ap
       if (policy.schemaVersion !== 1 || policy.enabled !== true || policy.provider !== 'github' || policy.owner !== 'aqcool'
         || policy.repo !== 'ling-desktop' || (policy.channel !== 'dev' && policy.channel !== 'latest')) throw new Error('update policy disabled')
       updater = options.updater ?? loadBackend(options.platform ?? process.platform)
-    } catch { unavailable = '此安装包未配置自动更新，请安装正式发布的 LING。' }
+    } catch { unavailable = '此安装包采用手动更新，请下载新安装包升级。' }
   }
   let state: LingUpdateState = { currentVersion: options.currentVersion, channel, phase: unavailable ? 'unavailable' : 'idle', ...(unavailable ? { message: unavailable } : {}) }
   let disposed = false, started = false, epoch = 0

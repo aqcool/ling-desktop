@@ -67,7 +67,7 @@ export function packageConfiguration({ appRoot, runtimeRoot, output, electronDis
     forceCodeSigning: release && target.platform !== 'linux',
   }
   if (target.platform === 'darwin') return { ...common,
-    mac: { target: ['dmg', 'zip'].map(value => ({ target: value, arch: [target.arch] })), icon, category: 'public.app-category.developer-tools',
+    mac: { target: (release ? ['dmg', 'zip'] : ['dmg']).map(value => ({ target: value, arch: [target.arch] })), icon, category: 'public.app-category.developer-tools',
       // Builder chooses the Developer ID certificate class and rejects the type
       // prefix in its qualifier; CI stores the complete identity for clarity.
       identity: release ? environment.CSC_NAME.replace(/^Developer ID Application:\s*/, '') : '-', hardenedRuntime: release, notarize: release,

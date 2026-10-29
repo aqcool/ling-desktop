@@ -11,9 +11,9 @@ corepack pnpm install --frozen-lockfile
 
 | Platform | Architecture | Installer | GitHub runner |
 | --- | --- | --- | --- |
-| macOS | arm64 | DMG, ZIP, blockmaps | macos-15 |
-| macOS | x64 | DMG, ZIP, blockmaps | macos-15-intel |
-| Windows | x64 | NSIS EXE, blockmap | windows-2025 |
+| macOS | arm64 | DMG | macos-15 |
+| macOS | x64 | DMG | macos-15-intel |
+| Windows | x64 | NSIS EXE | windows-2025 |
 | Linux | x64 | AppImage, DEB | ubuntu-24.04 |
 
 Build on the matching native machine; cross-compiling the native runtime is not
@@ -34,12 +34,16 @@ size and relocated-runtime probe. The installed `runtime/ling-runtime.json`
 records the source revision, dependency versions and individual file hashes.
 Preparation copies, smoke profiles and mounted images are removed afterward.
 
-Local builds use ad-hoc macOS signatures without notarization and unsigned
-Windows executables. They write `ling-update-policy.json` with `enabled:false`,
+Local builds and the default **LING Release** workflow use ad-hoc macOS signatures
+without notarization and unsigned Windows executables. They write
+`ling-update-policy.json` with `enabled:false`,
 never emit an update feed, and remain available without signing credentials.
 Uninstalling the Windows package keeps user data.
 
-Release builds explicitly set `LING_RELEASE_BUILD=1` and require `CI=true`.
+Signed automatic-update builds are a separate, explicit packaging mode selected
+with `LING_RELEASE_BUILD=1` and `CI=true`. The default release workflow sets
+`LING_RELEASE_BUILD=0`; missing certificates never block its manual installers.
+Only the explicit automatic-update mode uses the following requirements:
 macOS and Windows fail before packaging when their complete credential set is
 missing; they never fall back to an unsigned update release. Linux uses the
 qualified AppImage/DEB payloads and HTTPS plus SHA-512 integrity. These packages
@@ -56,11 +60,11 @@ Run **LING Release** in GitHub Actions, enter a SemVer version such as
 2. commits the version change and atomically pushes the branch and annotated
    `ling-vVERSION` tag, refusing to replace an existing tag;
 3. builds and qualifies the same commit on all four native runners;
-4. checks every update metadata reference against the payload size and SHA-512,
-   checks external blockmaps and the signing/notarization qualification reports,
-   merges the two macOS architecture feeds, and writes `SHA256SUMS`;
+4. validates five manual installers and four native qualification reports with
+   `release-assets.mjs --manual`, rejects automatic-update feeds in this output,
+   and writes `SHA256SUMS`;
 5. uploads the complete matrix to a private draft, then publishes it in one final
-   operation. A partially uploaded feed is never visible to update clients.
+   operation. These releases contain manual installers, with automatic updates disabled.
    Versions with a prerelease suffix are marked as prereleases.
 
 The build jobs run in the same workflow as tag creation, so they do not depend
@@ -114,10 +118,11 @@ checksums. Only the artifact closure used by LING remains in the checkout.
 The bundled SSH helper retains Linux/macOS native slices for x64 and arm64.
 LING and upstream DSH keep separate version identities.
 
-## Signing configuration for release CI
+## Optional signing configuration for automatic-update CI
 
-Configure these GitHub Actions repository/environment secrets before running
-**LING Release**. The workflow validates presence without printing their values;
+These credentials apply only to explicitly enabled signed automatic-update
+builds. They are not required by the default **LING Release** workflow.
+The signed packaging mode validates presence without printing their values;
 this repository does not provision certificates or alter GitHub secrets.
 
 | Secret | Required value |
@@ -151,7 +156,12 @@ payload's upstream hashes and platform slices intact. A real signed/notarized
 CI build is still required to qualify Apple acceptance of this payload; local
 unit tests do not constitute notarization or OS acceptance.
 
-## Update channels and release resources
+## Automatic-update channels and resources
+
+This section describes the retained signed automatic-update packaging mode.
+It is not enabled for the default manual-install releases. Their artifact
+collector uses `--manual`, without ZIP, blockmap or update-feed requirements;
+the signed collector continues to require the complete signed update matrix.
 
 The updater dependency is pinned to `electron-updater` 6.8.11, compatible with
 the existing `electron-builder` 26.15.7. The UI channel `stable` uses `latest`;
@@ -172,7 +182,8 @@ Users can open **设置 → 软件更新** to select a channel, check manually, 
 release notes, and choose **重启并安装** or **稍后**. Qualified packages first check
 after 20 seconds, then every six hours. Ordinary application exit does not install
 a downloaded update. Development mode and unsigned local builds show an explicit
-unavailable state; Linux application updates support AppImage, while DEB installs
+unavailable state, as do the default manual-install releases; explicitly enabled
+Linux application updates support AppImage, while DEB installs
 are upgraded with a new installer.
 
 Installation checks every LING window for unsaved content, confirms terminal
