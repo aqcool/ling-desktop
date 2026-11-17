@@ -1,0 +1,14 @@
+{
+  "name": "@zcode/server-ops-plugin",
+  "version": "0.1.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "2.0.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "esbuild": "^0.25.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "server-ops",
+  "version": "0.1.5",
+  "description": "Run commands and upload files on SSH servers selected for the conversation.",
+  "description_i18n": {
+    "zh-CN": "在当前会话关联的 SSH 服务器上执行命令和上传文件。"
+  },
+  "skills": "skills",
+  "mcpServers": {
+    "server-ops": {
+      "type": "stdio",
+      "command": "node",
+      "timeoutMs": 120000,
+      "args": ["${ZCODE_PLUGIN_ROOT}/dist/server.mjs"]
+    }
+  },
+  "ui": {
+    "surfaces": [
+      {
+        "id": "server-picker",
+        "title": { "zh-CN": "关联服务器", "en-US": "Select servers" },
+        "server": "server-ops",
+        "resourceUri": "ui://server-ops/picker.html",
+        "availability": "session",
+        "placement": "composer"
+      }
+    ]
+  }
+}

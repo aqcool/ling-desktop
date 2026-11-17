@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#161616" />
+    <meta name="color-scheme" content="dark" />
+    <!-- Bugfix: Chrome dev 下可能不发 favicon 网络请求；内嵌小尺寸 App 图标，避免标签页回退到默认图标。 -->
+    <link rel="icon" type="image/png" href="data:image/png;base64,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" sizes="32x32" />
+    <title>LING</title>
+    <script>
+      (() => {
+        // Bugfix: Web 远控跨 workspace 跳转时，JS bundle 还没执行前就会先渲染启动壳。
+        // 这里提前按本地主题偏好决定首屏底色，避免 dark 用户在这一帧看到白底闪烁。
+        const STORAGE_KEY = "zcode-theme";
+        const DEFAULT_THEME = "zai-dark";
+        const BROWSER_THEME_COLORS = {
+          dark: "#161616",
+          light: "#f8f8f8",
+        };
+        const BOOTSTRAP_SNAPSHOT_KEY = "zcode:web-remote-control:bootstrap-shell";
+
+        const normalizeResolvedTheme = (theme) => {
+          if (theme === "dark") return "dark";
+          if (theme === "light") return "light";
+          if (theme === "zai-dark") return "dark";
+          if (theme === "zai-light") return "light";
+          return theme;
+        };
+
+        const syncBrowserThemeSurface = (theme) => {
+          document.documentElement.setAttribute("data-zcode-browser-theme-surface", theme);
+          document.documentElement.style.colorScheme = theme;
+          document
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute("content", BROWSER_THEME_COLORS[theme]);
+          document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", theme);
+        };
+
+        try {
+          let bootstrapTheme = null;
+          const bootstrapSnapshotRaw = window.sessionStorage.getItem(BOOTSTRAP_SNAPSHOT_KEY);
+          if (bootstrapSnapshotRaw) {
+            window.sessionStorage.removeItem(BOOTSTRAP_SNAPSHOT_KEY);
+            try {
+              const snapshot = JSON.parse(bootstrapSnapshotRaw);
+              if (snapshot && typeof snapshot === "object") {
+                const normalizedTheme = snapshot.theme === "dark" ? "dark" : "light";
+                bootstrapTheme = normalizedTheme;
+                document.documentElement.style.setProperty(
+                  "--zcode-bootstrap-bg",
+                  typeof snapshot.background === "string"
+                    ? snapshot.background
+                    : normalizedTheme === "dark"
+                      ? "#0f172a"
+                      : "#f8fafc",
+                );
+                document.documentElement.style.setProperty(
+                  "--zcode-bootstrap-fg",
+                  typeof snapshot.foreground === "string"
+                    ? snapshot.foreground
+                    : normalizedTheme === "dark"
+                      ? "#e2e8f0"
+                      : "#334155",
+                );
+                if (typeof snapshot.border === "string") {
+                  document.documentElement.style.setProperty(
+                    "--zcode-bootstrap-border",
+                    snapshot.border,
+                  );
+                }
+                if (typeof snapshot.card === "string") {
+                  document.documentElement.style.setProperty(
+                    "--zcode-bootstrap-card",
+                    snapshot.card,
+                  );
+                }
+              }
+            } catch {
+              // ignore invalid snapshot
+            }
+          }
+
+          const saved = localStorage.getItem(STORAGE_KEY) || DEFAULT_THEME;
+          const resolved =
+            saved === "system"
+              ? window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+              : normalizeResolvedTheme(saved);
+          const fallbackTheme = resolved === "dark" ? "dark" : "light";
+          const finalTheme = bootstrapTheme ?? fallbackTheme;
+          document.documentElement.setAttribute("data-zcode-bootstrap-theme", finalTheme);
+          syncBrowserThemeSurface(finalTheme);
+          if (finalTheme === "dark") {
+            document.documentElement.classList.add("dark");
+          }
+        } catch {
+          document.documentElement.setAttribute("data-zcode-bootstrap-theme", "dark");
+          syncBrowserThemeSurface("dark");
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: var(--zcode-bootstrap-bg, var(--color-background, #0f172a));
+        color: var(--zcode-bootstrap-fg, var(--color-foreground, #e2e8f0));
+        font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      html[data-zcode-bootstrap-theme="light"] body {
+        background: var(--zcode-bootstrap-bg, var(--color-background, #f8fafc));
+        color: var(--zcode-bootstrap-fg, var(--color-foreground, #334155));
+      }
+
+      html[data-zcode-browser-theme-surface],
+      html[data-zcode-browser-theme-surface] body,
+      html[data-zcode-browser-theme-surface] #root {
+        /* 修复原因：共享 UI 样式为 Electron vibrancy 强制透明根背景；浏览器入口必须用语义背景
+           覆盖该桌面专属行为，否则浏览器工具栏、overscroll 和页面画布会回退为系统白色。 */
+        background: var(--color-background, var(--zcode-bootstrap-bg, #161616)) !important;
+      }
+
+      html[data-zcode-browser-theme-surface="light"],
+      html[data-zcode-browser-theme-surface="light"] body,
+      html[data-zcode-browser-theme-surface="light"] #root {
+        background: var(--color-background, var(--zcode-bootstrap-bg, #f8f8f8)) !important;
+      }
+
+      .zcode-boot-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        /* Bugfix: UI 全局样式会把 body/#root 置为透明，预渲染壳必须自己承接主题背景，否则深色主题会露出浏览器白底。 */
+        background: var(--zcode-bootstrap-bg, var(--color-background, #0f172a));
+        color: var(--zcode-bootstrap-fg, var(--color-foreground, #e2e8f0));
+      }
+
+      html[data-zcode-bootstrap-theme="light"] .zcode-boot-loading {
+        background: var(--zcode-bootstrap-bg, var(--color-background, #f8fafc));
+        color: var(--zcode-bootstrap-fg, var(--color-foreground, #334155));
+      }
+
+      .zcode-boot-loading__logo-shell {
+        position: relative;
+        display: flex;
+        width: 96px;
+        height: 96px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 24px;
+        background: linear-gradient(180deg, #000000 0%, #151718 100%);
+        box-shadow:
+          0 20px 25px -5px rgb(0 0 0 / 0.2),
+          0 8px 10px -6px rgb(0 0 0 / 0.2);
+      }
+
+      .zcode-boot-loading__logo-shell::before {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        content: "";
+        /* 修复原因：启动 logo 壳是固定深色底，边框不能跟随浅色主题 token，否则首屏边框过重。 */
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: inherit;
+      }
+
+      .zcode-boot-loading__logo {
+        width: 56px;
+        height: auto;
+        color: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Bugfix: 远程控制跨 workspace 时会整页跳转；在 JS 入口执行前先给出 loading 壳，避免出现白屏空档。 -->
+      <div
+        class="zcode-boot-loading"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        aria-label="Loading..."
+      >
+        <div class="zcode-boot-loading__logo-shell">
+          <img src="../ui/src/assets/ling-app-icon.png" class="zcode-boot-loading__logo" alt="" aria-hidden="true" />
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

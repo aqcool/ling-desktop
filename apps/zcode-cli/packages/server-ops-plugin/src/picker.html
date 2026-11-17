@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: light dark;
+    color: var(--color-text-primary, CanvasText);
+    font: var(--font-text-md-size, .875rem)/1.45 var(--font-sans, system-ui, sans-serif);
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  body { margin: 0; }
+  [hidden] { display: none !important; }
+  .picker {
+    box-sizing: border-box;
+    max-inline-size: 22rem;
+    margin: 0;
+    padding: 4px;
+    border: 1px solid var(--color-border-primary, transparent);
+    border-radius: var(--border-radius-lg, 8px);
+    background: var(--color-background-primary, Canvas);
+  }
+  @media (max-width: 16rem) {
+    .picker { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  }
+  #servers {
+    display: grid;
+    gap: 2px;
+    max-block-size: 13rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .server {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-inline-size: 0;
+    min-block-size: 28px;
+    padding-inline: 8px;
+    border-radius: var(--border-radius-md, 6px);
+    cursor: pointer;
+  }
+  .server:hover,
+  .server:has(:focus-visible),
+  .server:has(input:checked) {
+    background: var(--color-background-ghost, ButtonFace);
+  }
+  .server input { position: absolute; inset-inline-start: 8px; opacity: 0; }
+  .mark { display: inline-grid; flex: 0 0 14px; block-size: 16px; place-items: center; }
+  .server input:checked + .mark::before { content: "✓"; font-weight: 600; }
+  .server input:focus-visible + .mark { outline: 2px solid var(--color-ring-primary, Highlight); }
+  .server-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .server:has(input:disabled) { opacity: .6; cursor: default; }
+  #loading, #status {
+    margin: 0;
+    padding: 5px 7px;
+    color: var(--color-text-secondary, GrayText);
+    font-size: var(--font-text-sm-size, .8rem);
+  }
+  #empty {
+    display: grid;
+    gap: 3px;
+    padding: 8px;
+  }
+  #empty p { margin: 0; }
+  #empty-title { font-weight: 500; }
+  #empty-hint {
+    color: var(--color-text-secondary, GrayText);
+    font-size: var(--font-text-sm-size, .8rem);
+    text-wrap: pretty;
+  }
+  #status { color: var(--color-text-danger, CanvasText); }
+</style>
+</head>
+<body>
+<main class="picker" id="picker">
+  <p id="loading" role="status"></p>
+  <div id="servers"></div>
+  <div id="empty" hidden>
+    <p id="empty-title"></p>
+    <p id="empty-hint"></p>
+  </div>
+  <p id="status" role="alert" hidden></p>
+</main>
+<script>/* picker */</script>
+</body>
+</html>
