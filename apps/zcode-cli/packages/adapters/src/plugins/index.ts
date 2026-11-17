@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { zcodePluginUserConfigOptionSchema } from "@zcode/shared";
+import { isRetiredOfficialPlugin, zcodePluginUserConfigOptionSchema } from "@zcode/shared";
 import type {
   CustomCommandRoot,
   HookConfig,
@@ -22,7 +22,6 @@ import type {
 import {
   HookEventName as HookEventNameValue,
   HookMatcherConfigSchema,
-  RETIRED_ZCODE_SITE_PLUGIN_ID,
   ZCODE_INLINE_PLUGIN_MARKETPLACE,
   ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
 } from "@zcode/contracts";
@@ -203,7 +202,7 @@ export class NodePluginAdapter implements PluginPort {
     for (const candidate of candidates) {
       throwIfAborted(options);
       const loaded = await loadPlugin(candidate, diagnostics, materials);
-      if (!loaded || loaded.id === RETIRED_ZCODE_SITE_PLUGIN_ID) continue;
+      if (!loaded || isRetiredOfficialPlugin(loaded.id)) continue;
       // 内置（官方）插件被「卸载」后只在 user config 写 suppressedBuiltins 标记。这里在发现层
       // 用插件的权威 id（manifest 名 @ marketplace）过滤，不依赖缓存文件是否已被物理删除——
       // 这样即便 app 升级遗留了旧版本缓存目录、或会话内 facade 持有过时配置，被卸载的内置插件

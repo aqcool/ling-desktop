@@ -749,7 +749,8 @@ export function InlineEditableProviderCard({
 
   const headerProviderName = providerDisplayName;
   const isAccountProvider = provider.config.access?.type === "zhipu-account";
-  const isSubscriptionProvider = isSubscriptionOAuthAccess(provider.config.access);
+  const access = provider.config.access;
+  const isSubscriptionProvider = isSubscriptionOAuthAccess(access);
   const isApiKeyProvider = isApiKeyAccess(provider.config.access);
   const effectiveHeaderVisible = headerVisible && statusSection === undefined;
 
@@ -827,7 +828,12 @@ export function InlineEditableProviderCard({
         )}
 
         {isSubscriptionProvider ? (
-          <SubscriptionOAuthSection providerId={provider.providerId} />
+          // 同级模型列表以 providerId 为 key，授权卡片使用独立 key，保证刷新时正确复用。
+          <SubscriptionOAuthSection
+            key={`subscription-oauth:${provider.providerId}`}
+            providerId={provider.providerId}
+            vendor={access.vendor}
+          />
         ) : null}
 
         {isApiKeyProvider ? (

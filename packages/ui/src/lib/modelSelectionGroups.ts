@@ -30,6 +30,22 @@ function supportsRegistryApiFormat(
   return isZCodeAgentProvider(selectedProvider);
 }
 
+function formatSubscriptionModelName(modelId: string, vendor: string): string {
+  const match =
+    vendor === "openai-chatgpt"
+      ? /^(gpt-[\d.]+)(?:-([\w-]+))?$/i.exec(modelId)
+      : vendor === "xai"
+        ? /^(grok)-([\w.-]+)$/i.exec(modelId)
+        : null;
+  if (!match) return modelId;
+
+  const prefix = vendor === "xai" ? "Grok" : match[1]!.toUpperCase();
+  const suffix = match[2]
+    ?.replaceAll("-", " ")
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+  return suffix ? `${prefix} ${suffix}` : prefix;
+}
+
 export function buildRegistryModelSelectGroups(
   selectedProvider: ZCodeProvider,
   view: ModelSelectionView,
@@ -41,6 +57,8 @@ export function buildRegistryModelSelectGroups(
     }
 
     const accountAccess = zcodeProviderAccountAccessSchema.safeParse(provider.config.access);
+    const subscriptionVendor =
+      provider.config.access?.type === "subscription-oauth" ? provider.config.access.vendor : null;
     const accountPresentation = accountAccess.success
       ? getRegistryAccountProviderGroupPresentation(provider.providerId, accountAccess.data, labels)
       : null;
@@ -63,7 +81,9 @@ export function buildRegistryModelSelectGroups(
         items: provider.models.map(({ modelId, config }) => ({
           key: `registry-provider:${provider.providerId}:${modelId}`,
           value: encodeCustomModelValue(provider.providerId, modelId),
-          name: modelId,
+          name: subscriptionVendor
+            ? formatSubscriptionModelName(modelId, subscriptionVendor)
+            : modelId,
           ...(shouldShowModelVisionBadge(
             modelId,
             config.properties?.inputFormat?.supportsImage,

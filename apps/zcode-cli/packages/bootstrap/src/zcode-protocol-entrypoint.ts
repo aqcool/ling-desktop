@@ -347,12 +347,15 @@ export async function runZCodeProtocolAgent(
           getProjectMemoryRoot(protocolCliStorageRoot, workspacePath, workspaceIdentity),
       }),
       syncAccountProviderConfig: activeProviderRegistryRuntime.syncAccountProviderConfig,
-      refreshProviderRegistry: async (reason, subscriptionAuthorizedProviderIds) => {
+      refreshProviderRegistry: async (reason, subscriptionAuthorizedProviderIds, subscriptionFastModels) => {
         // 发送准入读的是本进程 Registry。登录名单先于刷新替换，缺席则保留上一份。
         if (subscriptionAuthorizedProviderIds) {
           activeProviderRegistryRuntime.replaceSubscriptionAuthorizedProviderIds(
             subscriptionAuthorizedProviderIds,
           );
+        }
+        if (subscriptionFastModels) {
+          activeProviderRegistryRuntime.replaceSubscriptionFastModels(subscriptionFastModels);
         }
         await activeProviderRegistryRuntime.runtime.registryService.refresh(reason);
       },

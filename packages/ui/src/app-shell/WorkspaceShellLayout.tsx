@@ -323,8 +323,6 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
   onSelectRemoteProject,
   onCancelRemoteProject,
   onReconnectRemoteWorkspace,
-  onLogout,
-  onLogin,
   user,
   reconnectingRemoteWorkspaceKeys,
   remoteWorkspaceRecoveryByWorkspaceKey = EMPTY_REMOTE_WORKSPACE_RECOVERY_BY_WORKSPACE_KEY,
@@ -351,7 +349,6 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
   isMacDesktop,
   isWindowsDesktop,
   workspaceShellZCodeState,
-  theme,
   isMacFullscreen,
   desktopWindowChromeState,
   macWindowControlsLeftPaddingPx,
@@ -2355,7 +2352,6 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
       onOpenFolderFromWorkspaceMenu={onOpenFolderFromWorkspaceMenu}
       onOpenRemoteWorkspace={onOpenRemoteWorkspace}
       webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
-      theme={theme}
       onConnectRemote={onConnectRemote}
       onSelectRemoteProject={onSelectRemoteProject}
       onCancelRemoteProject={onCancelRemoteProject}
@@ -2363,9 +2359,6 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
       reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
       remoteWorkspaceRecoveryByWorkspaceKey={remoteWorkspaceRecoveryByWorkspaceKey}
       remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
-      onLogout={onLogout}
-      onLogin={onLogin}
-      user={user}
       isDesktop={isDesktop}
       isWebRemoteControl={isWebRemoteControlShell}
       isMacDesktop={isMacDesktop}

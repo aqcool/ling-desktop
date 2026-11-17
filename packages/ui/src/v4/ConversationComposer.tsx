@@ -472,6 +472,7 @@ export interface ConversationComposerProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
     reasoningLevel?: string,
+    serviceTier?: "default" | "priority",
   ) => void | Promise<void>;
   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
@@ -2472,10 +2473,14 @@ function ConversationComposerImpl({
       nextModel: string,
       sourceModel: ModelSelectionSource | null,
       reasoningLevel?: string,
-    ) =>
-      reasoningLevel === undefined
-            ? onSelectModel(nextProvider, nextModel, sourceModel)
-            : onSelectModel(nextProvider, nextModel, sourceModel, reasoningLevel),
+      serviceTier?: "default" | "priority",
+    ) => {
+      if (serviceTier !== undefined)
+        return onSelectModel(nextProvider, nextModel, sourceModel, reasoningLevel, serviceTier);
+      if (reasoningLevel !== undefined)
+        return onSelectModel(nextProvider, nextModel, sourceModel, reasoningLevel);
+      return onSelectModel(nextProvider, nextModel, sourceModel);
+    },
     [onSelectModel],
   );
   const submitControlNode = useMemo(

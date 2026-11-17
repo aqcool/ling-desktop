@@ -16,7 +16,7 @@
  * 三件套不能全部门控在 config!==null 上——草稿态会整体不渲染。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClockIcon } from "lucide-react";
+import { AlarmClockIcon, Zap } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
@@ -423,6 +423,7 @@ export interface V4ComposerToolbarProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
     reasoningLevel?: string,
+    serviceTier?: "default" | "priority",
   ) => void | Promise<void>;
   /** 选中思考深度；modelContext 固定本次用户操作的目标模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
@@ -1133,6 +1134,29 @@ function V4ComposerModelControlsImpl({
   // 改绑后按钮提示即时跟随（不能用硬编码文案）。
   const modelShortcutLabel = useShortcutCommandLabel("openModelMenu");
   const thoughtShortcutLabel = useShortcutCommandLabel("cycleThoughtLevel");
+  const fastSelected = effectiveConfig?.modelSelection?.options?.serviceTier === "priority";
+  const currentProvider = modelSelectionView?.providers.find(
+    (provider) => provider.providerId === effectiveConfig?.provider,
+  );
+  const access = currentProvider?.config.access;
+  const isGrokSubscription = access?.type === "subscription-oauth" && access.vendor === "xai";
+  const supportsFast =
+    currentProvider?.models.find((model) => model.modelId === effectiveConfig?.model)
+      ?.supportsFast === true;
+  const handleFastChange = useCallback(
+    (enabled: boolean) => {
+      if (modelLocked || !effectiveConfig?.thought || (enabled && !supportsFast)) return;
+      const { provider, model, thought } = effectiveConfig;
+      void onSelectModel(
+        provider,
+        model,
+        { provider, model },
+        thought,
+        enabled ? "priority" : "default",
+      );
+    },
+    [effectiveConfig, modelLocked, onSelectModel, supportsFast],
+  );
   const selectConnection = connectionSwitch.select;
   // 原因：内联对象会在无关渲染时使 memo 选择器失效；按展示事实和回调缓存选项。
   const composerOptions = useMemo<ComposerModelOptions>(
@@ -1181,6 +1205,25 @@ function V4ComposerModelControlsImpl({
         })) ?? [],
       value: String(thoughtOption?.currentValue ?? ""),
       onValueChange: handleThoughtValueChange,
+      ...(supportsFast || fastSelected
+        ? {
+            fast: {
+              enabled: fastSelected,
+              label:
+                supportsFast && isGrokSubscription
+                  ? "Grok 4.7 Fast"
+                  : intl.formatMessage({
+                      id: supportsFast
+                        ? "chat.toolbar.fast.faster"
+                        : "chat.toolbar.fast.unavailable",
+                    }),
+              description: supportsFast
+                ? intl.formatMessage({ id: "chat.toolbar.fast.moreUsage" })
+                : undefined,
+              onChange: handleFastChange,
+            },
+          }
+        : {}),
     }),
     [
       planGroups,
@@ -1196,6 +1239,10 @@ function V4ComposerModelControlsImpl({
       thoughtOption,
       displayProvider,
       handleThoughtValueChange,
+      supportsFast,
+      isGrokSubscription,
+      fastSelected,
+      handleFastChange,
     ],
   );
   const isModelOptionLocked = useCallback(() => false, []);
@@ -1348,7 +1395,16 @@ function V4ComposerModelControlsImpl({
             (modelSelectionState.status !== "ready" &&
               !(modelSelectionState.status === "loading" && modelSelectionState.catalog))
           }
-          tooltipTitle={modelTriggerDisplay.fullLabel}
+          tooltipTitle={
+            fastSelected && supportsFast
+              ? `${modelTriggerDisplay.fullLabel} · Fast`
+              : modelTriggerDisplay.fullLabel
+          }
+          triggerIcon={
+            fastSelected && supportsFast ? (
+              <Zap className="size-3.5 shrink-0 fill-current text-foreground" aria-hidden="true" />
+            ) : undefined
+          }
           shortcutLabel={modelShortcutLabel}
           triggerRef={modelTriggerRef}
           open={!modelLocked && activeConfigPicker === "model"}

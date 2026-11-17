@@ -44,6 +44,7 @@ export interface ProviderRegistryServiceDependencies {
   readonly resolver?: ProviderConfigResolver;
   /** 同步读取已登录的订阅供应商。登录状态变化后调用 refresh，不能只靠配置 revision。 */
   readonly readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
+  readonly readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
 }
 
 interface RefreshWaiter {
@@ -57,6 +58,7 @@ export class ProviderRegistryService {
   readonly #accountSource: ProviderSource<AccountProviderConfigSnapshot>;
   readonly #resolver: ProviderConfigResolver;
   readonly #readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
+  readonly #readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
   #subscriptionAuthorizationKey = "";
   readonly #registry = new ProviderRegistry();
   readonly #changeListeners = new Set<(event: ProviderRegistryServiceChangedEvent) => void>();
@@ -77,6 +79,7 @@ export class ProviderRegistryService {
     this.#resolver = dependencies.resolver ?? new ProviderConfigResolver();
     this.#readSubscriptionAuthorizedProviderIds =
       dependencies.readSubscriptionAuthorizedProviderIds;
+    this.#readSubscriptionFastModels = dependencies.readSubscriptionFastModels;
   }
 
   async start(): Promise<void> {
@@ -219,9 +222,13 @@ export class ProviderRegistryService {
 
       const subscriptionAuthorizedProviderIds =
         this.#readSubscriptionAuthorizedProviderIds?.() ?? EMPTY_SUBSCRIPTION_AUTHORIZATION;
-      const subscriptionAuthorizationKey = subscriptionAuthorizationKeyFor(
-        subscriptionAuthorizedProviderIds,
-      );
+      const subscriptionFastModels = this.#readSubscriptionFastModels?.();
+      const subscriptionAuthorizationKey = JSON.stringify([
+        [...subscriptionAuthorizedProviderIds].sort(),
+        Object.entries(subscriptionFastModels ?? {}).sort(([left], [right]) =>
+          left.localeCompare(right),
+        ),
+      ]);
       // 凭据库里的订阅登录不是配置 revision。登录和退出只改这串 id，也要重新发布模型目录。
       if (this.#hasSameSourceRevisions(config, account, subscriptionAuthorizationKey)) {
         this.#completedGeneration = generation;
@@ -241,6 +248,7 @@ export class ProviderRegistryService {
           accountStates: account.states,
           personalProviderOrder: config.personalProviderOrder,
           subscriptionAuthorizedProviderIds,
+          subscriptionFastModels,
         });
         this.#registry.replace(resolution.registryProviders, [...reasons].join(","));
         const snapshot = Object.freeze({
@@ -320,10 +328,6 @@ export class ProviderRegistryService {
 }
 
 const EMPTY_SUBSCRIPTION_AUTHORIZATION: ReadonlySet<string> = new Set();
-
-function subscriptionAuthorizationKeyFor(providerIds: ReadonlySet<string>): string {
-  return providerIds.size === 0 ? "" : [...providerIds].sort().join("\n");
-}
 
 function freezeAccountSnapshot(
   snapshot: AccountProviderConfigSnapshot,

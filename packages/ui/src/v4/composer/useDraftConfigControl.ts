@@ -124,7 +124,12 @@ export interface DraftConfigControl {
     selection: ModelSelection,
     expectedSelection?: ModelSelection,
   ) => () => void;
-  handleDraftSelectModel: (modelProvider: string, model: string, reasoningLevel?: string) => void;
+  handleDraftSelectModel: (
+    modelProvider: string,
+    model: string,
+    reasoningLevel?: string,
+    serviceTier?: "priority",
+  ) => void;
   handleDraftSelectThought: (thought: string) => void;
   handleDraftSwitchMode: (mode: string) => void;
   /** composer 编辑提交已结算：退出编辑态回到原草稿时保留编辑态的模型与 mode（Plan 不保留）。 */
@@ -629,7 +634,8 @@ export function useDraftConfigControl(params: {
       if (
         effective?.providerId !== expectedSelection.providerId ||
         effective.modelId !== expectedSelection.modelId ||
-        effective.options?.reasoningLevel !== expectedSelection.options?.reasoningLevel
+        effective.options?.reasoningLevel !== expectedSelection.options?.reasoningLevel ||
+        effective.options?.serviceTier !== expectedSelection.options?.serviceTier
       )
         return () => {};
       return () => {
@@ -986,7 +992,7 @@ export function useDraftConfigControl(params: {
   ]);
 
   const handleDraftSelectModel = useCallback(
-    (modelProvider: string, model: string, reasoningLevel?: string) => {
+    (modelProvider: string, model: string, reasoningLevel?: string, serviceTier?: "priority") => {
       const modelId = modelProvider ? `${modelProvider}/${model}` : model;
       const parsedSelection = parseModelPickerValue(modelId);
       // 原因：调档后解析尚未返回时，菜单仍使用同 Host 的保留目录；只读 ready view
@@ -995,7 +1001,10 @@ export function useDraftConfigControl(params: {
         modelSelectionView ??
         (modelSelectionRead.state.status === "loading" ? modelSelectionRead.state.catalog : null);
       const modelSelection = reasoningLevel
-        ? { ...parsedSelection, options: { reasoningLevel } }
+        ? {
+            ...parsedSelection,
+            options: { reasoningLevel, ...(serviceTier ? { serviceTier } : {}) },
+          }
         : catalog
           ? (completeNewModelSelection(catalog, parsedSelection) ?? parsedSelection)
           : parsedSelection;

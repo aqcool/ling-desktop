@@ -215,7 +215,9 @@ export function useComposerConnectionSwitch({
                 update,
                 synchronize: readModels,
               })
-            : await target.modelSelectionService.getView());
+            : await target.modelSelectionService.getView(undefined, {
+                refreshSubscriptionCatalogFor: connection.providerId,
+              }));
         if (!stillCurrent()) return;
         const group = buildRegistryModelSelectGroups(agentProvider, view).find(
           (g) => g.key === `registry-provider:${connection.providerId}`,
@@ -224,7 +226,8 @@ export function useComposerConnectionSwitch({
           group?.items ?? [],
           decodeCustomModelValue(normalizedValue)?.modelName,
         );
-        if (!model) throw new Error("Selected connection has no available models");
+        const modelId = model && decodeCustomModelValue(model.value)?.modelName;
+        if (!model || !modelId) throw new Error("Selected connection has no available models");
         logger.debug("[composer-connection] 连接同步完成", {
           providerId: connection.providerId,
           connectionKey: connection.key,
@@ -237,11 +240,11 @@ export function useComposerConnectionSwitch({
           family?.id === connection.family &&
           (source?.providerId === family.individualCodingPlanProviderId ||
             source?.providerId === family.teamCodingPlanProviderId) &&
-          source?.modelName === model.name;
+          source?.modelName === modelId;
         // 同名账号模型也必须提交 Session，同时保留原档位，避免连接切换重置用户选择。
         const selection = completeNewModelSelection(view, {
           providerId: connection.providerId,
-          modelId: model.name,
+          modelId,
         });
         await onSelectModel(
           model.value,

@@ -36,7 +36,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip.js";
-import { AlertCircle, CheckIcon, ChevronDownIcon, LoaderCircle, PackageIcon } from "lucide-react";
+import {
+  AlertCircle,
+  CheckIcon,
+  ChevronDownIcon,
+  LoaderCircle,
+  PackageIcon,
+  SettingsIcon,
+} from "lucide-react";
 import {
   TID_CHAT_MODEL_SELECT_GROUP,
   TID_CHAT_MODEL_SELECT_ITEM,
@@ -721,18 +728,21 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
               onSelectModel={handleModelValueChange}
               renderItems={renderModelItems}
               renderConnection={renderProviderConnectionHeader}
-              providerFooter={
+              settingsAction={
                 showManageModelsAction && manageModelsLabel ? (
-                  <DropdownMenuItem
-                    className="min-h-8 gap-2 px-2"
-                    data-model-footer-action="manage-models"
-                    onSelect={() => {
-                      handlePopoverOpenChange(false);
-                      onManageModels?.();
-                    }}
-                  >
-                    {manageModelsLabel}
-                  </DropdownMenuItem>
+                  <ControlHintTooltip title={manageModelsLabel} align="end">
+                    <DropdownMenuItem
+                      aria-label={manageModelsLabel}
+                      className="size-7 justify-center p-0 text-foreground-subtle"
+                      data-model-footer-action="manage-models"
+                      onSelect={() => {
+                        handlePopoverOpenChange(false);
+                        onManageModels?.();
+                      }}
+                    >
+                      <SettingsIcon aria-hidden="true" className="size-4" />
+                    </DropdownMenuItem>
+                  </ControlHintTooltip>
                 ) : null
               }
             />

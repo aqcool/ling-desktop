@@ -23,12 +23,15 @@ Official plugins are built as workspace packages, including
 `packages/browser-use-plugin`, `packages/ios-simulator-plugin`,
 `packages/android-emulator-plugin`, and content-only packages such as
 `packages/document-skills-plugin`, `packages/skill-creator-plugin`,
-`packages/zcode-guide-plugin`, and `packages/restore-legacy-sessions-plugin`,
-but runtime plugin loading does not execute from those workspace paths and does
+`packages/zcode-guide-plugin`. Runtime plugin loading does not execute from those workspace paths and does
 not import plugin code into the ZCode app bundle. ZCode seeds first-party plugin
 files into the official plugin cache under
 `~/.zcode/cli/plugins/cache/zcode-plugins-official/...` and executes plugin MCP
 servers from that cache. Users only enable or disable each capability.
+
+Retired official plugin IDs are excluded from catalogue, install and runtime
+discovery, including existing local caches. This uses the full plugin ID so that
+personal sources with the same name still work.
 
 The Android Emulator plugin P0 supports macOS and Windows only. Linux hosts are
 intentionally unsupported for now; `android_preflight` must report the host OS as
@@ -132,15 +135,9 @@ ZCode stores plugin state under the CLI storage root:
         0.1.0/
           .zcode-plugin/plugin.json
           skills/
-      restore-legacy-sessions/
-        0.1.0/
-          .zcode-plugin/plugin.json
-          skills/
-          commands/
   data/
     android-emulator@zcode-plugins-official/
     ios-simulator@zcode-plugins-official/
-    restore-legacy-sessions@zcode-plugins-official/
 ```
 
 `cache` contains plugin code and static assets. It is version-scoped and can be
@@ -272,8 +269,6 @@ packages/browser-use-plugin/
   -> ~/.zcode/cli/plugins/cache/zcode-plugins-official/browser-use/0.3.0/
 packages/document-skills-plugin/
   -> ~/.zcode/cli/plugins/cache/zcode-plugins-official/document-skills/0.1.4/
-packages/restore-legacy-sessions-plugin/
-  -> ~/.zcode/cli/plugins/cache/zcode-plugins-official/restore-legacy-sessions/0.1.0/
 packages/skill-creator-plugin/
   -> ~/.zcode/cli/plugins/cache/zcode-plugins-official/skill-creator/0.1.0/
 packages/zcode-guide-plugin/
@@ -386,7 +381,6 @@ android-emulator@zcode-plugins-official
 browser-use@zcode-plugins-official
 document-skills@zcode-plugins-official
 ios-simulator@zcode-plugins-official
-restore-legacy-sessions@zcode-plugins-official
 skill-creator@zcode-plugins-official
 zcode-guide@zcode-plugins-official
 ```
@@ -400,8 +394,7 @@ P0 enablement is config-driven:
     "dirs": ["/absolute/path/to/plugin"],
     "enabledPlugins": {
       "android-emulator@zcode-plugins-official": true,
-      "ios-simulator@zcode-plugins-official": true,
-      "restore-legacy-sessions@zcode-plugins-official": true
+      "ios-simulator@zcode-plugins-official": true
     },
     "options": {
       "android-emulator@zcode-plugins-official": {

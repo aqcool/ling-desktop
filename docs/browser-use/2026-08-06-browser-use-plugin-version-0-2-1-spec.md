@@ -153,7 +153,3 @@ package / manifest / Bootstrap / SEA / serverInfo = 0.2.1
 | 根仓库 `pnpm lint`                  | 0 errors，36 条既有 warning                                                                         |
 | Feature graph check                 | node/edge/doc 结构通过；发现 1 个与本次无关的既有 stale code seed，已在 Graph Drift Candidates 记录 |
 | 旧版本复扫                          | Browser Use 的 `0.2.0` 仅保留为 stale cache fixture 和本文迁移说明；其它命中属于无关 fixture        |
-
-补充：SEA 全插件对齐测试仍会被最新 staging 的既有
-`restore-legacy-sessions` 漂移阻塞（package/manifest 为 `0.1.1`，SEA 清单为 `0.1.0`）；独立的 Browser Use
-SEA 合同已拆分并通过，本次不跨范围修改该插件。

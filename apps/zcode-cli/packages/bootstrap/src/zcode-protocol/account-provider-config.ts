@@ -51,6 +51,7 @@ export async function refreshProviderRegistry(
   await context.deps.refreshProviderRegistry(
     envelope.reason,
     envelope.subscriptionAuthorizedProviderIds,
+    envelope.subscriptionFastModels,
   );
   return { refreshed: true };
 }

@@ -62,7 +62,7 @@ export function resolveEffectiveModelSelection(input: {
   const selection = Object.freeze({
     providerId,
     modelId: original.modelId,
-    ...(validation.ok && normalized.options
+    ...((validation.ok || validation.code === "service-tier-not-supported") && normalized.options
       ? { options: Object.freeze({ ...normalized.options }) }
       : {}),
   });
@@ -70,7 +70,8 @@ export function resolveEffectiveModelSelection(input: {
     effectiveSelection: selection,
     ...(!validation.ok &&
     (validation.code === "reasoning-level-missing" ||
-      validation.code === "reasoning-level-not-supported")
+      validation.code === "reasoning-level-not-supported" ||
+      validation.code === "service-tier-not-supported")
       ? { selectionIssue: validation.code }
       : {}),
   });

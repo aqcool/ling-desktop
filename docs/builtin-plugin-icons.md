@@ -35,10 +35,9 @@ Figma 节点 `5080:5352` 的 Installed Strip 定义了内置图标的视觉契�
 1. `android-emulator` → `android`
 2. `document-skills` → `dotpoints-01`
 3. `ios-simulator` → `ios`
-4. `restore-legacy-sessions` → `Frame`（归档盒上箭头）
-5. `skill-creator` → `Frame`（立方体）
-6. `zcode-guide` → ZCode 标志
-7. `design` → 不在该 Figma 节点里（例外）：图形是设计同学单独给的色卡图，随客户端打包在
+4. `skill-creator` → `Frame`（立方体）
+5. `zcode-guide` → ZCode 标志
+6. `design` → 不在该 Figma 节点里（例外）：图形是设计同学单独给的色卡图，随客户端打包在
    `packages/ui/src/assets/plugin-icons/design.png`，见上文「随客户端打包」的例外
 
 Installed Strip 排序时，内置/inline 插件必须整体排在市场安装插件之前，并按当前语言
@@ -46,4 +45,4 @@ Installed Strip 排序时，内置/inline 插件必须整体排在市场安装�
 `source`，不以是否缺失 `installedAt` 间接判断内置身份。
 
 当前内置插件：`android-emulator`、`document-skills`、`ios-simulator`、
-`restore-legacy-sessions`、`skill-creator`、`zcode-guide`、`design`（图标为客户端本地资源，见上文例外）。
+`skill-creator`、`zcode-guide`、`design`（图标为客户端本地资源，见上文例外）。

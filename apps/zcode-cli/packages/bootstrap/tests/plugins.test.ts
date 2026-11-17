@@ -1864,12 +1864,18 @@ describe("ZCode plugins", () => {
     }
   });
 
-  it("projects restore legacy sessions skills and commands only when enabled", async () => {
+  it("ignores cached restore legacy sessions even when previously enabled", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-restore-plugin-enabled-"));
     const configPath = join(root, "config.json");
     const pluginStorageRoot = join(root, "plugins");
+    const cachedRoot = join(pluginStorageRoot, OFFICIAL_RESTORE_LEGACY_SESSIONS_PLUGIN_CACHE_PATH);
 
     try {
+      await mkdir(join(cachedRoot, ".zcode-plugin"), { recursive: true });
+      await writeFile(
+        join(cachedRoot, ".zcode-plugin", "plugin.json"),
+        JSON.stringify({ name: "restore-legacy-sessions", skills: "skills", commands: "commands" }),
+      );
       await writeFile(
         configPath,
         JSON.stringify({
@@ -1883,45 +1889,14 @@ describe("ZCode plugins", () => {
 
       const outcome = await resolveZCodePlugins({
         env: {},
+        officialPluginRoots: [cachedRoot],
         pluginStorageRoot,
         userConfigPath: configPath,
         workingDirectory: root,
       });
-      const plugin = outcome.plugins.find((item) => item.id === RESTORE_LEGACY_SESSIONS_PLUGIN_ID);
-      const expectedRoot = join(
-        pluginStorageRoot,
-        OFFICIAL_RESTORE_LEGACY_SESSIONS_PLUGIN_CACHE_PATH,
+      expect(outcome.plugins.map((plugin) => plugin.id)).not.toContain(
+        RESTORE_LEGACY_SESSIONS_PLUGIN_ID,
       );
-
-      expect(plugin).toMatchObject({
-        commandRootCount: 1,
-        declaredMcpServerNames: [],
-        enabled: true,
-        mcpServerNames: [],
-        name: "restore-legacy-sessions",
-        rootPath: expectedRoot,
-        skillCount: 1,
-        skillRootCount: 1,
-      });
-      expect(outcome.skillRoots).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            path: join(expectedRoot, "skills"),
-            scope: "system",
-            source: "plugin",
-          }),
-        ]),
-      );
-      expect(outcome.commandRoots).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            path: join(expectedRoot, "commands"),
-            scope: "system",
-            source: "plugin",
-          }),
-        ]),
-      );
-      expect(Object.keys(outcome.mcpServers)).not.toContain("restore-legacy-sessions");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

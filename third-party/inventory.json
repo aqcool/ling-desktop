@@ -607,7 +607,6 @@
     "apps/zcode-cli/packages/pdf-plugin/package.json": "519a8216664feac7b78b66d9fa130293203b0418f0f58a207ce93ddd6ce83dcc",
     "apps/zcode-cli/packages/plugin-creator-plugin/package.json": "17ab1504c465c165b013f983270f54868aa282538557bf6f935daac153e46ba6",
     "apps/zcode-cli/packages/presentations-plugin/package.json": "1092bb398f5c21ac7d471ab669e2423b5477ef473fcd08a98806c8065e4c65f0",
-    "apps/zcode-cli/packages/restore-legacy-sessions-plugin/package.json": "ee180a70bc31e945dfa798fd2592a3150cd2e55d546d44be361a90a24cb33fd3",
     "apps/zcode-cli/packages/server-ops-plugin/package.json": "04f58ab023bc970b9a4654c47003bf26b9a6d11a7378d618cf449e99eec43d78",
     "apps/zcode-cli/packages/shared-types/package.json": "6616fb50cf5b4b854273d09411f38857c17df5d4b4abebdfe5d9601e7341e451",
     "apps/zcode-cli/packages/skill-creator-plugin/package.json": "9477f2dbaf0de233856a8d71f8aa1e4fac95e189358887df5c3b7c13672727a6",
@@ -2090,7 +2089,7 @@
     "packages/ui/src/components/ui/tooltip.tsx": "b385da0f882ef4a44c101051107a670c42f7b347b86ef8ca0dba40369ed34d3b",
     "packages/ui/src/components/ui/usePdfZoomOverlay.ts": "c8c91b003ce2fded32c7a2369dc6eac43aa4b9dc9c830a0f5ceccb21d366b610",
     "packages/ui/src/components/ui/ZCodeAboutLogo.tsx": "041d2e28b9f810c9d8b437520160688ea66a97b4fe2bb4846b88716b199ba8ba",
-    "packages/ui/src/lib/builtinSkillI18n.ts": "c21bf530dd4e2ed9e0fc62394efcf0e72cc82adb12b2e2e6cb718416b7068142",
+    "packages/ui/src/lib/builtinSkillI18n.ts": "6cb95cfbceedb9d299f778d2000305dfc5a93954977c34f24069d693f86934c1",
     "packages/ui/src/styles.css": "b39001bcf7a14e701dd8342455550871bff9878c11ffb479b9eaecb98ae6bf79",
     "packages/web-share/package.json": "4865c14968b96d355c45c2edf612443f79d6d05cfbe433a28374e19b1b0c9d88",
     "packages/web/package.json": "c70390c0404808451a621a15a2489821883e2511d60a0b73ba298e10c583d1af",
@@ -3250,7 +3249,7 @@
     "patches/@radix-ui__react-menu@2.1.16.patch": "4b05eae73074149ac453ee047d9f48707df7d5c9ddedeab8d514f9b9fa097a6c",
     "patches/vitest@4.1.7.patch": "11fdb66aa985e1d77e68752deeb7c1130ae33c9a4e2968f23aae8adaf8bc9ba0",
     "patches/wdio-electron-service@9.2.1.patch": "52481dae5e76772fcb8c2a9ff42feb3d0e1478e28815a4b975c81b9287e3385f",
-    "pnpm-lock.yaml": "2b6b808bf7c47a564e7853b42a37713fa0b08edaaeda2ebf8de5bfa0e9f4ea82",
+    "pnpm-lock.yaml": "5263d87ac19e14f3580b8c5acac097f063fd2e6eb743b2b29b0ebd1167731941",
     "pnpm-workspace.yaml": "ddf4d195a433a1fae0a991462b9b19281435d7055d768d2a2942de8f4aff89f3",
     "scripts/license-texts/Apache-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "scripts/native-search-tools-config.mjs": "7cadab538877a3f64a3161f1c64ec50fe06c83aa32dbebef3553941c314a689a",
@@ -29745,7 +29744,7 @@
       "files": [
         {
           "file": "packages/ui/src/lib/builtinSkillI18n.ts",
-          "sha256": "c21bf530dd4e2ed9e0fc62394efcf0e72cc82adb12b2e2e6cb718416b7068142"
+          "sha256": "6cb95cfbceedb9d299f778d2000305dfc5a93954977c34f24069d693f86934c1"
         },
         {
           "file": "apps/zcode-cli/packages/superpowers-plugin/LICENSE",

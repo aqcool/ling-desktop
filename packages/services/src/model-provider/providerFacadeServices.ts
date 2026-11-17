@@ -38,6 +38,18 @@ export type SubscriptionOAuthLoginStatus =
   | { readonly status: "signed-in" }
   | { readonly status: "failed"; readonly message: string };
 
+interface SubscriptionUsageWindow {
+  readonly windowSeconds: number;
+  readonly usedPercent: number;
+  readonly resetsAt: number;
+}
+
+export interface SubscriptionUsage {
+  readonly windows: readonly SubscriptionUsageWindow[];
+  readonly planType?: string;
+  readonly availableResetCount?: number;
+}
+
 export type SubscriptionRequestAuthDecision =
   | { readonly kind: "not-subscription" }
   | { readonly kind: "signed-out" }
@@ -49,6 +61,7 @@ export type SubscriptionRequestAuthDecision =
 
 export interface SubscriptionOAuthController {
   getStatus(providerId: ProviderId): Promise<SubscriptionOAuthLoginStatus>;
+  getUsage(providerId: ProviderId): Promise<SubscriptionUsage>;
   start(providerId: ProviderId): Promise<SubscriptionOAuthLoginStatus>;
   submitCode(providerId: ProviderId, code: string): Promise<SubscriptionOAuthLoginStatus>;
   cancel(providerId: ProviderId): Promise<SubscriptionOAuthLoginStatus>;
@@ -98,6 +111,7 @@ export interface IProviderSettingsService {
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
   getSubscriptionOAuthStatus(providerId: ProviderId): Promise<SubscriptionOAuthLoginStatus>;
+  getSubscriptionUsage(providerId: ProviderId): Promise<SubscriptionUsage>;
   startSubscriptionOAuth(providerId: ProviderId): Promise<SubscriptionOAuthLoginStatus>;
   submitSubscriptionOAuthCode(
     providerId: ProviderId,
@@ -131,7 +145,10 @@ export type ProviderSettingsConnectivityTester = (
 
 export interface IModelSelectionService {
   readonly onDidChange: Event<ModelSelectionView>;
-  getView(input?: ModelSelectionViewInput): Promise<ModelSelectionView>;
+  getView(
+    input?: ModelSelectionViewInput,
+    options?: { refreshSubscriptionCatalogFor?: ProviderId },
+  ): Promise<ModelSelectionView>;
 }
 
 export interface ModelSelectionConfiguredDefaultSource {
@@ -256,6 +273,10 @@ export function createProviderSettingsService(
       await ensureReady();
       return requireSubscription().getStatus(providerId);
     },
+    getSubscriptionUsage: async (providerId) => {
+      await ensureReady();
+      return requireSubscription().getUsage(providerId);
+    },
     startSubscriptionOAuth: async (providerId) => {
       await ensureReady();
       return requireSubscription().start(providerId);
@@ -279,14 +300,17 @@ export function createModelSelectionService(
   facade: ModelSelectionFacade,
   ensureReady: () => Promise<void> = async () => {},
   configuredDefaultSource?: ModelSelectionConfiguredDefaultSource,
+  refreshSubscriptionCatalog?: (providerId: ProviderId) => void,
 ): IModelSelectionService & { dispose(): void } {
   const log = createServiceLogger("model-selection");
   let revision = 0;
   let disposed = false;
   const listeners = new Set<(view: ModelSelectionView) => void>();
-  const getView = async (input?: ModelSelectionViewInput): Promise<ModelSelectionView> => {
+  const getView: IModelSelectionService["getView"] = async (input, options) => {
     await ensureReady();
     if (disposed) throw new Error("ModelSelectionService 已 dispose");
+    if (options?.refreshSubscriptionCatalogFor)
+      refreshSubscriptionCatalog?.(options.refreshSubscriptionCatalogFor);
     const configuredDefault = await configuredDefaultSource?.read();
     if (disposed) throw new Error("ModelSelectionService 已 dispose");
     const base = facade.getView(configuredDefault);

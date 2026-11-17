@@ -319,26 +319,6 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     version: "0.1.0",
   },
   {
-    listing: {
-      author: ZAI_AUTHOR,
-      category: "utilities",
-      displayName: "Restore Legacy Sessions",
-      displayName_i18n: { "zh-CN": "恢复旧版会话" },
-      icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/restore-legacy-sessions/icon.png`,
-      description_i18n: {
-        "zh-CN": "将旧版会话恢复为 ZCode 任务与会话记录。",
-      },
-    },
-    name: "restore-legacy-sessions",
-    rootCandidates: [
-      "packages/restore-legacy-sessions-plugin",
-      "../restore-legacy-sessions-plugin",
-      "../../restore-legacy-sessions-plugin",
-      "../../../restore-legacy-sessions-plugin",
-    ],
-    version: "0.1.0",
-  },
-  {
     defaultEnabled: true,
     name: "plugin-creator",
     version: "0.1.1",

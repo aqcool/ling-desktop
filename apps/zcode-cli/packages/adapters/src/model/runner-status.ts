@@ -42,6 +42,7 @@ export interface ModelStatusContext {
   requestId: string;
   providerId: ResolvedAiSdkModel["providerId"];
   modelId: ResolvedAiSdkModel["modelId"];
+  requestModelId?: string;
   modelRequestSessionType: ModelRequestSessionTypeValue;
   /** 本会话已用能力标签；重试沿用同一份（与 session type 一样不随 attempt 变化）。 */
   baseURL?: string;
@@ -62,7 +63,6 @@ export function createStatusContext(input: {
   const querySource = stringMetadata(metadata.querySource);
   const resolvedModelCall = resolveModelApiCallObservation(querySource, input.request.modelCall);
   return {
-    baseURL: input.resolved.baseURL,
     maxAttempts: input.maxAttempts,
     providerId: input.resolved.providerId,
     modelId: input.resolved.modelId,
@@ -126,6 +126,18 @@ export function createAttemptStatusContext(
     // adapter retry 会发起新的物理 provider 请求；
     // 复用首轮 requestId 会让上游日志和 retry-after 诊断串错请求。
     requestId: crypto.randomUUID(),
+  };
+}
+
+// 路由在尝试开始前绑定，Fast 请求的地址和模型 ID 可能与会话选择不同。
+export function withResolvedRequestTarget(
+  statusContext: ModelStatusContext,
+  resolved: ResolvedAiSdkModel,
+): ModelStatusContext {
+  return {
+    ...statusContext,
+    baseURL: resolved.baseURL,
+    requestModelId: typeof resolved.model === "string" ? resolved.model : resolved.model?.modelId,
   };
 }
 
@@ -322,7 +334,7 @@ export function modelStatusContextToLogContext(
       statusContext.maxAttempts === UNBOUNDED_RETRY_MAX_ATTEMPTS
         ? UNBOUNDED_RETRY_MAX_ATTEMPTS
         : Math.max(0, statusContext.maxAttempts - 1),
-    modelId: statusContext.modelId,
+    modelId: statusContext.requestModelId ?? statusContext.modelId,
     parentSpanId: statusContext.parentSpanId,
     providerId: statusContext.providerId,
     providerKind: statusContext.providerKind,

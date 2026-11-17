@@ -1,4 +1,4 @@
-import type { Locale, RemoteTarget, UserInfo } from "@zcode/shared";
+import type { Locale, RemoteTarget } from "@zcode/shared";
 import type { LucideIcon } from "lucide-react";
 import type {
   AppProps,
@@ -123,7 +123,6 @@ export interface ProjectSidebarProps {
   onOpenFolderFromWorkspaceMenu: () => void;
   onOpenRemoteWorkspace?: AppProps["onOpenRemoteWorkspace"];
   webRemoteControlWorkspaceSwitcher?: import("@/root/types.js").WebRemoteControlWorkspaceSwitcherApi;
-  theme: Theme;
   onConnectRemote: (
     options: RemoteTarget,
     requestId?: string,
@@ -139,9 +138,6 @@ export interface ProjectSidebarProps {
   ) => Promise<void>;
   onCancelRemoteProject: (sessionId: string) => Promise<void>;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
-  onLogout?: () => void;
-  onLogin?: () => void;
-  user?: UserInfo | null;
   reconnectingRemoteWorkspaceKeys: string[];
   remoteWorkspaceRecoveryByWorkspaceKey?: Record<string, RemoteWorkspaceRecoveryStatus>;
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;

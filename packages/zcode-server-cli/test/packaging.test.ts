@@ -759,7 +759,6 @@ describe("stageRelease", () => {
       "browser-use-plugin",
       "document-skills-plugin",
       "ios-simulator-plugin",
-      "restore-legacy-sessions-plugin",
       "skill-creator-plugin",
       "zcode-guide-plugin",
       "superpowers-plugin",
@@ -809,7 +808,6 @@ describe("stageRelease", () => {
       "browser-use",
       "document-skills",
       "ios-simulator",
-      "restore-legacy-sessions",
       "skill-creator",
       "zcode-guide",
     ]);

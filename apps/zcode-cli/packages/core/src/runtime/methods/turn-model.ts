@@ -183,7 +183,8 @@ export function sameModelSelection(
   return (
     left?.providerId === right.providerId &&
     left.modelId === right.modelId &&
-    left.options?.reasoningLevel === right.options?.reasoningLevel
+    left.options?.reasoningLevel === right.options?.reasoningLevel &&
+    left.options?.serviceTier === right.options?.serviceTier
   );
 }
 

@@ -5,12 +5,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PluginDiagnostic, PluginManifest, PluginStoreListing } from "@zcode/contracts";
+import { isOfficialMarketplaceId, ZCODE_OFFICIAL_PLUGIN_MARKETPLACE } from "@zcode/contracts";
 import {
-  isOfficialMarketplaceId,
-  RETIRED_ZCODE_SITE_PLUGIN_ID,
-  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
-} from "@zcode/contracts";
-import { DEFAULT_PLUGIN_MARKETPLACES, sanitizeZCodeRuntimeEnv } from "@zcode/shared";
+  DEFAULT_PLUGIN_MARKETPLACES,
+  isRetiredOfficialPlugin,
+  sanitizeZCodeRuntimeEnv,
+} from "@zcode/shared";
 import { loadPluginMcpServerDefinitions, resolvePluginMcpServers } from "./mcp.js";
 import {
   appendPluginSourceCleanupError,
@@ -779,7 +779,7 @@ export async function saveInstalledPlugins(
 
 export function listInstalledPluginRecords(storageRoot: string): InstalledPluginRecord[] {
   return loadInstalledPluginsSync(storageRoot).plugins.filter(
-    ({ id }) => id !== RETIRED_ZCODE_SITE_PLUGIN_ID,
+    ({ id }) => !isRetiredOfficialPlugin(id),
   );
 }
 
@@ -2269,7 +2269,7 @@ function normalizeMarketplaceManifest(
 
 function omitRetiredPlugin(manifest: PluginMarketplaceManifest): PluginMarketplaceManifest {
   if (manifest.name !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE) return manifest;
-  const isActive = (name: string) => `${name}@${manifest.name}` !== RETIRED_ZCODE_SITE_PLUGIN_ID;
+  const isActive = (name: string) => !isRetiredOfficialPlugin(`${name}@${manifest.name}`);
   const plugins = manifest.plugins.filter(({ name }) => isActive(name));
   const featured = manifest.featured?.filter(isActive);
   if (plugins.length === manifest.plugins.length && featured?.length === manifest.featured?.length) {
@@ -3004,6 +3004,6 @@ export async function listInstalledPluginRecordsAsync(
     parsed = undefined;
   }
   return normalizeInstalledPluginsState(parsed).plugins.filter(
-    ({ id }) => id !== RETIRED_ZCODE_SITE_PLUGIN_ID,
+    ({ id }) => !isRetiredOfficialPlugin(id),
   );
 }

@@ -78,6 +78,7 @@ export interface ZCodeProtocolAgentDependencies {
   refreshProviderRegistry?: (
     reason: string,
     subscriptionAuthorizedProviderIds?: readonly string[],
+    subscriptionFastModels?: Readonly<Record<string, readonly string[]>>,
   ) => Promise<void>;
 }
 

@@ -41,6 +41,8 @@ export interface ProviderRuntimeDependencies {
   readonly testConnectivity?: ProviderSettingsConnectivityTester;
   readonly subscriptionOAuth?: SubscriptionOAuthController;
   readonly readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
+  readonly readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
+  readonly refreshSubscriptionCatalog?: (providerId: string) => void;
   readonly modelSelectionConfiguredDefaultSource?: ModelSelectionConfiguredDefaultSource;
   readonly disposeModelSelectionConfiguredDefaultSource?: () => void;
 }
@@ -100,6 +102,7 @@ export class ProviderRuntime {
       configSource: this.configService,
       accountSource,
       readSubscriptionAuthorizedProviderIds: dependencies.readSubscriptionAuthorizedProviderIds,
+      readSubscriptionFastModels: dependencies.readSubscriptionFastModels,
     });
     const mutations = createSettingsMutationTarget(
       this.#configRuntime,
@@ -118,6 +121,7 @@ export class ProviderRuntime {
       createNodeModelSelectionFacade(this.registryService),
       ensureReady,
       dependencies.modelSelectionConfiguredDefaultSource,
+      dependencies.refreshSubscriptionCatalog,
     );
     this.modelSelection = this.#modelSelectionRuntime;
   }

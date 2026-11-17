@@ -19,7 +19,7 @@ import {
   type UserCommand,
   type ZCodeCommand,
 } from "@zcode/shared";
-import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "@zcode/shared";
+import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS, isRetiredOfficialPlugin } from "@zcode/shared";
 import type { ICommandsService } from "./commands.js";
 import { CommandFileParser, type CommandFileFormat } from "./commandFileParser.js";
 import { readInstalledPluginRoots } from "#src/plugins/installedPluginRoots.js";
@@ -398,6 +398,7 @@ async function resolvePluginCommandRootDescriptors(): Promise<PluginCommandRootD
       continue;
     }
     const pluginId = `${manifest.name}@${candidate.marketplace}`;
+    if (isRetiredOfficialPlugin(pluginId)) continue;
     // 内置官方插件被「卸载」后只在 CLI config 写入 suppressedBuiltins；desktop 直接扫
     // 官方 cache 时不经过 CLI resolve 的过滤，需要在这里同样跳过，否则被卸载的内置插件
     // 仍会从 cache 贡献命令。

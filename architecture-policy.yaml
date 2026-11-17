@@ -2270,8 +2270,9 @@ exceptions:
       - packages/provider/src/config/model-config.ts
       - packages/provider/src/config/rule-data-schema.ts
       - packages/services/src/model-provider/subscriptionOAuthService.ts
+      - packages/ui/src/hooks/useSubscriptionUsage.ts
       - packages/ui/src/settings/model-provider-section/SubscriptionOAuthSection.tsx
-    reason: 订阅授权供应商（docs/subscription-oauth-providers.md）在现有个人供应商上增加访问类型、公开客户端登录和凭据库存令牌。设置卡片只显示登录状态。接管整个 provider、services 与 ui 模块不在本次范围内。
+    reason: 订阅授权供应商（docs/subscription-oauth-providers.md）复用个人供应商和凭据库。设置卡片从现有 ProviderSettings RPC 读取 ChatGPT 额度和 Grok 套餐档位，并提供 Claude 和 Grok 的官方用量入口。
   - id: remove-telemetry-bootstrap-wiring
     rule: unmanaged-new-file
     paths:

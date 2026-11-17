@@ -2695,6 +2695,7 @@ export const zcodeProviderRefreshRegistryParamsSchema = z
   .object({
     reason: nonEmptyString,
     subscriptionAuthorizedProviderIds: z.array(nonEmptyString).max(128).optional(),
+    subscriptionFastModels: z.record(nonEmptyString, z.array(nonEmptyString)).optional(),
   })
   .strict();
 export const zcodeProviderRefreshRegistryResultSchema = z

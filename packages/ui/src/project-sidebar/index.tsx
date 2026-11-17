@@ -11,8 +11,6 @@ import { remoteHostIdFromWorkspaceIdentity } from "@/project-sidebar/contract.js
 import type {
   ProjectSidebarProps,
   VirtualProject,
-  Locale,
-  Theme,
   RemoteProjectHost,
 } from "@/project-sidebar/contract.js";
 import { useProjectPinIntent } from "@/project-sidebar/useProjectPinIntent.js";
@@ -60,7 +58,6 @@ import { SidebarBottomActivity } from "@/sidebar-activity/SidebarBottomActivity.
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useTabStoreApi } from "@/store/TabStoreProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import { useZCodeStore } from "@/store/StoreProvider.js";
 export { attachRemoteProjectWorkspace } from "@/project-sidebar/remote-navigation.js";
 export { useRemoteWorkspaceConnectionGate } from "@/project-sidebar/useRemoteWorkspaceConnectionGate.js";
 export { resolveEntryProject } from "@/project-sidebar/view.js";
@@ -96,9 +93,8 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
     },
     [navigateToTask],
   );
-  const { intl, localePreference, setLocalePreference } = useZCodeIntl();
+  const { intl } = useZCodeIntl();
   const tabStore = useTabStoreApi();
-  const setTheme = useZCodeStore((state) => state.setTheme);
   const { view, setView } = preferences;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [groupedToolbar, setGroupedToolbar] = useState<HTMLDivElement | null>(null);
@@ -221,11 +217,6 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
   const openSettings = useCallback(() => {
     tabStore.getState().openSettingsTab();
   }, [tabStore]);
-  const changeLocale = useCallback(
-    (value: string) => setLocalePreference(value as Locale | "system"),
-    [setLocalePreference],
-  );
-  const changeTheme = useCallback((value: string) => setTheme(value as Theme), [setTheme]);
   const banner = useMemo(() => <SidebarBottomActivity />, []);
   // 手机远控 home-only 没有 base attachment，也就没有项目契约；改用 relay 层工作区列表与重连入口。
   const homeOnlySwitcher = service ? undefined : props.webRemoteControlWorkspaceSwitcher;
@@ -343,15 +334,8 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
               </div>
               <WorkspaceSidebarFooter
                 className="pr-3"
-                theme={props.theme}
-                localeMenuValue={localePreference}
-                onLocaleChange={changeLocale}
-                onThemeChange={changeTheme}
                 onSettingsButtonClick={openSettings}
                 onUsageClick={openSettings}
-                onLogin={props.onLogin}
-                onLogout={props.onLogout}
-                user={props.user}
                 workspacePath={props.workspacePath}
                 // 项目侧栏不再从 tab 反推身份；远控入口必须沿用当前 attachment 的精确 scope。
                 workspaceIdentity={props.workspaceIdentity}

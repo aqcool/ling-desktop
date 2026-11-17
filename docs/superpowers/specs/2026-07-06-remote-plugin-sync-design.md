@@ -49,7 +49,7 @@ Plugin 比 Skill/MCP 更复杂：它不是单一资源，而是插件目录、`p
 
 ### builtin / official plugin
 
-- 来源：ZCode 随包内置的 official plugin，当前包括 `android-emulator`、`browser`、`document-skills`、`ios-simulator`、`restore-legacy-sessions`、`skill-creator`、`zcode-guide`。
+- 来源：ZCode 随包内置的 official plugin，当前包括 `android-emulator`、`browser`、`document-skills`、`ios-simulator`、`skill-creator`、`zcode-guide`。
 - plugin id：统一为 `<name>@zcode-plugins-official`。
 - 同步策略：不通过插件同步弹窗手动复制。builtin plugin 是产品原生能力，SSH 远端必须随远端 ZCode Agent resource 部署。
 - 远端资源布局：`glm/<platform>/packages/<plugin-package>` 打进远端资源包，部署到 `~/.zcode/server/agents/glm/packages/<plugin-package>`。

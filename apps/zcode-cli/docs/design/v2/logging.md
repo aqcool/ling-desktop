@@ -164,6 +164,8 @@ ZCode app-server `session/new` 至少记录：
 
 `{home}/.zcode/cli/log/zcode-YYYY-MM-DD.jsonl` 是默认定位日志，目标是回答“哪个 session/turn/trace/protocol seq/事件类型在什么时间出问题”，不是保存完整协议消息、模型流式内容或工具输入输出镜像。默认日志可以记录索引、状态、计数、耗时、字节数、key 列表和短摘要；不得在高频路径写入完整 `protocolMessage`、完整 stream delta、完整 tool input/result、完整 stdout/stderr tail 或完整 request/response headers。
 
+模型请求在每次尝试完成鉴权和路由解析后，使用该次 SDK 请求的基础地址和模型 ID 写入运行状态日志。排队、准入和路由解析失败时尚无请求地址。会话和用量事件继续使用所选模型的 ID。
+
 高频事件必须摘要化写入：
 
 - `event_store.appended` 对 `model_streaming`、`tool_call_progress`、`streaming_tool_ledger_updated`、`model_network_status` 等与消息流同频或近似同频的事件不逐条写默认日志；按 session/turn/event type 聚合为 `event_store.appended.summary`，记录 `firstSessionEventSequenceNumber`、`lastSessionEventSequenceNumber`、`eventCount`、`payloadBytes`、`payloadKinds`、`firstEventId`、`lastEventId` 和 flush 原因。

@@ -9,6 +9,7 @@ const SUBAGENT_SELECTION_MESSAGES = {
   "model-not-found": "Model unavailable / 模型不存在或不可用",
   "reasoning-level-missing": "No reasoning level selected / 未选择思考档位",
   "reasoning-level-not-supported": "Reasoning level unsupported / 不支持所选思考档位",
+  "service-tier-not-supported": "Fast unavailable / Fast 不可用",
 } satisfies Record<NonNullable<EffectiveModelSelectionResult["selectionIssue"]>, string>;
 
 /** 显式 profile 是待解析意图；继承与内部 override 已有执行归属，不重新对应账号。 */

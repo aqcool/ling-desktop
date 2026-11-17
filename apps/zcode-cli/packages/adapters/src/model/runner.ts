@@ -81,6 +81,7 @@ export interface CreateAiSdkModelOptions {
   modelId: string;
   providerConfig: RegistryProviderConfig;
   modelConfig: RegistryModelConfig;
+  serviceTier?: "priority";
   displayName?: string;
   options?: ModelOptions;
   requestDependencies?: ModelRequestDependencies;
@@ -159,6 +160,7 @@ export class AiSdkModelAdapter {
       providerConfig: options.providerConfig,
       supportsJsonSchemaOutput: options.modelConfig.properties.supportsJsonSchemaOutput,
       optionSpecs: options.modelConfig.optionSpecs,
+      serviceTier: options.serviceTier,
     });
     const properties = options.modelConfig.properties;
     const resolved = {

@@ -9,6 +9,15 @@ export interface DefaultPluginMarketplace {
 
 export const ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID = "zcode-plugins-official";
 
+const RETIRED_OFFICIAL_PLUGIN_IDS = new Set([
+  `zcode-site@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID}`,
+  `restore-legacy-sessions@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID}`,
+]);
+
+export function isRetiredOfficialPlugin(pluginId: string): boolean {
+  return RETIRED_OFFICIAL_PLUGIN_IDS.has(pluginId);
+}
+
 /**
  * Claude Code 官方市场（GitHub git 源）。它不是 ZCode 的强依赖：GitHub 不可达时刷新必然失败，
  * 该失败不应作为错误提示打扰用户，UI 侧按此 id 静默处理其刷新失败（任何原因）。

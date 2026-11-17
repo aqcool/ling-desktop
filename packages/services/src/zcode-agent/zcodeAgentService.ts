@@ -1134,6 +1134,7 @@ interface CreateZCodeAgentServiceBaseOptions extends Omit<
   whenSubscriptionAuthorizationReady?: () => Promise<void>;
   /** 当前已登录的订阅供应商。只读 id，不读令牌。 */
   readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
+  readSubscriptionFastModels?: () => Record<string, string[]>;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
   authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
   modelSelectionReadinessSource?: ModelSelectionReadinessSource;
@@ -2014,7 +2015,8 @@ export function createZCodeAgentService(
         }
         if (params.refreshRegistry) {
           await options?.whenSubscriptionAuthorizationReady?.();
-          const subscriptionAuthorizedProviderIds = options?.readSubscriptionAuthorizedProviderIds?.();
+          const subscriptionAuthorizedProviderIds =
+            options?.readSubscriptionAuthorizedProviderIds?.();
           await params.client.request(
             zcodeProtocolMethods.providerRefreshRegistry,
             {
@@ -2022,6 +2024,7 @@ export function createZCodeAgentService(
               ...(subscriptionAuthorizedProviderIds
                 ? { subscriptionAuthorizedProviderIds: [...subscriptionAuthorizedProviderIds] }
                 : {}),
+              subscriptionFastModels: options?.readSubscriptionFastModels?.(),
             },
             zcodeProviderRefreshRegistryResultSchema,
           );

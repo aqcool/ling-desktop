@@ -58,8 +58,6 @@ export function PluginStoreListView({
   const modeOrder = isOfficeMode ? order?.work : order?.code;
   const keyword = query.trim().toLowerCase();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  // 旧版会话恢复入口退出市场；统一过滤所有浏览投影，旧缓存/精选也不能重新露出。
-  // 完整 ID 只命中官方插件，插件管理页继续使用原始条目管理已有安装。
   const items = useMemo(() => allItems.filter((item) => isPluginStoreVisible(item.id)), [allItems]);
 
   const segmentItems = useMemo(

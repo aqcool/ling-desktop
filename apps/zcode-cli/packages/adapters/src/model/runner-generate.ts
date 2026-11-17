@@ -44,6 +44,7 @@ import {
   admissionWaitPublishers,
   createAttemptStatusContext,
   createStatusContext,
+  withResolvedRequestTarget,
   publishModelStatus,
 } from "./runner-status.js";
 import type { EnvRecord } from "./model-execution.js";
@@ -173,6 +174,7 @@ export async function runGenerateText(input: {
         request: authRetry.prepareRequest(attemptRequest),
         resolveModel: input.resolveModel,
       });
+      statusContext = withResolvedRequestTarget(statusContext, resolved);
       const anthropicMetadataUserId = await resolveAnthropicRequestMetadataUserId({
         env: input.env,
         providerKind: resolved.providerKind,

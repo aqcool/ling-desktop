@@ -1380,9 +1380,6 @@ function RootInner({
     onCreateTask: handleCreateTask,
     onOpenWorkspace: handleOpenWorkspace,
     allowOpenWorkspace,
-    onLogin: undefined,
-    onLogout: user ? handleLogout : undefined,
-    user,
   };
 
   if (credentialRecovery.state) return <CredentialStoreRecovery recovery={credentialRecovery} />;

@@ -20,7 +20,7 @@ import {
   type ModelRequestAuth,
   type ProviderEndpointRoutingPort,
 } from "@zcode/contracts";
-import type { RegistryProviderConfig } from "@zcode/provider";
+import { GROK_BUILD_SUBSCRIPTION, type RegistryProviderConfig } from "@zcode/provider";
 import { withOpenRouterAttributionHeaders } from "@zcode/shared";
 import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
 import { createModelRequestSecurityState } from "./request-security-edition/index.js";
@@ -208,6 +208,7 @@ export class AiSdkModelExecution {
     readonly modelId: string;
     readonly providerConfig: RegistryProviderConfig;
     readonly supportsJsonSchemaOutput: boolean;
+    readonly serviceTier?: "priority";
     readonly optionSpecs: {
       readonly reasoningLevel: { readonly map: string };
       readonly maxOutputTokens: { readonly map: string };
@@ -219,7 +220,7 @@ export class AiSdkModelExecution {
       // 这里只构造不执行请求的基础 Model；真正请求必须通过 resolveRequest 绑定完整 options。
       resolved: this.resolveSnapshot(snapshot, undefined, undefined, undefined),
       resolveRequest: ({ options, requestAuth }) =>
-        this.resolveSnapshot(snapshot, requestAuth, optionMaps, options),
+        this.resolveSnapshot(snapshot, requestAuth, optionMaps, options, input.serviceTier),
     };
   }
 
@@ -260,8 +261,28 @@ export class AiSdkModelExecution {
     requestAuth: ModelRequestAuth | undefined,
     optionMaps: CompiledModelOptionMaps | undefined,
     optionValues: ModelOptionValues | undefined,
+    serviceTier?: "priority",
   ): AiSdkResolvedModel {
-    const providerConfig = applyModelRequestAuth(snapshot.providerConfig, requestAuth);
+    const access = snapshot.providerConfig.access;
+    const grokFast =
+      serviceTier === "priority" &&
+      access.type === "subscription-oauth" &&
+      access.vendor === "xai" &&
+      snapshot.modelId === GROK_BUILD_SUBSCRIPTION.modelId;
+    const providerConfig = applyModelRequestAuth(
+      grokFast
+        ? {
+            ...snapshot.providerConfig,
+            kind: "openai",
+            baseURL: GROK_BUILD_SUBSCRIPTION.baseUrl,
+            headers: {
+              ...GROK_BUILD_SUBSCRIPTION.headers,
+              "x-grok-model-override": GROK_BUILD_SUBSCRIPTION.fastModelId,
+            },
+          }
+        : snapshot.providerConfig,
+      requestAuth,
+    );
     // Model 创建时的 Provider 事实必须被冻结在当前 binding 中。若按 providerId 缓存
     // factory，配置更新后创建的新 Model 会错误复用旧 Endpoint / Header / API Key。
     const rawRequestBodyCapture: RawRequestBodyCapture = {};
@@ -275,13 +296,15 @@ export class AiSdkModelExecution {
       streamTiming,
       snapshot.supportsJsonSchemaOutput,
       snapshot.providerConfig.access?.type === "zhipu-account" ? requestAuth?.apiKeyId : undefined,
+      serviceTier,
+      grokFast,
     );
     return {
       baseURL: providerConfig.baseURL,
       headers: providerConfig.headers,
       providerId: snapshot.providerId,
       modelId: snapshot.modelId,
-      model: factory(snapshot.modelId.toString()),
+      model: factory(grokFast ? GROK_BUILD_SUBSCRIPTION.fastModelId : snapshot.modelId),
       providerKind: providerConfig.kind,
       providerOptions: providerConfig.providerOptions,
       chatGptSubscription: isChatGptSubscription(providerConfig),
@@ -300,6 +323,8 @@ export class AiSdkModelExecution {
     streamTiming: NonNullable<AiSdkResolvedModel["streamTiming"]>,
     supportsJsonSchemaOutput: boolean,
     apiKeyId?: string,
+    serviceTier?: "priority",
+    grokFast = false,
   ): LanguageModelFactory {
     const apiKey = this.resolveApiKey(providerConfig);
     const headers = withoutRetiredModelHeaders(providerConfig.headers);
@@ -324,11 +349,12 @@ export class AiSdkModelExecution {
       providerKind: providerConfig.kind,
       streamTiming,
     };
+    const streamOnlySubscription = chatGptSubscription || grokFast;
     const fetch = createProviderBusinessErrorFetch({
       ...businessOptions,
-      codexResponse: chatGptSubscription ? "stream" : undefined,
+      codexResponse: streamOnlySubscription ? "stream" : undefined,
     });
-    const fetchCodexJson = chatGptSubscription
+    const fetchSubscriptionJson = streamOnlySubscription
       ? createProviderBusinessErrorFetch({ ...businessOptions, codexResponse: "json" })
       : undefined;
     const optionFetch =
@@ -338,11 +364,18 @@ export class AiSdkModelExecution {
             fetch,
             maps: optionMaps,
             values: optionValues,
-            prepare: fetchCodexJson
-              ? ({ max_output_tokens: _maxOutputTokens, ...body }) => ({
-                  body: { ...body, stream: true },
-                  fetch: body.stream === true ? fetch : fetchCodexJson,
-                })
+            prepare: fetchSubscriptionJson
+              ? (body) => {
+                  const { max_output_tokens: _maxOutputTokens, ...codexBody } = body;
+                  return {
+                    body: {
+                      ...(chatGptSubscription ? codexBody : body),
+                      stream: true,
+                      ...(chatGptSubscription && serviceTier ? { service_tier: serviceTier } : {}),
+                    },
+                    fetch: body.stream === true ? fetch : fetchSubscriptionJson,
+                  };
+                }
               : undefined,
           })
         : fetch;
@@ -851,7 +884,7 @@ function createProviderBusinessErrorSseTransform(
         );
       }
       if (!streamFinished && options.codexResponse === "json") {
-        throw new Error("Codex Responses stream ended before a terminal response.");
+        throw new Error("Responses stream ended before a terminal response.");
       }
     },
   });

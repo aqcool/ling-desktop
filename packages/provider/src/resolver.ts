@@ -147,6 +147,7 @@ export interface ProviderConfigResolverInput {
    * 缺省或未包含的订阅供应商仍出现在设置结果里，但不进入可执行 Registry。
    */
   readonly subscriptionAuthorizedProviderIds?: ReadonlySet<string>;
+  readonly subscriptionFastModels?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface ResolvedProviderModelCandidate {
@@ -176,6 +177,7 @@ export interface ResolvedProvider extends Pick<ProviderConfigRule, "templateId" 
 export interface ProviderModel {
   readonly modelId: ModelId;
   readonly config: RegistryModelConfig;
+  readonly supportsFast?: true;
 }
 
 export interface Provider extends Pick<ProviderConfigRule, "templateId" | "providerName"> {
@@ -361,7 +363,14 @@ export class ProviderConfigResolver {
           ]);
           if (!result.ok)
             throw new Error(`Registry Model 完整性结果不一致: ${providerId}/${modelId}`);
-          return Object.freeze({ modelId, config: result.config });
+          return Object.freeze({
+            modelId,
+            config: result.config,
+            ...(config.access?.type === "subscription-oauth" &&
+            input.subscriptionFastModels?.[providerId]?.includes(modelId)
+              ? { supportsFast: true as const }
+              : {}),
+          });
         });
       if (validModels.length === 0) continue;
       registryProviders.push(

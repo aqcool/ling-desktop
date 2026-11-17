@@ -77,7 +77,7 @@ export function acceptComposerRecentReceipt(
       JSON.stringify({
         ...previous,
         ...(submission && selection.success
-          ? { modelSelection: selection.data, order: receipt.order }
+          ? { modelSelection: normalizeSparseModelSelection(selection.data), order: receipt.order }
           : {}),
         ...(updateMode ? { mode: mode.data, modeOrder: receipt.order } : {}),
       }),

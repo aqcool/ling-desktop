@@ -894,10 +894,12 @@ describe("v4 M5 门禁：composer 工具条与 slash 候选面板", () => {
     if (highspeed) await switchV4Model(UPSTREAM_PROVIDER_ID, UPSTREAM_MODEL, "high");
   });
 
-  it("模型管理入口位于 Provider 子菜单并打开模型设置", async () => {
+  it("主模型菜单的齿轮打开模型设置", async () => {
     await ensureCompletedTask();
     await openComposerPicker("model");
-    expect(await $('[data-model-footer-action="manage-models"]').isExisting()).toBe(false);
+    const manage = $('[data-model-footer-action="manage-models"]');
+    await manage.waitForDisplayed();
+    expect(await manage.$("svg").isExisting()).toBe(true);
     const provider = $('[data-testid="composer-provider-trigger"]');
     expect(await provider.$('img, svg[aria-hidden="true"]').isExisting()).toBe(true);
     await provider.click();
@@ -941,8 +943,9 @@ describe("v4 M5 门禁：composer 工具条与 slash 候选面板", () => {
       ),
     ).toBe("no-drag");
 
-    const manage = $('[data-model-footer-action="manage-models"]');
-    await manage.waitForDisplayed();
+    expect(await providerMenu.$('[data-model-footer-action="manage-models"]').isExisting()).toBe(
+      false,
+    );
     const badgeGaps = await browser.execute(() =>
       Array.from(
         document.querySelectorAll<HTMLElement>(

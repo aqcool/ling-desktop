@@ -1232,8 +1232,6 @@ export function App({
             onSelectRemoteProject={onSelectRemoteProject}
             onCancelRemoteProject={onCancelRemoteProject}
             onReconnectRemoteWorkspace={onReconnectRemoteWorkspace}
-            onLogout={onLogout}
-            onLogin={onLogin}
             user={user}
             reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
             remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
@@ -1263,7 +1261,6 @@ export function App({
             isMacDesktop={isMacDesktop}
             isWindowsDesktop={isWindowsDesktop}
             workspaceShellZCodeState={workspaceShellZCodeState}
-            theme={theme}
             isMacFullscreen={isMacFullscreen}
             desktopWindowChromeState={desktopWindowChromeState}
             macWindowControlsLeftPaddingPx={macWindowControlsLeftPaddingPx}

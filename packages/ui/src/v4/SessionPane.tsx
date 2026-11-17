@@ -4795,6 +4795,7 @@ export function SessionPane({
       model: string,
       sourceModel: ModelSelectionSource | null,
       reasoningLevel?: string,
+      serviceTier?: "default" | "priority",
     ) => {
       const resolvedProvider =
         modelProvider || draftConfigRef.current.provider || sourceModel?.provider || "";
@@ -4809,14 +4810,29 @@ export function SessionPane({
         toast(intl.formatMessage({ id: "chat.highspeed.modelLocked" }));
         return;
       }
+      const currentSelection = draftConfigRef.current.modelSelection;
+      const sameModel =
+        currentSelection?.providerId === resolvedProvider && currentSelection.modelId === model;
+      const requestedTier =
+        serviceTier ?? (sameModel ? currentSelection.options?.serviceTier : undefined);
+      const selectedTier = requestedTier === "priority" ? requestedTier : undefined;
+      const nextReasoning =
+        reasoningLevel ?? (selectedTier ? currentSelection?.options?.reasoningLevel : undefined);
       if (!sessionId) {
-        handleDraftSelectModel(resolvedProvider, model, reasoningLevel);
+        handleDraftSelectModel(resolvedProvider, model, nextReasoning, selectedTier);
         return;
       }
       if (modelSelectionFlightsRef.current.has(modelSelectionOwnerKey)) return;
       const targetSessionId = sessionId;
-      const selection = reasoningLevel
-        ? { providerId: resolvedProvider, modelId: model, options: { reasoningLevel } }
+      const selection = nextReasoning
+        ? {
+            providerId: resolvedProvider,
+            modelId: model,
+            options: {
+              reasoningLevel: nextReasoning,
+              ...(selectedTier ? { serviceTier: selectedTier } : {}),
+            },
+          }
         : modelSelectionDisplayView
           ? completeNewModelSelection(modelSelectionDisplayView, {
               providerId: resolvedProvider,
@@ -4841,6 +4857,7 @@ export function SessionPane({
               provider: selection.providerId,
               model: selection.modelId,
               thought: selection.options!.reasoningLevel,
+              ...(serviceTier ? { serviceTier } : {}),
             },
             { targetSessionId },
           ),
@@ -4859,6 +4876,7 @@ export function SessionPane({
           selection.providerId,
           selection.modelId,
           selection.options.reasoningLevel,
+          selection.options.serviceTier,
         );
         showModelChangeNotice(sourceModel, {
           provider: selection.providerId,

@@ -17,6 +17,7 @@ export interface NodeProviderRegistryRuntimeOptions extends NodeProviderConfigRu
   ) => ProviderSource<AccountProviderConfigSnapshot>;
   /** 同步读取已登录的订阅供应商。名单由宿主在刷新前替换，Registry 不读凭据。 */
   readonly readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
+  readonly readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
 }
 
 /** 一个 Node.js 进程内共享的 Config + Registry 生命周期。 */
@@ -38,6 +39,7 @@ export class NodeProviderRegistryRuntime {
       configSource: this.configService,
       accountSource: this.#accountSource,
       readSubscriptionAuthorizedProviderIds: options.readSubscriptionAuthorizedProviderIds,
+      readSubscriptionFastModels: options.readSubscriptionFastModels,
     });
   }
 

@@ -1743,8 +1743,11 @@ export function createLocalServices(options: {
   let providerConnectivityAgentService:
     | Pick<IZCodeAgentService, "testModelConnectivity">
     | undefined;
-  let subscriptionOAuth: SubscriptionOAuthController | null = null;
+  let subscriptionOAuth: ReturnType<typeof createSubscriptionOAuthService> | null = null;
   const subscriptionAuthorizedProviderIds = new Set<string>();
+  const subscriptionFastModels = new Map<string, string[]>();
+  const subscriptionCatalogRequests = new Map<string, Promise<string[]>>();
+  const readSubscriptionFastModels = () => Object.fromEntries(subscriptionFastModels);
   let markSubscriptionAuthorizationReady = (): void => {};
   const subscriptionAuthorizationReady = new Promise<void>((resolve) => {
     markSubscriptionAuthorizationReady = resolve;
@@ -1755,6 +1758,12 @@ export function createLocalServices(options: {
         throw new Error("Subscription sign-in is not available in this environment.");
       }
       return subscriptionOAuth.getStatus(providerId);
+    },
+    getUsage: (providerId) => {
+      if (!subscriptionOAuth) {
+        throw new Error("Subscription sign-in is not available in this environment.");
+      }
+      return subscriptionOAuth.getUsage(providerId);
     },
     start: (providerId) => {
       if (!subscriptionOAuth) {
@@ -1808,21 +1817,60 @@ export function createLocalServices(options: {
     },
     subscriptionOAuth: subscriptionOAuthController,
     readSubscriptionAuthorizedProviderIds: () => subscriptionAuthorizedProviderIds,
+    readSubscriptionFastModels,
+    refreshSubscriptionCatalog: discoverSubscriptionFastModels,
   });
+  function refreshSubscriptionRegistry(reason: string) {
+    void providerRuntime.registryService.refresh(reason).catch((error: unknown) => {
+      providerConfigLog.warn(undefined, "订阅能力未能更新到模型目录", {
+        message: error instanceof Error ? error.message : "refresh failed",
+      });
+    });
+  }
+  function discoverSubscriptionFastModels(providerId: string) {
+    if (
+      !subscriptionAuthorizedProviderIds.has(providerId) ||
+      subscriptionCatalogRequests.has(providerId)
+    )
+      return;
+    const pending = subscriptionOAuth?.discoverFastModels(providerId);
+    if (!pending) return;
+    subscriptionCatalogRequests.set(providerId, pending);
+    void pending
+      .then((models) => {
+        if (subscriptionCatalogRequests.get(providerId) !== pending) return;
+        const previous = subscriptionFastModels.get(providerId);
+        if (
+          (previous?.length ?? 0) === models.length &&
+          models.every((id, i) => id === previous?.[i])
+        )
+          return;
+        if (models.length > 0) subscriptionFastModels.set(providerId, models);
+        else subscriptionFastModels.delete(providerId);
+        refreshSubscriptionRegistry(`subscription-models:${providerId}`);
+      })
+      .catch((error: unknown) => {
+        providerConfigLog.warn(undefined, "订阅模型速度读取失败", {
+          providerId,
+          message: error instanceof Error ? error.message : "catalog request failed",
+        });
+      })
+      .finally(() => {
+        if (subscriptionCatalogRequests.get(providerId) === pending) {
+          subscriptionCatalogRequests.delete(providerId);
+        }
+      });
+  }
   subscriptionOAuth = createSubscriptionOAuthService({
     credentialService,
     fetch: hostApiNetworkTransport.fetch,
     onAuthorizationChanged: (providerId, authorized) => {
+      subscriptionCatalogRequests.delete(providerId);
+      subscriptionFastModels.delete(providerId);
       if (authorized) subscriptionAuthorizedProviderIds.add(providerId);
       else subscriptionAuthorizedProviderIds.delete(providerId);
-      void providerRuntime.registryService
-        .refresh(`subscription-oauth:${providerId}`)
-        .catch((error: unknown) => {
-          providerConfigLog.warn(undefined, "订阅登录状态未能发布到模型目录", {
-            providerId,
-            message: error instanceof Error ? error.message : "refresh failed",
-          });
-        });
+      refreshSubscriptionRegistry(`subscription-oauth:${providerId}`);
+      if (authorized) discoverSubscriptionFastModels(providerId);
     },
     readVendor: async (providerId) => {
       const view = await providerRuntime.providerSettings.getView();
@@ -1847,6 +1895,9 @@ export function createLocalServices(options: {
       );
       if (subscriptionAuthorizedProviderIds.size > 0) {
         await providerRuntime.registryService.refresh("subscription-oauth:hydrate");
+        for (const providerId of subscriptionAuthorizedProviderIds) {
+          discoverSubscriptionFastModels(providerId);
+        }
       }
     } catch (error) {
       providerConfigLog.warn(undefined, "订阅登录状态未能恢复到模型目录", {
@@ -2523,6 +2574,7 @@ export function createLocalServices(options: {
       subscriptionOAuthController.resolveRequestAuth(providerId),
     whenSubscriptionAuthorizationReady: () => subscriptionAuthorizationReady,
     readSubscriptionAuthorizedProviderIds: () => subscriptionAuthorizedProviderIds,
+    readSubscriptionFastModels,
     readRequestVerificationConfig: () =>
       codingPlanSubscriptionService.getRequestVerificationConfig(),
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),

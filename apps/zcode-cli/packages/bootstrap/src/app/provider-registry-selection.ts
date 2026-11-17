@@ -140,6 +140,11 @@ export function createRegistrySelectionProtocolError(
         ModelErrorCode.InvalidModelRequest,
         `Reasoning effort "${validation.reasoningLevel}" is not supported by ${validation.providerId}/${validation.modelId}`,
       );
+    case "service-tier-not-supported":
+      return new ModelProtocolError(
+        ModelErrorCode.InvalidModelRequest,
+        `Fast is not available for ${validation.providerId}/${validation.modelId}`,
+      );
   }
 }
 

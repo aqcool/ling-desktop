@@ -183,6 +183,7 @@ export interface ProviderSettingsCreationResult {
 export interface ModelSelectionModelView {
   readonly modelId: ModelId;
   readonly config: RegistryModelConfigObject;
+  readonly supportsFast?: true;
 }
 
 export interface ModelSelectionProviderView extends Pick<
@@ -581,6 +582,7 @@ export function projectModelSelectionProviderView(
         Object.freeze({
           modelId: model.modelId,
           config: serializeRegistryModelConfig(model.config),
+          ...(model.supportsFast ? { supportsFast: true as const } : {}),
         }),
       ),
     ),

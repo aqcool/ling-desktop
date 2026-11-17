@@ -2,6 +2,18 @@ import type { SubscriptionOAuthVendor } from "./provider-config.js";
 
 export type { SubscriptionOAuthVendor };
 
+export const GROK_BUILD_SUBSCRIPTION = {
+  baseUrl: "https://cli-chat-proxy.grok.com/v1",
+  modelId: "grok-4.7",
+  fastModelId: "grok-4.7-build-fast",
+  headers: {
+    "x-xai-token-auth": "xai-grok-cli",
+    "x-authenticateresponse": "authenticate-response",
+    "x-grok-client-version": "1.0.88",
+    "x-grok-client-identifier": "ling",
+  },
+} as const;
+
 export type SubscriptionOAuthFlow = "browser" | "device";
 
 export interface SubscriptionOAuthProfile {

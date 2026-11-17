@@ -44,7 +44,6 @@ export function ComposerProviderMenu({
   separatorBeforeKey,
   group,
   label,
-  providerFooter,
   onSelect,
   children,
   error,
@@ -56,7 +55,6 @@ export function ComposerProviderMenu({
   separatorBeforeKey?: string;
   group: ModelSelectGroup | undefined;
   label: string;
-  providerFooter?: ReactNode;
   onSelect: (group: ModelSelectGroup) => void;
   children: ReactNode;
   error?: string | null;
@@ -109,12 +107,6 @@ export function ComposerProviderMenu({
           </Fragment>
         ))}
       </DropdownMenuRadioGroup>
-      {providerFooter ? (
-        <>
-          {groups.length > 0 ? <DropdownMenuSeparator className="shrink-0 bg-border/50" /> : null}
-          <div className="shrink-0">{providerFooter}</div>
-        </>
-      ) : null}
     </>
   );
   const title = (
@@ -137,7 +129,7 @@ export function ComposerProviderMenu({
   const triggerProps = {
     "data-testid": "composer-provider-trigger",
     "aria-label": `${label}: ${group?.label ?? "—"}`,
-    disabled: disabled || loading || (!group && !providerFooter),
+    disabled: disabled || loading || !group,
     "aria-busy": loading || undefined,
     className:
       "min-h-8 gap-3 data-[highlighted]:bg-menu-hover/50 data-[state=open]:bg-menu-hover/50",

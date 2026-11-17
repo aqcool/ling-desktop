@@ -57,7 +57,7 @@ export function logModelNetworkStatus(
     attempt: statusEvent.attempt,
     baseURL: statusEvent.baseURL,
     maxAttempts: statusEvent.maxAttempts,
-    modelId: statusEvent.modelId,
+    modelId: statusEvent.requestModelId ?? statusEvent.modelId,
     providerId: statusEvent.providerId,
     providerKind: statusEvent.providerKind,
     requestId: statusEvent.requestId,

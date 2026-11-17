@@ -1,4 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
+import { ZapIcon } from "lucide-react";
+import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
 import type { ComposerPlanGroup } from "@/lib/composerPlanGroups.js";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
@@ -6,6 +8,7 @@ import { isNoThoughtLevel } from "@/chat-input-toolbar/thoughtLevelOptions.js";
 import { ComposerEffortHeading } from "@/chat-input-toolbar/ComposerEffortHeading.js";
 import { ComposerProviderMenu } from "@/chat-input-toolbar/ComposerProviderMenu.js";
 import {
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -50,6 +53,12 @@ export interface ComposerModelOptions {
   levels: readonly { value: string; label: string }[];
   value: string;
   onValueChange: (value: string) => void;
+  fast?: {
+    enabled: boolean;
+    label: string;
+    description?: string;
+    onChange: (enabled: boolean) => void;
+  };
 }
 
 export function getComposerThoughtDisplay(options: ComposerModelOptions) {
@@ -105,7 +114,7 @@ export function ComposerModelMenu({
   options,
   renderItems,
   renderConnection,
-  providerFooter,
+  settingsAction,
   isItemLocked,
   onSelectModel,
 }: {
@@ -114,7 +123,7 @@ export function ComposerModelMenu({
   options: ComposerModelOptions;
   renderItems: (items: ModelSelectGroup["items"]) => ReactNode;
   renderConnection: (group: ModelSelectGroup) => ReactNode;
-  providerFooter?: ReactNode;
+  settingsAction?: ReactNode;
   isItemLocked: (value: string) => boolean;
   onSelectModel: (value: string) => void;
 }) {
@@ -134,6 +143,7 @@ export function ComposerModelMenu({
   const modelName = selected?.items.find((item) => item.value === normalizedValue)?.name ?? "";
   const highspeed = isGlmHighspeedModel(modelName);
   const currentGroupSelected = group?.key === selected?.key && Boolean(selected);
+  const fast = currentGroupSelected ? options.fast : undefined;
   const currentIndex = options.levels.findIndex((level) => level.value === options.value);
   const { label } = getComposerThoughtDisplay(options);
   const sliderRef = useRef<HTMLInputElement>(null);
@@ -171,7 +181,6 @@ export function ComposerModelMenu({
         }
         group={group}
         label={options.providerLabel}
-        providerFooter={providerFooter}
         onSelect={(candidate) => {
           if (options.providerMenu) {
             options.providerMenu.onSelect(candidate as ComposerPlanGroup);
@@ -374,6 +383,29 @@ export function ComposerModelMenu({
               </DropdownMenuItem>
             )}
           </>
+        ) : null}
+        {fast || settingsAction ? (
+          <div className="flex items-center justify-between px-2 pb-1">
+            {fast ? (
+              <ControlHintTooltip title={fast.label} description={fast.description} align="start">
+                <DropdownMenuCheckboxItem
+                  checked={fast.enabled}
+                  disabled={options.providerMenu?.pending}
+                  aria-label="Fast"
+                  data-testid="composer-fast-toggle"
+                  className="size-7 justify-center p-0 text-foreground-subtle data-[highlighted]:text-foreground-subtle data-[state=checked]:text-icon-blue data-[state=checked]:data-[highlighted]:text-icon-blue [&>[data-slot=dropdown-menu-checkbox-item-indicator]]:hidden"
+                  onSelect={(event) => event.preventDefault()}
+                  onCheckedChange={fast.onChange}
+                >
+                  <ZapIcon
+                    aria-hidden="true"
+                    className={fast.enabled ? "size-4 fill-current" : "size-4"}
+                  />
+                </DropdownMenuCheckboxItem>
+              </ControlHintTooltip>
+            ) : null}
+            {settingsAction ? <div className="ml-auto">{settingsAction}</div> : null}
+          </div>
         ) : null}
       </ComposerProviderMenu>
     </>

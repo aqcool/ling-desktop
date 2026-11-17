@@ -54,6 +54,7 @@ export async function startProcessProviderRegistryRuntime(
   const accountSource = new MutableAccountProviderConfigSource();
   // 订阅令牌留在 Host 凭据库。这里只记已登录的供应商 id，供发送准入发布模型。
   const subscriptionAuthorizedProviderIds = new Set<string>();
+  let subscriptionFastModels: Readonly<Record<string, readonly string[]>> = {};
   const credentialStore = options.standalone
     ? (options.standalone.credentialStore ?? createSharedZCodeCredentialStore({ env: { ...env } }))
     : undefined;
@@ -89,6 +90,7 @@ export async function startProcessProviderRegistryRuntime(
     onZCodeBuiltinRefreshError: options.standalone?.onBuiltinRefreshError,
     accountSource,
     readSubscriptionAuthorizedProviderIds: () => subscriptionAuthorizedProviderIds,
+    readSubscriptionFastModels: () => subscriptionFastModels,
     ...(credentialStore
       ? {
           createAccountSource(configService) {
@@ -167,6 +169,9 @@ export async function startProcessProviderRegistryRuntime(
             const trimmed = providerId.trim();
             if (trimmed) subscriptionAuthorizedProviderIds.add(trimmed);
           }
+        },
+        replaceSubscriptionFastModels(models: Readonly<Record<string, readonly string[]>>): void {
+          subscriptionFastModels = models;
         },
         async syncAccountProviderConfig(next: AccountProviderConfigSnapshot): Promise<boolean> {
           if (standaloneAccount)

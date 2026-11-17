@@ -361,7 +361,7 @@ staging 由 `packages/zcode-server-cli/src/packaging/stage.ts` 实现，
   `THIRD-PARTY-NOTICES.txt` 与 `SOURCES.json`。运行时通过
   `ZCODE_SERVER_RUNTIME_ROOT` 解析；`runtime/packages` 包含当前官方插件定义中需要 seed 的七个
   plugin（browser-use、document-skills、skill-creator、zcode-guide、android-emulator、
-  ios-simulator、restore-legacy-sessions）。
+  ios-simulator）。
 - 内置技能包不变量：`stageRelease` 从独立的 `bundledSkillsDir` 参数发布
   `runtime/packages/bundled-skills`（生产入口传入 `apps/zcode-cli/packages/bundled-skills`），
   只复制 `README.md` 与 `skills/`，排除其他顶层文件。Agent 在

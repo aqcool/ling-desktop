@@ -171,6 +171,7 @@ interface ModelNetworkStatusBase {
   requestId: string;
   providerId: ModelProviderId;
   modelId: ModelId;
+  requestModelId?: string;
   baseURL?: string;
   providerKind?: string;
   transport: ModelTransportKind;

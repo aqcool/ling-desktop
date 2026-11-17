@@ -9,6 +9,7 @@ export {
   type ProviderSettingsProviderView,
   type ProviderSettingsView,
   type SubscriptionOAuthLoginStatus,
+  type SubscriptionUsage,
 } from "./model-provider/providerFacadeServices.js";
 export {
   createAccountRequestAuthService,

@@ -220,14 +220,6 @@ const officialPluginPackages = [
     stagedPath: "packages/ios-simulator-plugin",
   },
   {
-    // 修复原因：restore-legacy-sessions 已注册为官方插件，但 Electron 生产包只会拷贝
-    // 这里列出的资源。漏掉它会导致用户生产包首次启动后 plugins list 里看不到该插件。
-    packageName: "@zcode/restore-legacy-sessions-plugin",
-    relativePath: "apps/zcode-cli/packages/restore-legacy-sessions-plugin",
-    requiresRuntime: false,
-    stagedPath: "packages/restore-legacy-sessions-plugin",
-  },
-  {
     packageName: "@zcode/skill-creator-plugin",
     relativePath: "apps/zcode-cli/packages/skill-creator-plugin",
     requiresRuntime: false,

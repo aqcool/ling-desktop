@@ -40,7 +40,7 @@ export function createComposerSubmissionConfig(
     modelSelection: Object.freeze({
       providerId: selection.providerId,
       modelId: selection.modelId,
-      options: Object.freeze({ reasoningLevel: selection.options!.reasoningLevel! }),
+      options: Object.freeze({ ...selection.options }),
     }),
   });
 }

@@ -69,6 +69,7 @@ import {
   admissionWaitPublishers,
   createAttemptStatusContext,
   createStatusContext,
+  withResolvedRequestTarget,
   publishModelStatus,
   publishModelTelemetryMilestone,
 } from "./runner-status.js";
@@ -312,6 +313,7 @@ export async function* runStreamText(input: {
         request: authRetry.prepareRequest(attemptRequest),
         resolveModel: input.resolveModel,
       });
+      statusContext = withResolvedRequestTarget(statusContext, resolved);
       const anthropicMetadataUserId = await resolveAnthropicRequestMetadataUserId({
         env: input.env,
         providerKind: resolved.providerKind,

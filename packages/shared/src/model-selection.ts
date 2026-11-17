@@ -8,6 +8,7 @@ export const modelSelectionSchema = z
     options: z
       .object({
         reasoningLevel: z.string().trim().min(1).optional(),
+        serviceTier: z.literal("priority").optional(),
       })
       .strict()
       .optional(),
@@ -25,7 +26,8 @@ export interface EffectiveModelSelectionResult {
     | "provider-not-found"
     | "model-not-found"
     | "reasoning-level-missing"
-    | "reasoning-level-not-supported";
+    | "reasoning-level-not-supported"
+    | "service-tier-not-supported";
 }
 
 export const ZCODE_MODEL_REASONING_SEPARATOR = "$";

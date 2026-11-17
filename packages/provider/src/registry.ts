@@ -32,6 +32,12 @@ export type ModelSelectionValidation =
       readonly modelId: ModelId;
       readonly reasoningLevel: string;
       readonly supportedLevels: readonly string[];
+    }
+  | {
+      readonly ok: false;
+      readonly code: "service-tier-not-supported";
+      readonly providerId: ProviderId;
+      readonly modelId: ModelId;
     };
 
 export interface ProviderRegistryView {
@@ -129,6 +135,7 @@ export class ProviderRegistry {
 export function validateModelSelectionOptions(
   // 只依赖发布给 Renderer 的 Option 事实，避免 UI 另写一份档位校验或构造领域类。
   model: {
+    readonly supportsFast?: true;
     readonly config: {
       readonly optionSpecs: { readonly reasoningLevel: { readonly values: readonly string[] } };
     };
@@ -155,6 +162,14 @@ export function validateModelSelectionOptions(
       supportedLevels: Object.freeze([...reasoningSpec.values]),
     };
   }
+  if (selection.options?.serviceTier === "priority" && !model.supportsFast) {
+    return {
+      ok: false,
+      code: "service-tier-not-supported",
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+    };
+  }
   return { ok: true };
 }
 
@@ -166,11 +181,7 @@ function freezeView(revision: number, providers: readonly Provider[]): ProviderR
       providerName: provider.providerName,
       templateId: provider.templateId,
       config: provider.config,
-      models: Object.freeze(
-        provider.models.map((model) =>
-          Object.freeze({ modelId: model.modelId, config: model.config }),
-        ),
-      ),
+      models: Object.freeze(provider.models.map((model) => Object.freeze({ ...model }))),
     }),
   );
   return Object.freeze({ revision, providers: Object.freeze(frozenProviders) });
