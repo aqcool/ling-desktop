@@ -60,7 +60,8 @@ jobs:
         include:
           - { runner: macos-15, os: mac, arch: arm64 }
           - { runner: macos-15-intel, os: mac, arch: x64 }
-          - { runner: windows-2025, os: win, arch: x64 }
+          # The tagged Windows runtime host uses the Visual Studio 2022 CMake generator.
+          - { runner: windows-2022, os: win, arch: x64 }
           - { runner: ubuntu-24.04, os: linux, arch: x64 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
