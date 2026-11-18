@@ -110,6 +110,8 @@ jobs:
         run: |
           # Git Bash's GNU tar treats drive-letter paths as remote archives.
           $env:Path = "$env:SystemRoot\System32;$env:Path"
+          # The build invokes powershell.exe; use modules compatible with Windows PowerShell.
+          $env:PSModulePath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
           corepack pnpm --filter @zcode/desktop run bundle --os $env:TARGET_OS --arch $env:TARGET_ARCH
       - name: Run packaged agent and collect installers
         run: node release-tools/.github/scripts/qualify-release.mjs
