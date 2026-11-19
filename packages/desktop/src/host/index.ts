@@ -3945,6 +3945,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
             );
             const initializedServices = createLocalServices({
               resolveServerOpsBridge: serverOpsBridge.environment,
+              enableImagegen: true,
               onAppControlServiceCreated: (handle) => {
                 appControlForExtensions = handle;
               },

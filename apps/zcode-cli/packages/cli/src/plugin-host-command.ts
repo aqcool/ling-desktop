@@ -6,6 +6,7 @@ import {
   ZCODE_PLUGIN_HOST_COMMAND,
 } from "@zcode/contracts/plugins";
 import {
+  getCapturedImagegenBridge,
   getCapturedZCodeCuaBrokerCredentials,
   getCapturedServerOpsBridge,
   ZCODE_CUA_BROKER_SOCKET_ENV_KEY,
@@ -68,6 +69,10 @@ export async function runPluginHostCommand(ctx: RunContext, argv: string[]): Pro
         process.env[ZCODE_PLUGIN_ID_ENV_KEY] === `server-ops@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`
       ) {
         await module.main(getCapturedServerOpsBridge());
+      } else if (
+        process.env[ZCODE_PLUGIN_ID_ENV_KEY] === `imagegen@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`
+      ) {
+        await module.main(getCapturedImagegenBridge());
       } else {
         await module.main();
       }

@@ -1248,6 +1248,14 @@ modules:
     layers: { adapters: "." }
     owner: desktop
 
+  - id: desktop-imagegen
+    roots: [packages/services/src/model-provider/imagegen, apps/zcode-cli/packages/imagegen-plugin]
+    managed: true
+    requires: []
+    publicEntrypoints: [packages/services/src/model-provider/imagegen/module.ts]
+    layers: { adapters: "." }
+    owner: desktop
+
   # file-open-apps：由 architecture:adopt 登记
   - id: file-open-apps
     roots:

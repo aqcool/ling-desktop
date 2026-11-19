@@ -529,6 +529,7 @@ import {
   type SubscriptionOAuthController,
 } from "./model-provider/providerFacadeServices.js";
 import { createProviderSettingsConnectivityTester } from "./model-provider/providerSettingsConnectivity.js";
+import { createImagegenBridge, type ImagegenBridge } from "./model-provider/imagegen/module.js";
 import { createSubscriptionOAuthService } from "./model-provider/subscriptionOAuthService.js";
 import {
   createProviderProvisioningSource,
@@ -802,6 +803,7 @@ export function getPluginUserOptionsReader(
 ): PluginUserOptionsReader | undefined {
   return pluginUserOptionsReaders.get(services);
 }
+const imagegenBridges = new WeakMap<ServiceCollection, ImagegenBridge>();
 const managedHostApiNetworkTransports = new WeakMap<ServiceCollection, HostApiNetworkTransport>();
 
 export function registerManagedCuaHelperHostForDispose(
@@ -1244,6 +1246,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function createLocalServices(options: {
   resolveServerOpsBridge?: () => Promise<string>;
+  enableImagegen?: boolean;
   /** Desktop 注入 Main 的私有加解密桥；系统主密钥不进入 Host/CLI。 */
   credentialCipherProvider?: CredentialCipher;
   /** 已鉴权 Desktop stdio 连接提供的私有回查频道；不作为公共 service 暴露。 */
@@ -1880,6 +1883,23 @@ export function createLocalServices(options: {
     },
   });
   const subscriptionAuthorization = subscriptionOAuth;
+  const imagegenBridge = options?.enableImagegen
+    ? createImagegenBridge({
+        fetch: hostApiNetworkTransport.fetch,
+        async resolveAuth() {
+          const view = await providerRuntime.providerSettings.getView();
+          const chatGptProviders = view.providers.filter(({ effectiveConfig }) => {
+            const access = effectiveConfig.access;
+            return access?.type === "subscription-oauth" && access.vendor === "openai-chatgpt";
+          });
+          for (const { providerId } of chatGptProviders) {
+            const auth = await subscriptionAuthorization.resolveRequestAuth(providerId);
+            if (auth.kind === "ready") return auth;
+          }
+          throw new Error("Connect a ChatGPT subscription in Model Settings to generate images.");
+        },
+      })
+    : undefined;
   // 启动时目录按未登录收口。凭据里已有令牌的供应商在这次读取后才进入会话选择。
   void (async () => {
     try {
@@ -2723,6 +2743,7 @@ export function createLocalServices(options: {
         ...(options?.resolveServerOpsBridge
           ? { ZCODE_SERVER_OPS_BRIDGE: await options.resolveServerOpsBridge() }
           : {}),
+        ...(imagegenBridge ? { ZCODE_IMAGEGEN_BRIDGE: await imagegenBridge.environment() } : {}),
         ...buildAgentRuntimeEnv({
           httpProxy: agentNetwork.httpProxy,
           noProxy: agentNetwork.noProxy,
@@ -3429,6 +3450,7 @@ export function createLocalServices(options: {
   const pluginUserOptionsReader = getInProcessPluginUserOptionsReader(zcodeAgentService);
   if (pluginUserOptionsReader) pluginUserOptionsReaders.set(services, pluginUserOptionsReader);
 
+  if (imagegenBridge) imagegenBridges.set(services, imagegenBridge);
   providerRuntimes.set(services, providerRuntime);
   providerProvisioningSources.set(services, providerProvisioningSource);
   providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
@@ -3597,6 +3619,8 @@ export function disposeServiceResources(services: ServiceCollection): void {
   // 关闭共享 tasks-index sqlite 句柄（Windows 上悬着句柄会让后续目录清理撞 EBUSY）
   for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
   sharedSqliteRepos.delete(services);
+  imagegenBridges.get(services)?.dispose();
+  imagegenBridges.delete(services);
   providerRuntimes.get(services)?.dispose();
   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
   providerProvisioningTriggerDisposers.delete(services);
@@ -3642,6 +3666,8 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
   // 关闭共享 tasks-index sqlite 句柄（同 disposeServiceResources，异步收口路径也要释放）
   for (const repo of sharedSqliteRepos.get(services) ?? []) repo.close();
   sharedSqliteRepos.delete(services);
+  imagegenBridges.get(services)?.dispose();
+  imagegenBridges.delete(services);
   providerRuntimes.get(services)?.dispose();
   for (const dispose of providerProvisioningTriggerDisposers.get(services) ?? []) dispose();
   providerProvisioningTriggerDisposers.delete(services);

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "inputHashEncoding": "UTF-8 with CRLF normalized to LF; notice and source snapshot hashes remain byte-exact",
   "scope": "Production dependency union across current workspace projects, copied source/assets and native tools; not a per-installer SBOM or a certification of all licensing obligations.",
-  "noticesSha256": "0be49cf14db4b679d03a07c7dcc28495c8c5a8d2ec31ad7c9464fcac3836cd4d",
+  "noticesSha256": "d910d26820fab1100e6d4a93d39324f598ee33730f62756e25b17ed8da48052c",
   "inputs": {
     ".agents/skills/agent-browser/references/authentication.md": "e2c3b0f4a1dc1368dee821f03c000d818a48421d09f3872525dddffe73f2112b",
     ".agents/skills/agent-browser/references/commands.md": "17522fc56d742663f47231ff06c4811abc87e12c7f78e11f94d253ddd540a909",
@@ -601,6 +601,10 @@
     "apps/zcode-cli/packages/dynamic-workflow/package.json": "9edb746ae170418d81c4431dc16533e814bf3a97e4693a2a94f06b4516151a95",
     "apps/zcode-cli/packages/i18n/package.json": "cd51fc9cda66d726ab54f9821ff748bc150bf4bd84143bb7c8aa9b712a7e6c61",
     "apps/zcode-cli/packages/image-search-plugin/package.json": "f59cba2c8890624a2f5164c9e2f68f808021d2958a7f088544c268eddc9a26a5",
+    "apps/zcode-cli/packages/imagegen-plugin/package.json": "0e50c512e496c02972a2608bcb83985d3e784508f3bf9396918e6b3e19e708dd",
+    "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/LICENSE.txt": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+    "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/references/prompting.md": "b210b051c775860267080941eba968212bf0ac7fce581d75c5dcc217d8293f8b",
+    "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/references/sample-prompts.md": "70474177d151855b175c6133de2aae1d90b7f146b0dab50ec830972c47d72183",
     "apps/zcode-cli/packages/ios-simulator-plugin/package.json": "fc38d3f6d88598f2c84aced1dfbbef0682addc54e477500dbe323e829c74217a",
     "apps/zcode-cli/packages/node-repl-host/package.json": "b72a232251807d226cc21486c8921c4c3d85722d6e340dda9da8b2648277f5b5",
     "apps/zcode-cli/packages/office-runtime/package.json": "c51046c5646a0670e554ac4b5949c70cc029c1ba94a5ee3b277b26208e2b4063",
@@ -3249,12 +3253,12 @@
     "patches/@radix-ui__react-menu@2.1.16.patch": "4b05eae73074149ac453ee047d9f48707df7d5c9ddedeab8d514f9b9fa097a6c",
     "patches/vitest@4.1.7.patch": "11fdb66aa985e1d77e68752deeb7c1130ae33c9a4e2968f23aae8adaf8bc9ba0",
     "patches/wdio-electron-service@9.2.1.patch": "52481dae5e76772fcb8c2a9ff42feb3d0e1478e28815a4b975c81b9287e3385f",
-    "pnpm-lock.yaml": "5263d87ac19e14f3580b8c5acac097f063fd2e6eb743b2b29b0ebd1167731941",
+    "pnpm-lock.yaml": "42c516e3f6db2c3c05d4c0be29a63c40983af5b4d6f831265c070a51274cd07a",
     "pnpm-workspace.yaml": "ddf4d195a433a1fae0a991462b9b19281435d7055d768d2a2942de8f4aff89f3",
     "scripts/license-texts/Apache-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "scripts/native-search-tools-config.mjs": "7cadab538877a3f64a3161f1c64ec50fe06c83aa32dbebef3553941c314a689a",
     "scripts/remote-native-search-tools-config.mjs": "2ddb7054e219ea487596cbdcb83d5c7eac9f239cfe169cfac22e3759d95d7c35",
-    "third-party/copied-components.json": "f81103fc1744453fd3b6a2e33a98ae39476dadbe0387d9c9f9fbafcffc8c7045",
+    "third-party/copied-components.json": "7c8b227b5ac30249170f540f8e232987e2d0a3b5ed474dad321bc2250a01694e",
     "third-party/embedded-components.json": "9586ccca15897f56d4ca1d703dffe9e02880fedd766c1dff93f7ac1f52ea891a",
     "third-party/native-search/licenses/00373c9bf56a894b2ed67586596bc1e8b0630cabbaf1ab46c75fc754b6bcd1ce.txt": "00373c9bf56a894b2ed67586596bc1e8b0630cabbaf1ab46c75fc754b6bcd1ce",
     "third-party/native-search/licenses/01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f.txt": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
@@ -33143,6 +33147,29 @@
         {
           "file": "apps/zcode-cli/packages/design-plugin/skills/design/design-resources/design-skeletons/web-prototype-taste-soft/example.html",
           "sha256": "3f4598f64a184de31557302299f42d6c1a3564106fd0063d6d852a7412d8c585"
+        }
+      ]
+    },
+    {
+      "id": "openai-codex-imagegen-reference",
+      "source": "https://github.com/openai/codex/tree/main/codex-rs/skills/src/assets/samples/imagegen",
+      "file": "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/LICENSE.txt",
+      "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+      "importRevision": null,
+      "provenance": "Copied from the locally installed Codex imagegen skill; the installation does not record an import revision.",
+      "roots": [
+        "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/references"
+      ],
+      "scope": "Prompt-writing reference documentation and examples.",
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "file": "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/references/prompting.md",
+          "sha256": "b210b051c775860267080941eba968212bf0ac7fce581d75c5dcc217d8293f8b"
+        },
+        {
+          "file": "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/references/sample-prompts.md",
+          "sha256": "70474177d151855b175c6133de2aae1d90b7f146b0dab50ec830972c47d72183"
         }
       ]
     }

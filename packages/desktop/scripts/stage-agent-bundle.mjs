@@ -37,6 +37,7 @@ const STAGED_NODE_REPL_HOST_ENTRIES = [
 ];
 const STAGED_DEV_PLUGINS = [
   ["node-repl-host", "dist/mcp/server.js", STAGED_NODE_REPL_HOST_ENTRIES],
+  ["imagegen-plugin", "dist/server.mjs", ["dist", ".zcode-plugin", "package.json", "skills"]],
   ["server-ops-plugin", "dist/server.mjs", ["dist", ".zcode-plugin", "package.json", "skills"]],
 ];
 

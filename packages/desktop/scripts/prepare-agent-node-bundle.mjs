@@ -241,6 +241,14 @@ const officialPluginPackages = [
     stagedPath: "packages/zcode-guide-plugin",
   },
   {
+    packageName: "@zcode/imagegen-plugin",
+    relativePath: "apps/zcode-cli/packages/imagegen-plugin",
+    requiresRuntime: true,
+    requiredRuntimePaths: ["dist/server.mjs"],
+    runtimeBuildScript: "build.mjs",
+    stagedPath: "packages/imagegen-plugin",
+  },
+  {
     packageName: "@zcode/server-ops-plugin",
     relativePath: "apps/zcode-cli/packages/server-ops-plugin",
     requiresRuntime: true,

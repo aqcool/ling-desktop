@@ -12,7 +12,9 @@ import type {
 import { ZCODE_OFFICIAL_PLUGIN_MARKETPLACE } from "@zcode/contracts";
 import { ZCODE_PLUGIN_ID_ENV_KEY } from "@zcode/shared";
 import {
+  getCapturedImagegenBridge,
   getCapturedServerOpsBridge,
+  ZCODE_IMAGEGEN_BRIDGE_ENV_KEY,
   ZCODE_SERVER_OPS_BRIDGE_ENV_KEY,
 } from "@zcode/shared/runtime-env";
 import type { LoadedPlugin } from "./types.js";
@@ -252,6 +254,7 @@ function resolveMcpServerConfig(
     // 内置插件的 broker 凭据。manifest env spread 之后覆写，确保 user/manifest 无法覆盖。
     env[ZCODE_PLUGIN_ID_ENV_KEY] = context.loaded.id;
     delete env[ZCODE_SERVER_OPS_BRIDGE_ENV_KEY];
+    delete env[ZCODE_IMAGEGEN_BRIDGE_ENV_KEY];
     if (
       context.loaded.source === "official" &&
       context.loaded.id === `server-ops@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}` &&
@@ -259,6 +262,14 @@ function resolveMcpServerConfig(
     ) {
       const bridge = getCapturedServerOpsBridge();
       if (bridge) env[ZCODE_SERVER_OPS_BRIDGE_ENV_KEY] = bridge;
+    }
+    if (
+      context.loaded.source === "official" &&
+      context.loaded.id === `imagegen@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}` &&
+      identity.mcpKey === "imagegen"
+    ) {
+      const bridge = getCapturedImagegenBridge();
+      if (bridge) env[ZCODE_IMAGEGEN_BRIDGE_ENV_KEY] = bridge;
     }
     return {
       ...baseConfig,

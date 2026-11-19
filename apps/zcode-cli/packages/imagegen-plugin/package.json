@@ -1,0 +1,11 @@
+{
+  "name": "@zcode/imagegen-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "esbuild": "^0.25.0"
+  }
+}

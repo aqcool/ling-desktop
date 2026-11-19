@@ -467,6 +467,21 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     version: "0.6.5",
   },
   {
+    componentTypes: ["mcp", "skill"],
+    name: "imagegen",
+    defaultEnabled: false,
+    listing: {
+      author: { name: "LING" },
+      category: "productivity",
+      displayName: "Image Gen",
+      displayName_i18n: { "zh-CN": "生图" },
+      description_i18n: { "zh-CN": "使用 ChatGPT 订阅生成和编辑图片。" },
+    },
+    rootCandidates: ["packages/imagegen-plugin", "../imagegen-plugin", "../../imagegen-plugin"],
+    requiredSeedPaths: ["dist/server.mjs", "skills/imagegen/SKILL.md"],
+    version: "0.1.0",
+  },
+  {
     componentTypes: ["ui", "mcp", "skill"],
     name: "server-ops",
     defaultEnabled: true,

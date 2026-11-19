@@ -629,6 +629,15 @@ importers:
 
   apps/zcode-cli/packages/image-search-plugin: {}
 
+  apps/zcode-cli/packages/imagegen-plugin:
+    devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.29.0
+        version: 1.29.0(zod@4.6.5)
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+
   apps/zcode-cli/packages/ios-simulator-plugin:
     dependencies:
       '@modelcontextprotocol/server':

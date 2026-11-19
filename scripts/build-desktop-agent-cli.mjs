@@ -79,6 +79,7 @@ const requiredDevPluginRuntimeBuilds = [
     packageName: `@zcode/${name}-plugin`,
     artifactPath: `${name}-plugin/dist/server.mjs`,
   })),
+  { packageName: "@zcode/imagegen-plugin", artifactPath: "imagegen-plugin/dist/server.mjs" },
   { packageName: "@zcode/server-ops-plugin", artifactPath: "server-ops-plugin/dist/server.mjs" },
 ];
 const defaultBuildFilters = [

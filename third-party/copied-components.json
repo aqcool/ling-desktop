@@ -490,5 +490,18 @@
     "modifiedFiles": [
       "apps/zcode-cli/packages/design-plugin/skills/design/design-resources/skills/taste-skill/SKILL.md"
     ]
+  },
+  {
+    "id": "openai-codex-imagegen-reference",
+    "source": "https://github.com/openai/codex/tree/main/codex-rs/skills/src/assets/samples/imagegen",
+    "file": "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/LICENSE.txt",
+    "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+    "importRevision": null,
+    "provenance": "Copied from the locally installed Codex imagegen skill; the installation does not record an import revision.",
+    "roots": [
+      "apps/zcode-cli/packages/imagegen-plugin/skills/imagegen/references"
+    ],
+    "scope": "Prompt-writing reference documentation and examples.",
+    "license": "Apache-2.0"
   }
 ]

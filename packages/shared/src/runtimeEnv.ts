@@ -13,6 +13,7 @@ export const ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV = "ZCODE_DESKTOP_CONTEXT_P
 export const ZCODE_CUA_PRODUCT_HELPER_ENV_KEY = "ZCODE_CUA_PRODUCT_HELPER";
 export const ZCODE_CUA_BROKER_SOCKET_ENV_KEY = "ZCODE_CUA_PERMISSION_BROKER_SOCKET";
 export const ZCODE_SERVER_OPS_BRIDGE_ENV_KEY = "ZCODE_SERVER_OPS_BRIDGE";
+export const ZCODE_IMAGEGEN_BRIDGE_ENV_KEY = "ZCODE_IMAGEGEN_BRIDGE";
 // 官方命令端点（agent 侧代理，技术方案 5.8）：地址与 session token 只由 agent 按 session 注入
 // Bash/tool 子进程，不随 agent 全局 env 继承。
 export const ZCODE_OFFICIAL_ENDPOINT_ENV_KEY = "ZCODE_OFFICIAL_ENDPOINT";
@@ -69,6 +70,7 @@ const SANITIZED_RUNTIME_ENV_KEYS = [
   // env 注入在 buildMcpStdioEnv 之后 spread，因此仍能拿到（见 adapters/mcp StdioClientTransport）。
   ZCODE_CUA_BROKER_SOCKET_ENV_KEY,
   ZCODE_SERVER_OPS_BRIDGE_ENV_KEY,
+  ZCODE_IMAGEGEN_BRIDGE_ENV_KEY,
   // 遗留 bearer token：当前 broker 是 identity 模式（socket + authority，无口令，见
   // captureZCodeCuaBrokerCredentials），本进程不再产生也不再消费它。仍然剔除，因为用户机上
   // 可能装着旧版 Helper —— 那些版本认 bearer token，一旦这个变量随 agent 全局 env 漏给别的
@@ -110,6 +112,7 @@ const NON_TOOL_PASSTHROUGH_RUNTIME_ENV_KEYS = [
   // CUA broker 凭据不得经 tool-env-passthrough 恢复到 Bash/tool 子进程（否则等于绕过上面的剔除）。
   ZCODE_CUA_BROKER_SOCKET_ENV_KEY,
   ZCODE_SERVER_OPS_BRIDGE_ENV_KEY,
+  ZCODE_IMAGEGEN_BRIDGE_ENV_KEY,
   "ZCODE_CUA_PERMISSION_BROKER_REFRESH_MARKER",
   "ZCODE_CUA_PLUGIN_AUTHORITY",
   ZCODE_OFFICIAL_ENDPOINT_ENV_KEY,
@@ -149,6 +152,7 @@ interface CapturedCuaBrokerCredentials {
 
 let capturedCuaBrokerCredentials: Readonly<CapturedCuaBrokerCredentials> | undefined;
 let capturedServerOpsBridge: string | undefined;
+let capturedImagegenBridge: string | undefined;
 
 // CUA broker socket 会被上面的 sanitize 从子进程 env 中剔除（confused-deputy 防护 —— 不能让
 // 其它 MCP server / Bash / tool 子进程直接驱动已授权 Helper）。但 CLI 入口在 bootstrap
@@ -189,6 +193,10 @@ export function getCapturedZCodeCuaBrokerCredentials(): {
 
 export function getCapturedServerOpsBridge(): string | undefined {
   return capturedServerOpsBridge;
+}
+
+export function getCapturedImagegenBridge(): string | undefined {
+  return capturedImagegenBridge;
 }
 
 // 仅供测试重置进程内捕获状态。
@@ -254,6 +262,7 @@ export function readZCodeToolEnvPassthroughEnv(env: EnvRecord): Record<string, s
 export function sanitizeZCodeRuntimeEnvInPlace(env: Record<string, string | undefined>): void {
   captureZCodeCuaBrokerCredentials(env);
   capturedServerOpsBridge ??= env[ZCODE_SERVER_OPS_BRIDGE_ENV_KEY];
+  capturedImagegenBridge ??= env[ZCODE_IMAGEGEN_BRIDGE_ENV_KEY];
   for (const key of Object.keys(env)) {
     if (shouldSanitizeZCodeRuntimeEnvKey(key)) {
       delete env[key];

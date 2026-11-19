@@ -1,0 +1,18 @@
+{
+  "name": "imagegen",
+  "version": "0.1.0",
+  "description": "Generate and edit images with your ChatGPT subscription.",
+  "description_i18n": {
+    "zh-CN": "使用已登录的 ChatGPT 订阅生成和编辑图片。"
+  },
+  "skills": "skills",
+  "mcpServers": {
+    "imagegen": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${ZCODE_PLUGIN_ROOT}/dist/server.mjs"],
+      "isolation": "workspace",
+      "timeoutMs": 250000
+    }
+  }
+}

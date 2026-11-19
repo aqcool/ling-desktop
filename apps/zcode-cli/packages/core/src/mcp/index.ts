@@ -6,6 +6,7 @@ import {
   SessionEventType,
   ZCODE_MCP_ERROR_PRESENTATION_MESSAGE_ONLY,
   ZCODE_MCP_ERROR_PRESENTATION_META_KEY,
+  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
   type JsonSchema,
   type McpPort,
   type McpToolCallResult,
@@ -134,6 +135,8 @@ export function createMcpToolEntry(
   const providerVisible = resolveMcpToolVisibility(descriptor).includes("model");
   const isHostNodeReplExecution =
     descriptor.serverName === "node_repl" && descriptor.toolName === "js";
+  const isImagegen =
+    presentation.pluginId === `imagegen@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
   const isCuaAppObservation = isZCodeCuaGetAppState(descriptor);
   // 宿主 node_repl 的 js 能执行本机 Node 代码，不能沿用普通未知 MCP 的 medium/network
   // 默认值；否则权限 UI 会把文件/进程级能力错误描述成普通网络调用。
@@ -287,7 +290,8 @@ export function createMcpToolEntry(
       // MCP server 会返回大 base64 图片；resultBudget 只看到图片占位文本，
       // 必须在 handler 阶段保存副本并替换模型可见内容，避免 provider 请求体被打爆。
       return normalizeMcpToolResultForModel({
-        compressOversizedImages: isHostNodeReplExecution,
+        // 生图通常超出 MCP 内联上限。复用现有图片压缩，工作区里的原图保持完整。
+        compressOversizedImages: isHostNodeReplExecution || isImagegen,
         context,
         descriptor,
         preserveOfficialCuaFrames: officialCuaAuthorityVerified,
