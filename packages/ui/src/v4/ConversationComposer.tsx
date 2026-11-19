@@ -2635,7 +2635,7 @@ function ConversationComposerImpl({
     ],
   );
 
-  // 左下：模式选择 + CUA 入口 + 当前 session 后台任务入口。followupMode 由 app 设置页同步到 CLI，
+  // 左下：模式选择 + 插件入口 + CUA 入口 + 当前 session 后台任务入口。followupMode 由 app 设置页同步到 CLI，
   // 不在 composer 暴露局部开关；后台入口只消费同一 snapshot，不维护第二份任务状态。
   // memo 捕获整个 snapshot 会让共享词法环境中的稳定发送回调也持有旧历史；只捕获展示字段。
   const workspaceHookAdmission = snapshot?.workspaceHookAdmission;
@@ -2646,14 +2646,6 @@ function ConversationComposerImpl({
   const leadingActionsNode = useMemo(
     () => (
       <>
-        {composerPluginSessionId && !isWebRemoteControl ? (
-          <ComposerPluginUiSurfaces
-            workspacePath={workspacePath}
-            workspaceIdentity={workspaceIdentity}
-            sessionId={composerPluginSessionId}
-            remoteSessionId={remoteSessionId}
-          />
-        ) : null}
         <V4ComposerModeSwitch
           workspacePath={workspacePath}
           workspaceIdentity={workspaceIdentity}
@@ -2664,6 +2656,14 @@ function ConversationComposerImpl({
           onConfigPickerOpenChange={handleConfigPickerOpenChange}
           onSwitchMode={onSwitchMode}
         />
+        {composerPluginSessionId && !isWebRemoteControl ? (
+          <ComposerPluginUiSurfaces
+            workspacePath={workspacePath}
+            workspaceIdentity={workspaceIdentity}
+            sessionId={composerPluginSessionId}
+            remoteSessionId={remoteSessionId}
+          />
+        ) : null}
         {sessionId && workspaceHookAdmission ? (
           <WorkspaceHookPendingIndicator
             key={JSON.stringify([sessionId, workspaceHookAdmission.bundleDigest])}
