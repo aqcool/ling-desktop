@@ -1,5 +1,44 @@
 # Relay V2 共享契约与配对
 
+## LING 扫码入口
+
+`LING_MOBILE_REMOTE_URL` 配置手机浏览器访问的 HTTPS origin。桌面在 `127.0.0.1:17328`
+提供现有 Web 构建和 Relay V2 接口，`cloudflared` 将域名转发到该端口。临时隧道和正式隧道
+使用相同入口。浏览器只访问这个 origin。桌面使用进程内设备凭据注册，不走官方账号。
+
+```mermaid
+sequenceDiagram
+    participant M as 桌面 Main
+    participant G as 桌面网关
+    participant B as 手机网页
+    M->>G: 注册设备并连接 V2 WebSocket
+    G-->>M: 发放两分钟一次性配对码
+    B->>G: 扫码，经 Cloudflare 提交配对码
+    G-->>B: HttpOnly 会话 Cookie
+    B->>G: 获取一次性 terminal token 并配对
+    B<<->>M: 通过网关沿用 V2 消息和 Host attachment
+```
+
+配对码只放在 URL fragment，经同源 POST 消费，每个 SID 绑定一个网页授权。重连复用该
+授权签发的新 WebSocket token。旧 socket 的 close 仅释放自己的连接；停止远控时撤销该
+SID 的配对码和授权。网关只持有连接身份与路由，现有 Main/Host 持有会话、任务和恢复状态。
+验收覆盖扫码读到已有会话、错误或重用配对码拒绝、停止后网页断开。
+
+手机网页入口先提交配对码，再请求应用脚本和首屏资源，避免慢网下载聊天 bundle 时配对码过期。
+整页重载没有配对码时复用已有会话 Cookie。网关对 Vite 文件名带内容哈希的静态资源使用
+一年不可变缓存，入口 HTML、配对和 token 响应继续使用 `no-store`。
+应用入口的静态依赖合并为少量分块，配对入口和按需功能各自保留独立加载边界，
+避免手机首屏预加载触及 Quick Tunnel 的并发限制。验收检查入口预加载图和冷启动页面。
+
+本地验收先执行 `pnpm --filter @zcode/web build`。临时隧道运行
+`cloudflared tunnel --url http://127.0.0.1:17328`，将输出的 HTTPS origin 赋给
+`LING_MOBILE_REMOTE_URL`，再执行 `pnpm dev:desktop:prod`。打开桌面左下角的移动端远控弹窗生成二维码。
+正式隧道将固定域名路由到同一端口。开发构建默认读取 `packages/web/dist`，
+可用 `LING_MOBILE_REMOTE_WEB_ROOT` 指定配套的 Web 构建目录。
+本机入口 `http://127.0.0.1:17328/remote/v4` 在没有配对参数时直接渲染手机版界面和示例工作区，
+供本机浏览器调整界面。预览复用手机远控的首页服务，使用静态工作区，无 Relay 或 Host 连接。
+从桌面复制的配对链接继续使用现有 Cookie 和 token 校验。
+
 本页定义 [Relay V2](../issues/web-remote-control-relay-v2/01-relay-v2-login-pairing.md) 的最终共享契约、连接行为与验收边界。桌面 device、手机 terminal 与 shared 均只使用 V2。
 
 契约依据：zcode-server `origin/staging` 提交 `5a947caea3a022b12b5d051ef25c807952feefa7` 的 `docs/remote-relay.md`、`internal/domain/relay_v2/proto.go`、`service.go` 和 `internal/interfaces/web/{dto,controller}/remote_v2.go`。HTTP 请求及 WebSocket 消息采用严格字段校验，禁止把 V1 字段意外发到 V2；HTTP 响应采用下述兼容性校验。服务端 Go JSON 解码本身可能忽略多余字段。
@@ -195,15 +234,9 @@ Renderer 可达依赖面仅 `authorizeStart/startAuthorized/stop/getStatus`；�
 
 ## 桌面登录门禁与恢复（04）
 
-`auth-required` 表示远控等待应用登录：不显示左侧登录卡片、二维码或复制链接，不注册设备、不申请 token、不连接 relay，也不创建 host、远程 session 或 Agent runtime。弹窗不再提供登录按钮，也不调用 `requestLoginEntry`。它不是全局 OAuth 登出命令；HTTP 401 仅停止远控。
+`auth-required` 时弹窗保留「手机扫码连接」区域，显示「扫码连接暂不可用」。宽屏时该区域在 Bot Channel 左侧，窄屏时在其上方。二维码、复制链接和登录按钮均隐藏。此状态不注册设备、不申请 token、不连接 relay，也不创建 host、远程 session 或 Agent runtime。HTTP 401 仅停止远控。
 
-| 内容     | zh-CN                                                  | en-US                                                                                   |
-| -------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| 标题     | 需要先登录                                             | Sign in required                                                                        |
-| 说明     | 登录后即可使用手机远程控制。手机和电脑需登录同一账号。 | Sign in to control this computer from your phone. Use the same account on both devices. |
-| 登录按钮 | 登录                                                   | Sign in                                                                                 |
-
-以上为本票实现及视觉验收文案。主进程 manager 是远控运行态与恢复 admission 的唯一 owner；OAuth credential 仍是登录事实来源。OAuthService 在会话串行队列中完成登录凭据写入或登出清理后，通过 `onDidChangeSession` 发布 `signed-in | signed-out`，早于派生 provider 清理、设置刷新和 UI 用户投影更新。取消或回滚的登录、未成功清理的登出不发布完成事件；同账号重新认证也发布。renderer 订阅该事件，经既有单向 IPC 发送严格 `{state: "signed-in" | "signed-out"}`，不携带 JWT、用户或 workspace；本地会话恢复完成时仍同步一次初始状态。main 校验 payload 和发送窗口，登录通知只触发重新读取 credential，不能授权设备注册。
+主进程 manager 是远控运行态与恢复 admission 的唯一 owner；OAuth credential 仍是登录事实来源。OAuthService 在会话串行队列中完成登录凭据写入或登出清理后，通过 `onDidChangeSession` 发布 `signed-in | signed-out`，早于派生 provider 清理、设置刷新和 UI 用户投影更新。取消或回滚的登录、未成功清理的登出不发布完成事件；同账号重新认证也发布。renderer 订阅该事件，经既有单向 IPC 发送严格 `{state: "signed-in" | "signed-out"}`，不携带 JWT、用户或 workspace；本地会话恢复完成时仍同步一次初始状态。main 校验 payload 和发送窗口，登录通知只触发重新读取 credential，不能授权设备注册。
 
 ```text
 修复前：凭据清除 → provider/设置更新失败 → UI 用户未清空 → 漏发登出 → 旧远控仍连接

@@ -2739,8 +2739,7 @@ const koKR: Record<string, string> = {
     "휴대폰에서 이 컴퓨터를 제어하려면 로그인하세요. 두 기기에서 같은 계정을 사용하세요.",
   "webRemoteControl.authRequired.login": "로그인",
   "webRemoteControl.title": "모바일 원격 제어",
-  "webRemoteControl.description":
-    "휴대폰에서 QR 코드를 스캔하거나 링크를 열어 이 워크스페이스를 제어하세요.",
+  "webRemoteControl.description": "휴대폰에서 이 워크스페이스에 접속하세요.",
   "webRemoteControl.statusLabel": "세션 상태",
   "webRemoteControl.status.idle": "유휴",
   "webRemoteControl.status.starting": "시작 중",
@@ -2759,6 +2758,7 @@ const koKR: Record<string, string> = {
   "webRemoteControl.qrAlt": "웹 원격 제어 QR 코드",
   "webRemoteControl.mobileQr.title": "휴대폰으로 스캔",
   "webRemoteControl.mobileQr.description": "휴대폰 카메라로 이 워크스페이스를 원격으로 여세요.",
+  "webRemoteControl.mobileQr.unavailable": "QR 코드 연결을 사용할 수 없습니다",
   "webRemoteControl.statusTag.phone": "휴대폰",
   "webRemoteControl.statusTag.ready": "준비됨",
   "webRemoteControl.botChannel.title": "봇 채널 사용",

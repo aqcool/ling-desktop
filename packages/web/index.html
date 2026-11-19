@@ -203,6 +203,14 @@
         </div>
       </div>
     </div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module">
+      import { redeemLingMobilePairingCode } from "/src/web-remote-control/adapters/lingMobilePairingPreflight.ts";
+
+      const pairingAccepted = await redeemLingMobilePairingCode(new URL(location.href), (href) =>
+        history.replaceState(history.state, "", href),
+      );
+      const { bootstrapWebApp } = await import("/src/main.tsx");
+      await bootstrapWebApp(pairingAccepted);
+    </script>
   </body>
 </html>

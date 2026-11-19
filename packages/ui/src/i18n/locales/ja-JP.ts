@@ -2816,8 +2816,7 @@ const jaJP: Record<string, string> = {
     "スマートフォンからこのコンピューターを操作するにはサインインしてください。両方のデバイスで同じアカウントを使用してください。",
   "webRemoteControl.authRequired.login": "サインイン",
   "webRemoteControl.title": "モバイルリモート操作",
-  "webRemoteControl.description":
-    "スマートフォンで QR コードをスキャンするかリンクを開くと、このワークスペースを操作できます。",
+  "webRemoteControl.description": "スマートフォンからこのワークスペースにアクセスできます。",
   "webRemoteControl.statusLabel": "セッションの状態",
   "webRemoteControl.status.idle": "待機中",
   "webRemoteControl.status.starting": "開始中",
@@ -2838,6 +2837,7 @@ const jaJP: Record<string, string> = {
   "webRemoteControl.mobileQr.title": "スマートフォンでスキャン",
   "webRemoteControl.mobileQr.description":
     "スマートフォンのカメラでこのワークスペースをリモートで開きます。",
+  "webRemoteControl.mobileQr.unavailable": "QR コードでの接続は現在利用できません",
   "webRemoteControl.statusTag.phone": "スマートフォン",
   "webRemoteControl.statusTag.ready": "準備完了",
   "webRemoteControl.botChannel.title": "ボットチャネルを使用",

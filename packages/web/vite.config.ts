@@ -127,6 +127,29 @@ export default defineConfig(({ mode }) => {
     build: {
       // 生产不在浏览器产物暴露 sourceMappingURL，避免客户端侧还原业务源码。
       sourcemap: mode === "production" ? "hidden" : true,
+      rolldownOptions: {
+        output: {
+          // 手工合块后依然按原模块依赖执行，避免入口读取未初始化的导出。
+          strictExecutionOrder: true,
+          codeSplitting: {
+            groups: [
+              {
+                name: "pairing-entry",
+                // 配对入口使用的常量、超时逻辑和 Vite 预加载辅助函数先于应用下载。
+                test: /[\\/](?:(?:lingMobilePairingRoutes|lingMobilePairingPreflight|webRemoteControlHttpSignal)\.ts|preload-helper\.js)$/,
+                priority: 10,
+              },
+              {
+                name: "web-runtime",
+                // 合并应用入口的静态依赖。按需预览等功能仍在动态边界后加载。
+                test: resolve(HERE, "src/main.tsx"),
+                includeDependenciesRecursively: true,
+                maxSize: 3 * 1024 * 1024,
+              },
+            ],
+          },
+        },
+      },
     },
   };
 });

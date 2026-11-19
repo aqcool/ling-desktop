@@ -120,6 +120,7 @@ import { createWebRemoteControlManager } from "./webRemoteControlManager.js";
 import { readBootstrapApplicationLocale } from "./desktopApplicationLocaleBootstrap.js";
 import {
   createMobileLogSink,
+  createMobilePairingGateway,
   createWebRemoteControlDeviceStorage,
   pullAndExportMobileLogs,
   runWebRemoteControlActionInRenderer,
@@ -836,6 +837,14 @@ const defaultZCodeEndpointUrls = buildZCodeEndpointUrls(DEFAULT_ZCODE_ENDPOINT_O
 const webRemoteControlRelayWsEnvOverride =
   process.env["ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL"]?.trim();
 const webRemoteControlUrlEnvOverride = process.env["ZCODE_WEB_REMOTE_CONTROL_URL"]?.trim();
+const lingMobileRemoteUrl = process.env["LING_MOBILE_REMOTE_URL"]?.trim();
+const mobilePairingGateway = lingMobileRemoteUrl
+  ? createMobilePairingGateway(
+      lingMobileRemoteUrl,
+      process.env["LING_MOBILE_REMOTE_WEB_ROOT"]?.trim() ||
+        join(import.meta.dirname, "../../../web/dist"),
+    )
+  : undefined;
 
 function extractOpenWorkspacePathFromDeepLinkUrl(url: string): string | null {
   try {
@@ -873,6 +882,14 @@ function getMobileLogSink(): MobileLogSink {
 const webRemoteControlManager = createWebRemoteControlManager({
   mobileLogSink: { append: (target, events) => getMobileLogSink().append(target, events) },
   getEndpointUrls: async () => {
+    if (mobilePairingGateway) {
+      return {
+        ...buildZCodeEndpointUrls(mobilePairingGateway.origin),
+        origin: mobilePairingGateway.origin,
+        relayWsUrl: mobilePairingGateway.relayWsUrl,
+        remoteUrl: mobilePairingGateway.remoteUrl,
+      };
+    }
     const derived = buildZCodeEndpointUrls(await resolveCurrentZCodeEndpointOrigin(), {
       appVersion: webRemoteControlAppVersion,
     });
@@ -895,20 +912,31 @@ const webRemoteControlManager = createWebRemoteControlManager({
   deviceMid,
   deviceName: hostname(),
   appVersion: webRemoteControlAppVersion,
+  localPairing: mobilePairingGateway,
   getLogin: async () => {
+    if (mobilePairingGateway) {
+      await mobilePairingGateway.start();
+      return mobilePairingGateway.login;
+    }
     const userId = await loadRemoteControlUserId();
     const authorization = await loadRemoteControlAuthorization(userId);
     return authorization ? { userId, jwt: authorization.slice("Bearer ".length) } : undefined;
   },
-  deviceStorage: createWebRemoteControlDeviceStorage({
-    deleteLegacyCredential: () =>
-      webRemoteControlCredentialService.delete("web-remote-control:external-relay:pass_hash"),
-    loadSettings: () => mainSettingService.get(),
-    patchSettings: (patch) => mainSettingService.update(patch),
-  }),
+  deviceStorage:
+    mobilePairingGateway?.storage ??
+    createWebRemoteControlDeviceStorage({
+      deleteLegacyCredential: () =>
+        webRemoteControlCredentialService.delete("web-remote-control:external-relay:pass_hash"),
+      loadSettings: () => mainSettingService.get(),
+      patchSettings: (patch) => mainSettingService.update(patch),
+    }),
   startupRestoreStorageProvider: {
-    load: async () => (await mainSettingService.get()).webRemoteControlLastEnabledContext,
+    load: async () =>
+      mobilePairingGateway
+        ? undefined
+        : (await mainSettingService.get()).webRemoteControlLastEnabledContext,
     save: async (context) => {
+      if (mobilePairingGateway) return;
       await mainSettingService.update({
         webRemoteControlLastEnabledContext: {
           workspacePath: context.workspacePath,
@@ -918,6 +946,7 @@ const webRemoteControlManager = createWebRemoteControlManager({
       });
     },
     clear: async () => {
+      if (mobilePairingGateway) return;
       await mainSettingService.update({
         webRemoteControlLastEnabledContext: undefined,
       });
@@ -993,7 +1022,10 @@ broadcastHub.onMobilePushEvent = (event) =>
 app
   .whenReady()
   .then(() => powerMonitor.on("resume", () => void webRemoteControlManager.refreshNotifications()));
-app.on("will-quit", () => webRemoteControlManager.disposeNotifications());
+app.on("will-quit", () => {
+  webRemoteControlManager.disposeNotifications();
+  mobilePairingGateway?.dispose();
+});
 
 let forceUpdateMainWindowCreationBlocked = false;
 

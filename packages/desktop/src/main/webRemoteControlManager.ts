@@ -176,6 +176,10 @@ interface WebRemoteControlManagerDependencies {
   deviceName: string;
   appVersion: string;
   getLogin(): Promise<WebRemoteControlLogin | undefined>;
+  localPairing?: {
+    pairingUrl(sid: string, baseUrl: string): string;
+    revoke(sid: string): void;
+  };
   deviceStorage: WebRemoteControlDeviceStorage;
   startupRestoreStorageProvider: {
     load(): Promise<WebRemoteControlStartupRestoreContext | undefined>;
@@ -445,6 +449,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     return operation;
   }
   const notificationConnection = new MobilePushConnection(async (signal) => {
+    if (dependencies.localPairing) return null;
     const login = await dependencies.getLogin();
     const endpoint = await dependencies.getEndpointUrls?.();
     signal.throwIfAborted();
@@ -913,6 +918,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     clearMobileDisconnectGraceTimer(runtime);
     runtime.pendingOutboundPayloads.length = 0;
     runtime.transport.dispose();
+    dependencies.localPairing?.revoke(runtime.deviceSid);
     mobileLogPulls.cancelOwner(runtime, `remote control stopped: ${reason}`);
     dependencies.disposeWorkspaceHostAttachmentsForWindow(windowId, reason);
 
@@ -1731,13 +1737,14 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   }
 
   function createQrUrl(deviceSid: string, mobileRemoteControlUrl: string): string {
-    return buildWebRemoteControlExternalQrUrl({
+    const url = buildWebRemoteControlExternalQrUrl({
       baseUrl: mobileRemoteControlUrl,
       deviceSid,
       deviceMid: dependencies.deviceMid,
       deviceName: dependencies.deviceName,
       appVersion: dependencies.appVersion,
     });
+    return dependencies.localPairing ? dependencies.localPairing.pairingUrl(deviceSid, url) : url;
   }
 
   return {
@@ -1773,6 +1780,14 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       const assertActive = () => signal.throwIfAborted();
       try {
         await stopped;
+        if (dependencies.localPairing) {
+          assertActive();
+          await Promise.all(
+            [...windowLifecycles.keys()]
+              .filter((id) => id !== windowId)
+              .map((id) => stopWindowRuntime(id, "local-pairing-window-changed")),
+          );
+        }
         const readAuthContext = async () => {
           for (;;) {
             const revision = authNotificationRevision;
@@ -1999,6 +2014,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       windowId: number,
       change: WebRemoteControlAuthStateChange,
     ): Promise<void> {
+      if (dependencies.localPairing) return;
       const revision = ++authNotificationRevision;
       if (change.state === "signed-in") {
         const login = await dependencies.getLogin();
@@ -2180,6 +2196,12 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         return { status: "idle" };
       }
 
+      if (dependencies.localPairing && runtime.qrUrl) {
+        runtime.qrUrl = runtime.connectUrl = dependencies.localPairing.pairingUrl(
+          runtime.deviceSid,
+          runtime.qrUrl,
+        );
+      }
       return buildRuntimeStatus(runtime);
     },
 

@@ -2787,8 +2787,7 @@ const ruRU: Record<string, string> = {
     "Войдите, чтобы управлять этим компьютером с телефона. Используйте один аккаунт на обоих устройствах.",
   "webRemoteControl.authRequired.login": "Войти",
   "webRemoteControl.title": "Мобильное управление",
-  "webRemoteControl.description":
-    "Отсканируйте QR-код или откройте ссылку на телефоне, чтобы управлять этим рабочим пространством.",
+  "webRemoteControl.description": "Откройте это рабочее пространство на телефоне.",
   "webRemoteControl.statusLabel": "Статус сеанса",
   "webRemoteControl.status.idle": "Ожидание",
   "webRemoteControl.status.starting": "Запуск",
@@ -2808,6 +2807,7 @@ const ruRU: Record<string, string> = {
   "webRemoteControl.mobileQr.title": "Сканировать с телефона",
   "webRemoteControl.mobileQr.description":
     "Откройте это рабочее пространство удалённо с помощью камеры телефона.",
+  "webRemoteControl.mobileQr.unavailable": "Подключение по QR-коду недоступно",
   "webRemoteControl.statusTag.phone": "Телефон",
   "webRemoteControl.statusTag.ready": "Готово",
   "webRemoteControl.botChannel.title": "Через канал бота",

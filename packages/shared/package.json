@@ -35,6 +35,7 @@
     "./testing/fake-relay-v2": "./test/fixtures/fake-relay-v2.ts",
     "./request-security": "./src/request-security-edition/index.ts",
     "./web-remote-relay": "./src/web-remote-relay/index.ts",
+    "./ling-mobile-pairing": "./src/web-remote-relay/lingMobilePairingRoutes.ts",
     "./credential-security": "./src/credential-security/module.ts"
   },
   "scripts": {

@@ -57,6 +57,10 @@ describe("桌面远控登录门禁", () => {
         const label = locale === "zh-CN" ? "移动端远程控制" : "Mobile remote control";
         await openRemoteControlDialog(label);
         await waitForTestIdByDom("web-remote-control-dialog-scroll");
+        await waitForTestIdByDom("web-remote-control-scan-unavailable");
+        expect(await $('[data-testid="web-remote-control-scan-card"]').getText()).toContain(
+          locale === "zh-CN" ? "扫码连接暂不可用" : "QR pairing is unavailable",
+        );
         expect(await $('[data-testid="web-remote-control-auth-required"]').isExisting()).toBe(
           false,
         );

@@ -569,6 +569,7 @@ modules:
     publicEntrypoints:
       - packages/shared/src/web-remote-relay/index.ts
       - packages/shared/src/web-remote-relay/contract.ts
+      - packages/shared/src/web-remote-relay/lingMobilePairingRoutes.ts
     layers:
       contract: contract.ts
       domain: domain
@@ -668,6 +669,7 @@ modules:
       - web-remote-relay
     publicEntrypoints:
       - packages/web/src/web-remote-control/index.ts
+      - packages/web/src/web-remote-control/adapters/lingMobilePairingPreflight.ts
       - packages/web/src/web-remote-control/contract.ts
       - packages/web/src/web-remote-control/views.ts
       - packages/web/src/web-remote-control/adapters/webRemoteControlThemeSeed.ts

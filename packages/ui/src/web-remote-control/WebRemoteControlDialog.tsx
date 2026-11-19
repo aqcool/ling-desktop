@@ -90,6 +90,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
     [intl.formatMessage, status],
   );
   const statusDotClassName = getStatusDotClassName(status);
+  const scanUnavailable = status.status === "auth-required";
 
   useEffect(() => {
     if (!open) {
@@ -384,36 +385,37 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
 
             <div
               data-testid="web-remote-control-main-grid"
-              className={
-                status.status === "auth-required"
-                  ? "mt-5 grid gap-4"
-                  : "mt-5 grid gap-4 md:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]"
-              }
+              className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]"
             >
-              {/* 未登录不展示登录卡片，也不生成二维码；主进程仍保持 auth-required。 */}
-              {status.status === "auth-required" ? null : (
               <section
                 data-testid="web-remote-control-scan-card"
-                className="flex min-h-[360px] flex-col rounded-xl border border-border bg-card p-4"
+                className={`flex flex-col rounded-xl border border-border bg-card p-4 ${scanUnavailable ? "self-start" : "min-h-[360px]"}`}
               >
-                    <div className="mb-4 flex items-start gap-2">
-                      <Smartphone className="mt-0.5 size-4 shrink-0 text-foreground-subtle" />
-                      <div className="min-w-0 space-y-1">
-                        <div className="text-ui-base font-medium text-foreground">
-                          {intl.formatMessage({
-                            id: "webRemoteControl.mobileQr.title",
-                          })}
-                        </div>
-                        <p className="text-ui-base/relaxed text-foreground-subtle">
-                          {intl.formatMessage({
-                            id: "webRemoteControl.mobileQr.description",
-                          })}
-                        </p>
-                      </div>
+                <div className="flex items-start gap-2">
+                  <Smartphone className="mt-0.5 size-4 shrink-0 text-foreground-subtle" />
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-ui-base font-medium text-foreground">
+                      {intl.formatMessage({ id: "webRemoteControl.mobileQr.title" })}
                     </div>
+                    <p
+                      className="text-ui-base/relaxed text-foreground-subtle"
+                      data-testid={
+                        scanUnavailable ? "web-remote-control-scan-unavailable" : undefined
+                      }
+                    >
+                      {intl.formatMessage({
+                        id: scanUnavailable
+                          ? "webRemoteControl.mobileQr.unavailable"
+                          : "webRemoteControl.mobileQr.description",
+                      })}
+                    </p>
+                  </div>
+                </div>
+                {scanUnavailable ? null : (
+                  <>
                     <div
                       data-testid="web-remote-control-connection-card"
-                      className="mb-3 rounded-lg bg-surface px-3 py-2"
+                      className="mt-4 mb-3 rounded-lg bg-surface px-3 py-2"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="min-w-0 flex-1 space-y-1">
@@ -514,8 +516,9 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                         </div>
                       )}
                     </div>
+                  </>
+                )}
               </section>
-              )}
 
               <section className="flex min-h-[360px] flex-col rounded-xl border border-border bg-card p-4">
                 <div className="mb-4 flex items-start gap-2">

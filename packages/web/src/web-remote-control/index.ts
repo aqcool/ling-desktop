@@ -15,3 +15,4 @@ export * from "#src/web-remote-control/app/webRemoteControlTaskView.js";
 export * from "#src/web-remote-control/app/webRemoteControlVersion.js";
 export * from "#src/web-remote-control/app/webRemoteControlWorkspaceBridgeSession.js";
 export * from "#src/web-remote-control/domain/webRemoteControlDeviceGroups.js";
+export { createLingMobileConnection } from "./adapters/lingMobilePairing.js";

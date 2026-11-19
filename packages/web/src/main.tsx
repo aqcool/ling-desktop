@@ -76,6 +76,7 @@ import type {
 
 import {
   WebRemoteControlEntry,
+  createLingMobileConnection,
   isWebRemoteControlOAuthCallback,
   type WebRemoteControlEntryConnection,
   createWebRemoteControlV2TokenClient,
@@ -104,6 +105,7 @@ import {
   markWebRemoteControlBridgeTaskRead,
   markWebRemoteControlTaskRead,
 } from "#src/web-remote-control/index.js";
+import { LING_MOBILE_PAIRING } from "@zcode/shared/web-remote-relay";
 
 import {
   WebRemoteControlDeviceListPage,
@@ -251,20 +253,24 @@ type WebRemoteControlWorkspaceListUpdateListener = (
   result: WebRemoteControlWorkspaceListResult,
 ) => void;
 
+function usesLingMobilePairing() {
+  return new URLSearchParams(window.location.search).has(LING_MOBILE_PAIRING.queryKey);
+}
+
 function renderWebRemoteControlFailure(failure: WebRemoteControlFailure): void {
   root.render(
     <WebRemoteControlFailureScreen
       failure={failure}
       locale={resolveWebRemoteControlScreenLocale(navigator.language)}
       primaryActionLabel={
-        failure.reason === "device-not-owned"
+        failure.reason === "device-not-owned" && !usesLingMobilePairing()
           ? isZhLocale()
             ? "切换账号"
             : "Switch account"
           : undefined
       }
       secondaryAction={
-        isWebRemoteControlRoute()
+        isWebRemoteControlRoute() && !usesLingMobilePairing()
           ? {
               label: isZhLocale() ? "选择其他设备" : "Choose another device",
               onClick: () => {
@@ -274,7 +280,8 @@ function renderWebRemoteControlFailure(failure: WebRemoteControlFailure): void {
           : undefined
       }
       onReload={() => {
-        if (failure.reason === "device-not-owned") void remoteEntry.switchAccount();
+        if (failure.reason === "device-not-owned" && !usesLingMobilePairing())
+          void remoteEntry.switchAccount();
         else window.location.reload();
       }}
     />,
@@ -811,6 +818,40 @@ export function createHomeOnlyWebRemoteControlServices(): RootServices {
   };
 }
 
+function renderLocalMobilePreview(): void {
+  const workspacePath = "/mobile-preview";
+  const services: RootServices = {
+    ...createHomeOnlyWebRemoteControlServices(),
+    settingsSyncService: createEmptyHomeOnlyService<RootServices["settingsSyncService"]>({
+      getFirstRunPromptState: async () => ({ handled: true }),
+    }),
+  };
+  document.title = "LING - Mobile Preview";
+  root.render(
+    <AppErrorBoundary>
+      <ZCodeIntlProvider>
+        <Root
+          services={services}
+          platform={createWebPlatform()}
+          composerClientNamespace="mobile-preview"
+          initialWorkspaceAbsPath={workspacePath}
+          initialWebRemoteControlMobileNavigationIntent="chat"
+          restoreSession={false}
+          allowOpenWorkspace={false}
+          allowRemoteWorkspace={false}
+          webRemoteControlWorkspaceSwitcher={{
+            listWorkspaces: async () => ({
+              activeWorkspaceKey: workspacePath,
+              workspaces: [{ kind: "local", workspacePath, label: "Mobile Preview" }],
+            }),
+            switchWorkspace: async () => {},
+          }}
+        />
+      </ZCodeIntlProvider>
+    </AppErrorBoundary>,
+  );
+}
+
 function resolveExternalRelayWsUrl(): string {
   return resolveWebRemoteControlRelayWsUrl({ endpointOrigin: window.location.origin });
 }
@@ -848,13 +889,15 @@ async function bootstrapExternalRelayWebRemoteControl(
       : undefined,
   };
   // 只由入口 owner 负责取消连接并选设备；不能重启 start()，否则会自动连回最近设备。
-  const deviceNavigation = {
-    deviceName: relayParams.deviceName,
-    devicePlatform: connectingDevice.platform,
-    chooseOtherDevice: () => {
-      if (!connection.signal.aborted) void remoteEntry.chooseOtherDevice();
-    },
-  };
+  const deviceNavigation = usesLingMobilePairing()
+    ? undefined
+    : {
+        deviceName: relayParams.deviceName,
+        devicePlatform: connectingDevice.platform,
+        chooseOtherDevice: () => {
+          if (!connection.signal.aborted) void remoteEntry.chooseOtherDevice();
+        },
+      };
 
   let bootstrapping = false;
   let ready = false;
@@ -1811,7 +1854,7 @@ async function bootstrapExternalRelayWebRemoteControl(
   transport.start();
 }
 
-async function bootstrapWebApp() {
+export async function bootstrapWebApp(pairingAccepted: boolean) {
   const params = new URLSearchParams(window.location.search);
   if (isWebRemoteControlRoute() || isWebRemoteControlOAuthCallback(new URL(window.location.href))) {
     document.documentElement.lang = resolveWebRemoteControlScreenLocale(navigator.language);
@@ -1827,6 +1870,27 @@ async function bootstrapWebApp() {
   }
 
   if (isWebRemoteControlRoute()) {
+    if (usesLingMobilePairing()) {
+      if (!pairingAccepted) {
+        renderWebRemoteControlFailure({ reason: "invalid-mobile-connection" });
+        return;
+      }
+      try {
+        const connection = createLingMobileConnection(
+          new URL(window.location.href),
+          renderWebRemoteControlFailure,
+        );
+        await bootstrapExternalRelayWebRemoteControl(connection);
+      } catch {
+        renderWebRemoteControlFailure({ reason: "invalid-mobile-connection" });
+      }
+      return;
+    }
+    // 本机直开预览使用示例工作区，桌面配对链接仍走上面的校验分支。
+    if (window.location.origin === "http://127.0.0.1:17328") {
+      renderLocalMobilePreview();
+      return;
+    }
     await remoteEntry.start();
     return;
   }
@@ -1885,5 +1949,3 @@ async function bootstrapWebApp() {
     );
   }
 }
-
-void bootstrapWebApp();

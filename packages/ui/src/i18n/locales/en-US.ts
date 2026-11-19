@@ -3033,8 +3033,7 @@ const enUS: Record<string, string> = {
     "Sign in to control this computer from your phone. Use the same account on both devices.",
   "webRemoteControl.authRequired.login": "Sign in",
   "webRemoteControl.title": "Mobile remote control",
-  "webRemoteControl.description":
-    "Scan the QR code or open the link on your phone to control this workspace.",
+  "webRemoteControl.description": "Access this workspace from your phone.",
   "webRemoteControl.statusLabel": "Session status",
   "webRemoteControl.status.idle": "Idle",
   "webRemoteControl.status.starting": "Starting",
@@ -3053,6 +3052,7 @@ const enUS: Record<string, string> = {
   "webRemoteControl.qrAlt": "Web remote control QR code",
   "webRemoteControl.mobileQr.title": "Scan from phone",
   "webRemoteControl.mobileQr.description": "Use your phone camera to open this workspace remotely.",
+  "webRemoteControl.mobileQr.unavailable": "QR pairing is unavailable",
   "webRemoteControl.statusTag.phone": "Phone",
   "webRemoteControl.statusTag.ready": "Ready",
   "webRemoteControl.botChannel.title": "Use a bot channel",

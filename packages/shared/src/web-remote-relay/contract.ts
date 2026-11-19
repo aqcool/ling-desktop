@@ -122,6 +122,11 @@ export const WEB_REMOTE_CONTROL_RELAY_V2_HTTP = {
   token: { method: "POST", path: "/api/v1/remote/token" },
 } as const;
 export const WEB_REMOTE_CONTROL_RELAY_V2_WS_PATH = "/api/v1/remote/ws2";
+export const lingMobilePairingExchangeSchema = z.strictObject({
+  sid: deviceSid,
+  code: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export const lingMobilePairingTokenSchema = z.strictObject({ sid: deviceSid });
 export type WebRemoteControlRelayV2HttpOperation = keyof typeof WEB_REMOTE_CONTROL_RELAY_V2_HTTP;
 
 const httpRequests = {
