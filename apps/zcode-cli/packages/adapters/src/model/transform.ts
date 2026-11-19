@@ -12,6 +12,7 @@ import {
   type ModelInputFormat,
   type ModelMessageContent,
   type ModelMessageContentBlock,
+  type ModelProviderId,
 } from "@zcode/contracts";
 import { AiSdkModelAdapterError } from "./errors.js";
 import { providerOptionsForReasoningBlock } from "./anthropic-reasoning-metadata.js";
@@ -30,6 +31,7 @@ export interface AiSdkMessageTransformOptions {
   apiFormat?: string;
   providerOptions?: Record<string, unknown>;
   providerKind?: "openai" | "anthropic" | "openai-compatible" | "gateway" | "custom";
+  providerId?: ModelProviderId;
   stripMedia?: boolean;
   inputFormat?: ModelInputFormat;
 }
@@ -42,6 +44,7 @@ type AiSdkProviderOptions = NonNullable<
   Extract<AiSdkModelMessage, { role: "system" }>["providerOptions"]
 >;
 type AiSdkAssistantTransformOptions = AiSdkMessageTransformOptions & {
+  stripForeignOpenAiEncryptedReasoning?: boolean;
   stripOpenAiResponsesStoredReasoning?: boolean;
 };
 
@@ -92,6 +95,10 @@ export function toAiSdkMessages(
           role: "assistant",
           content: toAiSdkAssistantContent(message.content, message.toolCalls, {
             ...options,
+            stripForeignOpenAiEncryptedReasoning:
+              options.providerKind === "openai" &&
+              options.providerId !== undefined &&
+              message.providerId !== options.providerId,
             stripOpenAiResponsesStoredReasoning: shouldStripOpenAiResponsesStoredReasoning,
           }),
           ...providerOptionsForCacheControl(message.cacheControl),
@@ -369,6 +376,13 @@ function contentBlockToAiSdkAssistantParts(
       return block.text.length > 0 ? [{ type: "text", text: block.text }] : [];
 
     case "reasoning": {
+      if (options.stripForeignOpenAiEncryptedReasoning) {
+        const openai = objectRecord(block.providerOptions?.openai);
+        // Responses 兼容端点共享元数据格式，但加密推理只能回放给来源供应商。
+        if (typeof openai.reasoningEncryptedContent === "string" && openai.reasoningEncryptedContent) {
+          return [];
+        }
+      }
       if (
         options.stripOpenAiResponsesStoredReasoning === true &&
         hasOpenAiStoredReasoningItemId(block.providerOptions)

@@ -197,6 +197,7 @@ function prepareModelPrompt({
     apiFormat: resolveProviderApiFormat(providerOptions),
     providerOptions,
     providerKind: resolved.providerKind,
+    providerId: resolved.providerId,
     inputFormat: resolved.properties?.inputFormat,
   });
   if (!codexOptions) return { messages, providerOptions };

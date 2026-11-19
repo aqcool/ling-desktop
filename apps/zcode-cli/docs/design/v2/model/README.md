@@ -284,6 +284,8 @@ ZCode 对 `deepseek-v4*` 保持同一契约：
   不修改 in-memory history 或 session part；空白字符不等于空字符串，任何已知或未知
   provider metadata 都按不透明数据保留。DeepSeek V4 Anthropic-compatible 的 tool-call
   空 thinking 占位在过滤后按上一条规则合成，因此不受影响。
+- OpenAI Responses 请求只回放来源 provider ID 与当前请求一致的加密推理块。
+  来源不同或缺失时，在构建请求时跳过加密推理块。会话历史、正文、工具调用和工具结果保持原样。
 - DeepSeek OpenAI-compatible 回放时，adapter 把非空 `reasoning` block 聚合到 message-level
   `providerOptions.openaiCompatible.reasoning_content`，并从 `content` 数组移除 reasoning block。
   普通 assistant 的空 reasoning block 必须一并移除，且不能因此创建空的

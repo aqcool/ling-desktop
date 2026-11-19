@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createModelProviderId, type ModelInputMessage } from "@zcode/contracts";
 import { toAiSdkMessages } from "../src/model/index.js";
 import { createTestInputFormat } from "./test-model-format.js";
 
@@ -225,6 +226,53 @@ describe("AI SDK model message transform", () => {
 
     expect(assistantToolCall.toolCallId).toBe(toolCallId);
     expect(toolResult.toolCallId).toBe(toolCallId);
+  });
+
+  it("replays Responses encrypted reasoning only for its source provider", () => {
+    const chatGpt = createModelProviderId("chatgpt-subscription");
+    const grok = createModelProviderId("grok-subscription");
+    const reasoning = {
+      type: "reasoning",
+      text: "",
+      providerOptions: { openai: { itemId: "rs_1", reasoningEncryptedContent: "opaque" } },
+    } as const;
+    const history: ModelInputMessage[] = [
+      {
+        role: "assistant",
+        providerId: grok,
+        content: [
+          reasoning,
+          {
+            ...reasoning,
+            providerOptions: { openai: { itemId: "rs_2", reasoningEncryptedContent: "other" } },
+          },
+          { type: "text", text: "checking" },
+        ],
+        toolCalls: [{ id: "call_read", name: "Read", input: {} }],
+      },
+      { role: "tool", toolCallId: "call_read", toolName: "Read", content: "output" },
+      { role: "assistant", content: [reasoning] },
+      { role: "assistant", providerId: chatGpt, content: [reasoning] },
+    ];
+    const original = structuredClone(history);
+
+    const messages = toAiSdkMessages(history, {
+      providerKind: "openai",
+      providerId: chatGpt,
+      apiFormat: "openai-responses",
+      providerOptions: { openai: { store: false } },
+    });
+
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "checking" },
+      { type: "tool-call", toolCallId: "call_read", toolName: "Read", input: {} },
+    ]);
+    expect(messages[1]?.content).toMatchObject([
+      { type: "tool-result", toolCallId: "call_read", output: { type: "text", value: "output" } },
+    ]);
+    expect(messages[2]?.content).toEqual([]);
+    expect(messages[3]?.content).toEqual([reasoning]);
+    expect(history).toEqual(original);
   });
 
   it("drops OpenAI Responses stored reasoning item references on stateless replay", () => {
