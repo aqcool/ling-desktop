@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 45,
+  "revision": 46,
   "config": {
     "providerConfigRules": {
       "templateRules": [
@@ -770,6 +770,8 @@
               }
             },
             "builtinModelIds": [
+              "gpt-6.2-astra",
+              "gpt-6.2-sol",
               "gpt-6-astra",
               "gpt-5.6-terra",
               "gpt-6.1-sol",
@@ -3741,6 +3743,27 @@
         }
       ],
       "providerSiteRules": [
+        {
+          "modelMatch": "gpt-6\\.2-(?:astra|sol)",
+          "baseUrlMatch": "https://chatgpt\\.com/backend-api/codex/?",
+          "apiTypeMatch": "openai-responses",
+          "config": {
+            "properties": {
+              "contextWindow": 1050000,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsPdf": true
+              },
+              "supportsJsonSchemaOutput": true
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["low", "medium", "high", "xhigh", "max"],
+                "map": "{\n  \"reasoning\": {\n    \"effort\": reasoningLevel\n  }\n}"
+              }
+            }
+          }
+        },
         {
           "modelMatch": "glm-5\\.3-flash",
           "apiTypeMatch": "openai-chat-completions",

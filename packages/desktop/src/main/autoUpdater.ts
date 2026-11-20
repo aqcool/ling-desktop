@@ -6,14 +6,11 @@ import semver from "semver";
 const { autoUpdater } = pkg;
 import {
   DEFAULT_LOCALE,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-  TEST_ZCODE_ENDPOINT_ORIGIN,
   PlatformChannels,
   ZCODE_VERSION,
   desktopMenuMessageIds,
   formatDesktopMenuMessage,
   getDesktopMenuMessage,
-  resolveRuntimeZCodeEndpointOrigin,
   type ElectronReleaseChannel,
   type Locale,
   type PostUpdateReleaseNotesPayload,
@@ -22,7 +19,7 @@ import {
 } from "@zcode/shared";
 import { logger } from "./logger.js";
 import { verifyWindowsAuthenticodeSignature } from "../../scripts/powershell-command.mjs";
-import { ManifestUpdateProvider, getElectronReleasePlatform } from "./manifestUpdateProvider.js";
+import { LingGitHubUpdateProvider, ManifestUpdateProvider } from "./manifestUpdateProvider.js";
 
 export const CHECK_FOR_UPDATE_MENU_ID = "check-for-update";
 const AUTO_UPDATE_POLL_INTERVAL_MS = 15 * 60 * 1000;
@@ -119,7 +116,6 @@ interface InitAutoUpdaterOptions {
   locale?: Locale;
   updateFeedSource?: RuntimeUpdateFeedSource;
   deviceMid?: string;
-  resolveEndpointOrigin?: () => string | Promise<string>;
   resolveZcodeJwtToken?: () => Promise<string | null | undefined>;
 }
 
@@ -835,41 +831,30 @@ async function syncAutoUpdateCheckChannelFromSettings(
   activeAutoUpdateCheckChannel = nextChannel;
 }
 
-function applyManifestUpdateProvider(options: InitAutoUpdaterOptions): void {
-  // 在更新器装配边界再次约束，避免内部调用绕过启动配置解析。
+function applyUpdateProvider(options: InitAutoUpdaterOptions): void {
+  // 打包版固定从 LING 的 GitHub 发布下载，业务后端、深链和启动参数不能改变更新源。
   const manifestUrl = app.isPackaged ? undefined : options.updateFeedSource?.url.trim();
+  const resolveReleaseChannel = async () => {
+    const channel = await resolveUpdateReleaseChannel(options.settingService);
+    if (!isUpdateTargetLocked()) availableUpdateChannel = channel;
+    return channel;
+  };
   autoUpdater.setFeedURL({
     provider: "custom",
-    updateProvider: ManifestUpdateProvider,
-    endpointOrigin: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-    ...(manifestUrl ? { manifestUrl } : {}),
-    releasePlatform: getElectronReleasePlatform(),
-    deviceMid: options.deviceMid,
-    resolveZcodeJwtToken: options.resolveZcodeJwtToken,
-    resolveEndpointOrigin: async () => {
-      const origin = await (
-        options.resolveEndpointOrigin ?? (() => resolveRuntimeZCodeEndpointOrigin(process.env))
-      )();
-      // 通用后端覆盖不是更新发布授权；正式包只允许既有官方 HTTPS 入口。
-      if (
-        app.isPackaged &&
-        origin !== DEFAULT_ZCODE_ENDPOINT_ORIGIN &&
-        origin !== TEST_ZCODE_ENDPOINT_ORIGIN
-      ) {
-        return DEFAULT_ZCODE_ENDPOINT_ORIGIN;
-      }
-      return origin;
-    },
-    resolveReleaseChannel: async () => {
-      const channel = await resolveUpdateReleaseChannel(options.settingService);
-      if (!isUpdateTargetLocked()) availableUpdateChannel = channel;
-      return channel;
-    },
+    ...(manifestUrl
+      ? {
+          updateProvider: ManifestUpdateProvider,
+          manifestUrl,
+          deviceMid: options.deviceMid,
+          resolveZcodeJwtToken: options.resolveZcodeJwtToken,
+        }
+      : { updateProvider: LingGitHubUpdateProvider }),
+    resolveReleaseChannel,
   });
   logger.info(
     manifestUrl
-      ? `[auto-update] service manifest provider applied platform=${getElectronReleasePlatform()} manifestUrl=${redactUpdateFeedUrlForLog(manifestUrl)}`
-      : `[auto-update] service manifest provider applied platform=${getElectronReleasePlatform()}`,
+      ? `[auto-update] dev manifest URL=${redactUpdateFeedUrlForLog(manifestUrl)}`
+      : "[auto-update] using LING GitHub Releases",
   );
 }
 
@@ -1691,7 +1676,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     autoUpdater.verifyUpdateCodeSignature = (_publisherNames, filePath) =>
       verifyWindowsAuthenticodeSignature(filePath);
   }
-  applyManifestUpdateProvider(options);
+  applyUpdateProvider(options);
 
   const triggerCheckForUpdates = (reason: string) => {
     if (quitAndInstallState !== "idle") return;

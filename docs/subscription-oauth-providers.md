@@ -46,6 +46,8 @@ ChatGPT 的 Pro 档位采用购买页面的名称，`prolite` 显示 `Pro 100`�
 
 ## ChatGPT 订阅的 Fast
 
+内置订阅目录 revision 46 将 `gpt-6.2-astra` 与 `gpt-6.2-sol` 加到已授权的 ChatGPT 订阅模型列表，已有会话和模型选择继续使用其原来的模型 ID。两个新模型使用现有 Codex Responses 通道，支持文本、图像、PDF 和 `low / medium / high / xhigh / max` 推理档位。Fast 继续以当前账号的 Codex 模型接口返回为准。验收时检查已有订阅可看到两个新模型，且标准请求分别使用对应模型 ID。 [OpenAI 模型规格](https://developers.openai.com/api/docs/models)
+
 聊天工具栏的模型菜单右下角用齿轮打开「管理模型」。ChatGPT 和 Grok 订阅的模型使用 `GPT-6.1 Sol` 和 `Grok 4.7` 这样的名称显示，请求继续使用原始模型 ID。桌面和手机端使用同一模型菜单。
 
 已授权账号的 Codex 模型目录声明 `priority` 时，菜单左下角显示 Fast 闪电开关。简体中文悬停提示分两行显示「1.5 倍速度」和「用量更多」。Fast 开启时，模型名左侧显示实心闪电。

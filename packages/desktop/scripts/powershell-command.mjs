@@ -92,7 +92,7 @@ export async function readWindowsAuthenticodeSignature(filePath) {
 
 export async function verifyWindowsAuthenticodeSignature(filePath) {
   const signature = await readWindowsAuthenticodeSignature(filePath);
-  // 官方 HTTPS 清单与文件哈希决定发布授权；这里只检查 Windows 签名有效性。
+  // LING 的 HTTPS 发布清单与文件哈希决定发布授权；这里只检查 Windows 签名有效性。
   // 不固定证书 DN，避免换证后长期未升级的客户端只能依赖过渡版本。
   if (
     signature.status !== 0 ||

@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
+import { writeLingUpdateManifest } from "./ling-update-manifest.mjs";
 
 const {
   TARGET_OS: os,
   TARGET_ARCH: arch,
   RELEASE_VERSION: version,
   RELEASE_REVISION: revision,
+  ZCODE_AUTO_UPDATE: autoUpdate,
 } = process.env;
 const target = `${os}-${arch}`;
 const dist = resolve("source/packages/desktop/dist");
@@ -25,7 +34,10 @@ assert(layout, `Unsupported release target: ${target}`);
 assert.equal(process.platform, { mac: "darwin", win: "win32", linux: "linux" }[os]);
 assert.equal(process.arch, arch);
 
-const [appPath, executablePath, resourcesPath, extensions] = layout;
+const [appPath, executablePath, resourcesPath, installerExtensions] = layout;
+const updateEnabled = autoUpdate === "1";
+const extensions =
+  updateEnabled && os === "mac" ? [...installerExtensions, ".zip"] : installerExtensions;
 const executable = join(dist, appPath, executablePath);
 const resources = join(dist, appPath, resourcesPath);
 const agent = join(resources, "glm", "zcode.cjs");
@@ -58,8 +70,45 @@ for (const extension of extensions) {
     );
   }
   copyFileSync(source, join(output, `${prefix}${extension}`));
+  if (
+    updateEnabled &&
+    [".zip", ".exe"].includes(extension) &&
+    files.includes(`${matches[0]}.blockmap`)
+  ) {
+    copyFileSync(`${source}.blockmap`, join(output, `${prefix}${extension}.blockmap`));
+  }
+}
+
+if (updateEnabled) {
+  if (os === "mac") {
+    const bundle = join(dist, appPath, "..");
+    execFileSync("codesign", ["--verify", "--deep", "--strict", bundle], { stdio: "inherit" });
+    execFileSync("xcrun", ["stapler", "validate", bundle], { stdio: "inherit" });
+    const image = join(output, `${prefix}.dmg`);
+    execFileSync("codesign", ["--verify", image], { stdio: "inherit" });
+    execFileSync("xcrun", ["stapler", "validate", image], { stdio: "inherit" });
+  }
+  if (os === "win") {
+    const config = readFileSync(join(resources, "app-update.yml"), "utf8");
+    assert.match(
+      config,
+      /^publisherName:/m,
+      "Windows update config must enable signature verification",
+    );
+    const signatureCheck =
+      "if ((Get-AuthenticodeSignature -LiteralPath $env:LING_INSTALLER_PATH).Status -ne 'Valid') { exit 1 }";
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", signatureCheck], {
+      env: { ...process.env, LING_INSTALLER_PATH: join(output, `${prefix}.exe`) },
+      stdio: "inherit",
+    });
+  }
+  await writeLingUpdateManifest({ output, target, version });
 }
 writeFileSync(
   join(output, `${prefix}-report.json`),
-  JSON.stringify({ target, version, revision, agentVersion, agentSmoke: "passed" }, null, 2) + "\n",
+  JSON.stringify(
+    { target, version, revision, agentVersion, agentSmoke: "passed", updateEnabled },
+    null,
+    2,
+  ) + "\n",
 );

@@ -19,10 +19,147 @@ import {
 } from "electron-updater";
 import type { ProviderRuntimeOptions } from "electron-updater/out/providers/Provider.js";
 import { parse as parseYaml } from "yaml";
+import semver from "semver";
 
 export const ELECTRON_MANIFEST_API_PATH = "/api/v1/releases/electron/manifest";
 
 const MANIFEST_ACCEPT_HEADER = "application/x-yaml,text/yaml,text/plain,*/*";
+const LING_RELEASES_API = "https://api.github.com/repos/aqcool/ling-desktop/releases";
+const LING_RELEASE_DOWNLOADS = "https://github.com/aqcool/ling-desktop/releases/download/";
+
+interface GitHubRelease {
+  tag_name: string;
+  draft: boolean;
+  prerelease: boolean;
+  published_at: string;
+  name?: string | null;
+  body?: string | null;
+  assets: Array<{ name: string }>;
+}
+
+type LingGitHubUpdateOptions = CustomPublishOptions & {
+  resolveReleaseChannel: () => Promise<ElectronReleaseChannel>;
+};
+
+export class LingGitHubUpdateProvider extends Provider<UpdateInfo> {
+  private readonly target: string;
+  private readonly extensions: readonly string[];
+
+  constructor(
+    private readonly options: LingGitHubUpdateOptions,
+    private readonly updater: AppUpdater,
+    runtimeOptions: ProviderRuntimeOptions,
+  ) {
+    super(runtimeOptions);
+    const platform = runtimeOptions.platform;
+    this.target = `${platform === "darwin" ? "mac" : platform === "win32" ? "win" : platform}-${process.arch}`;
+    this.extensions =
+      platform === "darwin"
+        ? [".zip"]
+        : platform === "win32"
+          ? [".exe"]
+          : (getLinuxUpdateExtensions(updater) ?? []);
+  }
+
+  override get isUseMultipleRangeRequest(): boolean {
+    return false;
+  }
+
+  override setRequestHeaders(): void {
+    // GitHub 发布不按设备分批，不发送 electron-updater 的 staging 用户标识。
+  }
+
+  override async getLatestVersion(): Promise<UpdateInfo> {
+    const channel = await this.options.resolveReleaseChannel();
+    const currentVersion = this.updater.currentVersion.version;
+    const noUpdate = {
+      version: currentVersion,
+      files: [],
+      path: "",
+      sha512: "",
+      releaseDate: "",
+      zcodeReleaseChannel: channel,
+    };
+    if (!this.extensions.length) return noUpdate;
+
+    const manifestName = `ling-update-${this.target}.json`;
+    const headers = { Accept: "application/vnd.github+json", "User-Agent": "LING-Desktop" };
+    const raw = await this.httpRequest(new URL(`${LING_RELEASES_API}?per_page=100`), headers);
+    const releases: GitHubRelease[] = JSON.parse(raw ?? "null");
+    if (!Array.isArray(releases)) throw new Error("Invalid LING GitHub release list");
+
+    const candidates = releases.flatMap((release) => {
+      const version = release.tag_name?.slice("ling-v".length);
+      if (
+        !version ||
+        semver.valid(version) !== version ||
+        release.tag_name !== `ling-v${version}` ||
+        release.draft ||
+        (channel === "stable" && (release.prerelease || semver.prerelease(version))) ||
+        !semver.gt(version, currentVersion) ||
+        !release.assets?.some((asset) => asset.name === manifestName) ||
+        !this.extensions.some((ext) =>
+          release.assets.some(
+            (asset) =>
+              asset.name.toLowerCase() === `LING-${version}-${this.target}`.toLowerCase() + ext,
+          ),
+        )
+      )
+        return [];
+      return [{ release, version }];
+    });
+    candidates.sort((left, right) => semver.rcompare(left.version, right.version));
+    const selected = candidates[0];
+    if (!selected) return noUpdate;
+
+    const baseUrl = new URL(`${selected.release.tag_name}/`, LING_RELEASE_DOWNLOADS);
+    const manifest = await this.httpRequest(new URL(manifestName, baseUrl), {
+      Accept: "application/json",
+    });
+    const update = JSON.parse(manifest ?? "null") as UpdateInfo | null;
+    if (
+      update?.version !== selected.version ||
+      !Array.isArray(update.files) ||
+      !update.files.length ||
+      update.files.some(
+        (file) =>
+          !file ||
+          ![".zip", ".exe", ".AppImage", ".deb"].some(
+            (ext) => file.url === `LING-${selected.version}-${this.target}${ext}`,
+          ) ||
+          !selected.release.assets.some((asset) => asset.name === file.url) ||
+          typeof file.sha512 !== "string" ||
+          !/^[A-Za-z0-9+/]{86}==$/.test(file.sha512) ||
+          !Number.isSafeInteger(file.size) ||
+          (file.size ?? 0) <= 0,
+      )
+    ) {
+      throw new Error(`Invalid LING update manifest for ${this.target} ${selected.version}`);
+    }
+    const files = update.files.filter(({ url }) =>
+      this.extensions.some((ext) => url.toLowerCase().endsWith(ext)),
+    );
+    const installer = files[0];
+    if (!installer) throw new Error(`LING update has no installer for ${this.target}`);
+    const info = {
+      version: selected.version,
+      files,
+      path: installer.url,
+      sha512: installer.sha512,
+      releaseDate: selected.release.published_at,
+      minimumSystemVersion: update.minimumSystemVersion,
+      releaseName: selected.release.name,
+      releaseNotes: selected.release.body,
+      zcodeReleaseChannel: channel,
+    };
+    return info;
+  }
+
+  override resolveFiles(updateInfo: UpdateInfo): ResolvedUpdateFileInfo[] {
+    const baseUrl = new URL(`ling-v${updateInfo.version}/`, LING_RELEASE_DOWNLOADS);
+    return resolveManifestFiles(updateInfo, baseUrl, null);
+  }
+}
 
 export interface ManifestUpdateProviderOptions extends CustomPublishOptions {
   endpointOrigin?: string;
