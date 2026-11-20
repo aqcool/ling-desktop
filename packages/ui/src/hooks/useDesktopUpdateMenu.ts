@@ -1,16 +1,12 @@
 import { DesktopCommandIds, type UpdateStatePayload } from "@zcode/shared";
 import { useEffect, useState } from "react";
 import { usePlatform } from "@/hooks/usePlatform.js";
-import {
-  getUpdateMenuLabelId,
-  getUpdateMenuLabelValues,
-  shouldShowDesktopUpdateEntry,
-} from "@/lib/desktopUpdateMenu.js";
+import { getUpdateMenuLabelId, getUpdateMenuLabelValues } from "@/lib/desktopUpdateMenu.js";
 import { logger } from "@/logger.js";
 
 export function useDesktopUpdateMenu(isDesktop: boolean) {
   const platform = usePlatform();
-  const visible = isDesktop && shouldShowDesktopUpdateEntry();
+  const visible = isDesktop;
   const [state, setState] = useState<UpdateStatePayload | null>(null);
 
   useEffect(() => {

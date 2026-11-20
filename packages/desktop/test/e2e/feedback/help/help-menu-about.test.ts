@@ -1,15 +1,12 @@
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PlatformChannels, type UpdateStatePayload } from "@zcode/shared";
 import {
-  PlatformChannels,
-  type UpdateStatePayload,
-  type UpdateCheckResultPayload,
-} from "@zcode/shared";
-import {
-  TID_LOGIN_TRIGGER,
   TID_TASK_SETTINGS_BUTTON,
   TID_SETTINGS_PAGE,
+  TID_WORKSPACE_HELP_MENU_TRIGGER,
 } from "@zcode/shared/test-ids";
 import {
   DEFAULT_WORKSPACE,
@@ -27,7 +24,6 @@ const expectedFlavor = process.env.ZCODE_E2E_HELP_MENU_FLAVOR ?? "preview";
 if (expectedFlavor !== "production" && expectedFlavor !== "preview") {
   throw new Error("请设置 ZCODE_E2E_HELP_MENU_FLAVOR=production 或 preview，并构建对应产品身份");
 }
-const production = expectedFlavor === "production";
 
 async function enterWorkspace() {
   // 隔离 HOME 首次启动与刷新都可能显示引导，使用产品支持的 Escape 退出。
@@ -60,14 +56,14 @@ async function menuLabels() {
 async function openMenu() {
   await browser.waitUntil(
     async () => {
-      for (const trigger of await $$(`[data-testid="${TID_LOGIN_TRIGGER}"]`)) {
+      for (const trigger of await $$(`[data-testid="${TID_WORKSPACE_HELP_MENU_TRIGGER}"]`)) {
         if (await trigger.isDisplayed()) return true;
       }
       return false;
     },
-    { timeout: 10_000, timeoutMsg: "连接使用按钮尚未挂载到可见页面" },
+    { timeout: 10_000, timeoutMsg: "侧栏更多菜单尚未挂载到可见页面" },
   );
-  const triggers = await $$(`[data-testid="${TID_LOGIN_TRIGGER}"]`);
+  const triggers = await $$(`[data-testid="${TID_WORKSPACE_HELP_MENU_TRIGGER}"]`);
   for (const trigger of triggers) {
     if (await trigger.isDisplayed()) {
       await trigger.waitForClickable();
@@ -136,7 +132,7 @@ async function assertAboutWindow() {
           );
           return (
             typeof title === "string" &&
-            title.includes("ZCode") &&
+            title.includes("LING") &&
             title.includes(electron.app.getVersion())
           );
         }),
@@ -193,44 +189,33 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
     expectDesktopUtilityItems(
       labels,
       ["Product docs", "User community", "Report an issue", "Request a feature"],
-      [
-        "Export logs",
-        "Copy device MID",
-        "Resource manager",
-        ...(production ? ["Check for updates"] : []),
-        "About ZCode",
-      ],
+      ["Export logs", "Usage stats", "Resource manager", "Check for updates", "About LING"],
     );
-    if (!production) expect(labels).not.toContain("Check for updates");
     await browser.saveScreenshot(join(tmpdir(), "zcode-help-export-en-light.png"));
     await assertLogExport("Export logs", "Exporting logs...");
     await openMenu();
-    await $('[role="menuitem"]*=About ZCode').click();
+    await $('[role="menuitem"]*=About LING').click();
     await assertAboutWindow();
   });
 
   it("HM-02 更新状态事件、禁用状态与关闭重开", async function () {
     this.timeout(60_000);
     await openMenu();
-    if (!production) {
-      await publishState({ kind: "update-downloaded", enabled: true, version: "99.0.0" });
-      expect((await menuLabels()).some((label) => label.includes("Restart to update"))).toBe(false);
-      expect(await menuLabels()).not.toContain("Check for updates");
-      await closeMenu();
-      return;
-    }
     for (const [state, label] of [
       [{ kind: "checking", enabled: false }, "Checking for updates..."],
       [{ kind: "update-available", enabled: true, version: "99.0.0" }, "Update available 99.0.0"],
       [{ kind: "download-progress", enabled: true, progress: "42%" }, "Downloading update... 42%"],
+      [
+        { kind: "installer-download", enabled: false, progress: "52%" },
+        "Downloading update... 52%",
+      ],
       [{ kind: "update-downloaded", enabled: true, version: "99.0.0" }, "Restart to update"],
     ] as const) {
       await publishState(state);
       const item = $(`[role="menuitem"]*=${label}`);
       await item.waitForDisplayed();
-      // 下载完成后动作文案与版本 pill 分开渲染，避免依赖 WebDriver 的子节点空白拼接。
       if (state.kind === "update-downloaded") {
-        await expect(item.$('[data-slot="badge"]')).toHaveText(state.version);
+        expect(await item.getText()).toContain(state.version);
       }
       if (!state.enabled) await expect(item).toHaveAttribute("aria-disabled", "true");
       else expect(await item.getAttribute("aria-disabled")).not.toBe("true");
@@ -239,55 +224,96 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
     await openMenu();
     const restartItem = $('[role="menuitem"]*=Restart to update');
     await expect(restartItem).toBeDisplayed();
-    await expect(restartItem.$('[data-slot="badge"]')).toHaveText("99.0.0");
+    expect(await restartItem.getText()).toContain("99.0.0");
     await closeMenu();
     await publishState({ kind: "idle", enabled: true });
   });
 
-  it("HM-03 production 真实检查命令收到开发包回执，Preview 无入口", async function () {
+  it("HM-03 手动检查下载对应架构的安装包后交给系统", async function () {
     this.timeout(60_000);
-    await openMenu();
-    if (!production) {
-      expect(await menuLabels()).not.toContain("Check for updates");
-      await closeMenu();
-      return;
-    }
-    // 真实命令只在未打包的隔离 E2E 中执行，避免触发安装包的下载或安装。
     expect(await browser.electron.execute((electron) => electron.app.isPackaged)).toBe(false);
-    await browser.execute(() => {
-      const target = window as unknown as {
-        zcode: {
-          onUpdateCheckResult(callback: (payload: UpdateCheckResultPayload) => void): () => void;
-        };
-        __helpUpdateResult?: UpdateCheckResultPayload;
-        __helpUpdateDispose?: () => void;
-      };
-      target.__helpUpdateResult = undefined;
-      target.__helpUpdateDispose = target.zcode.onUpdateCheckResult((payload) => {
-        target.__helpUpdateResult = payload;
-      });
-    });
+    const downloads = await mkdtemp(join(tmpdir(), "ling-update-e2e-"));
+    const target =
+      process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : "linux";
+    const extension = target === "mac" ? ".dmg" : target === "win" ? ".exe" : ".deb";
+    const name = `LING-99.0.0-${target}-${process.arch}${extension}`;
+    const contents = "LING test installer";
+    const checksum = createHash("sha256").update(contents).digest("hex");
+    const handoff = await browser.electron.mock(
+      "shell",
+      target === "linux" ? "showItemInFolder" : "openPath",
+    );
     try {
+      await handoff.mockReturnValue(target === "linux" ? undefined : "");
+      await browser.electron.execute(
+        (electron, dir, filename, data, digest) => {
+          const originalFetch = electron.net.fetch;
+          const originalDownloads = electron.app.getPath("downloads");
+          const fixture = globalThis as typeof globalThis & {
+            restoreLingUpdateFixture?: () => void;
+          };
+          fixture.restoreLingUpdateFixture = () => {
+            electron.net.fetch = originalFetch;
+            electron.app.setPath("downloads", originalDownloads);
+            delete fixture.restoreLingUpdateFixture;
+          };
+          electron.app.setPath("downloads", dir);
+          let installRequests = 0;
+          electron.net.fetch = async (input, init) => {
+            const url = typeof input === "string" ? input : input.url;
+            if (url.startsWith("https://api.github.com/repos/aqcool/ling-desktop/releases?")) {
+              return Response.json([
+                {
+                  tag_name: "ling-v99.0.0",
+                  draft: false,
+                  prerelease: true,
+                  assets: [{ name: filename, size: data.length }, { name: "SHA256SUMS" }],
+                },
+              ]);
+            }
+            const releaseBase =
+              "https://github.com/aqcool/ling-desktop/releases/download/ling-v99.0.0/";
+            if (url === releaseBase + "SHA256SUMS") return new Response(digest + "  " + filename);
+            if (url === releaseBase + filename) {
+              return new Response(++installRequests === 1 ? "x".repeat(data.length) : data);
+            }
+            return originalFetch.call(electron.net, input, init);
+          };
+        },
+        downloads,
+        name,
+        contents,
+        checksum,
+      );
+      await openMenu();
       await $('[role="menuitem"]*=Check for updates').click();
       await browser.waitUntil(
-        async () =>
-          (await browser.execute(
-            () =>
-              (window as unknown as { __helpUpdateResult?: UpdateCheckResultPayload })
-                .__helpUpdateResult?.kind,
-          )) === "dev-skipped",
-        { timeout: 10_000, timeoutMsg: "检查更新未收到真实 main 的开发包回执" },
+        async () => (await $("#zcode-toast-host").getText()).includes("Update check failed"),
+        { timeout: 10_000, timeoutMsg: "损坏的安装包没有被拒绝" },
       );
+      await handoff.update();
+      expect(handoff.mock.calls.length).toBe(0);
+      await openMenu();
+      await $('[role="menuitem"]*=Check for updates').click();
+      await browser.waitUntil(
+        async () => {
+          await handoff.update();
+          return handoff.mock.calls.length === 1;
+        },
+        { timeout: 10_000, timeoutMsg: "校验完成后没有打开安装包" },
+      );
+      const path = join(downloads, "LING Updates", name);
+      expect(handoff.mock.calls[0]?.[0]).toBe(path);
+      expect(await readFile(path, "utf8")).toBe(contents);
     } finally {
-      await browser.execute(() => {
-        const target = window as unknown as {
-          __helpUpdateDispose?: () => void;
-          __helpUpdateResult?: UpdateCheckResultPayload;
+      await browser.electron.execute(() => {
+        const fixture = globalThis as typeof globalThis & {
+          restoreLingUpdateFixture?: () => void;
         };
-        target.__helpUpdateDispose?.();
-        delete target.__helpUpdateDispose;
-        delete target.__helpUpdateResult;
+        fixture.restoreLingUpdateFixture?.();
       });
+      await handoff.mockRestore();
+      await rm(downloads, { recursive: true, force: true });
     }
   });
 
@@ -306,19 +332,12 @@ describe(`问号菜单应用入口（${expectedFlavor}）`, () => {
     expectDesktopUtilityItems(
       labels,
       ["产品文档", "用户社群", "问题上报", "给产品提需求"],
-      [
-        "导出日志",
-        "复制设备 MID",
-        "资源管理器",
-        ...(production ? ["检查更新"] : []),
-        "关于 ZCode",
-      ],
+      ["导出日志", "使用统计", "资源管理器", "检查更新", "关于 LING"],
     );
-    if (!production) expect(labels).not.toContain("检查更新");
     await browser.saveScreenshot(join(tmpdir(), "zcode-help-export-zh-dark.png"));
     await assertLogExport("导出日志", "正在导出日志中");
     await openMenu();
-    await $('[role="menuitem"]*=关于 ZCode').click();
+    await $('[role="menuitem"]*=关于 LING').click();
     await assertAboutWindow();
   });
 });

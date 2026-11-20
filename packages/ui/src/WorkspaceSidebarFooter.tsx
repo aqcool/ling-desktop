@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { useDesktopUpdateMenu } from "@/hooks/useDesktopUpdateMenu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { runExportLogsAction } from "@/lib/exportLogsAction.js";
 import { setPendingSettingsUsageIntent } from "@/lib/settingsNavigation.js";
@@ -17,8 +18,18 @@ import {
   TID_SIDEBAR_CODING_PLAN_USAGE_BUTTON,
   TID_TASK_SETTINGS_BUTTON,
   TID_WORKSPACE_HELP_MENU_RESOURCE_MANAGER,
+  TID_WORKSPACE_HELP_MENU_TRIGGER,
 } from "@zcode/shared/test-ids";
-import { Activity, ArrowLeft, BarChart3, Download, Ellipsis, Info, Settings } from "lucide-react";
+import {
+  Activity,
+  ArrowLeft,
+  BarChart3,
+  Download,
+  Ellipsis,
+  Info,
+  RefreshCw,
+  Settings,
+} from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooter({
@@ -44,6 +55,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooter({
 }) {
   const { intl } = useZCodeIntl();
   const platform = usePlatform();
+  const update = useDesktopUpdateMenu(Boolean(isDesktop));
   const back = settingsButtonMode === "back";
   const SettingsIcon = back ? ArrowLeft : Settings;
   const settingsLabel = intl.formatMessage({
@@ -86,6 +98,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooter({
                   size="icon-lg"
                   className="text-foreground-subtle data-[state=open]:bg-menu-hover data-[state=open]:text-foreground"
                   aria-label={moreLabel}
+                  data-testid={TID_WORKSPACE_HELP_MENU_TRIGGER}
                 >
                   <Ellipsis className="size-4" aria-hidden="true" />
                 </Button>
@@ -116,6 +129,10 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooter({
                   <DropdownMenuItem onSelect={() => void runExportLogsAction(platform, intl)}>
                     <Download className="size-4" aria-hidden="true" />
                     {intl.formatMessage({ id: "titleBar.menu.help.exportLogs" })}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={update.disabled} onSelect={update.checkForUpdates}>
+                    <RefreshCw className="size-4" aria-hidden="true" />
+                    {intl.formatMessage({ id: update.labelId }, update.labelValues)}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>

@@ -32,6 +32,7 @@ export type UpdateCheckResultPayload =
 export type UpdateStatePayload =
   | { kind: "idle"; enabled: boolean }
   | { kind: "checking"; enabled: boolean }
+  | { kind: "installer-download"; enabled: false; progress: string }
   | {
       kind: "update-available";
       enabled: boolean;

@@ -36,7 +36,7 @@
 | 数据 | 业务数据继续使用 `~/.zcode` | 任务、配置、凭据 | 两个进程同时修改同一任务的强一致保证 | user |
 | Electron 运行数据 | 按应用名分目录 | Chromium session、single-instance lock、cache | 与生产版共用 Electron `userData` | simultaneous-run invariant |
 | Deep link | 继续使用 `zcode://` | OAuth、支付、打开工作区 | 确定投递到发起回调的应用 | accepted limitation |
-| 更新 | Preview 完全禁用 | 后台轮询、手动检查入口、强更 gate | Preview update feed/channel | user |
+| 更新 | Preview 禁用自动更新及强更，手动下载 LING 安装包 | 后台轮询、手动检查入口、强更 gate | [LING 更新](ling-github-updates.md) | user |
 | CUA 权限主体 | 两个主应用都可启动同一个签名身份的 Helper | Helper launcher app-id allowlist、同一 TCC 授权身份 | 同时执行两路鼠标键盘输入 | user + CUA architecture |
 | CUA 安装 | Preview 使用 `computer-use/preview` 子目录 | 避免不同 App 版本互相升级/降级 Helper | 隔离任务、配置、凭据 | version-safety invariant |
 | 签名 | Preview 使用生产签名逻辑并 fail-closed | macOS Developer ID + notarization、Windows vsigntool | 无凭据时静默生成未签名 Preview | user |
@@ -143,7 +143,7 @@ workflow path selection
 | CUA launcher              | prod / preview / unrelated signed app                               | security requirement     | yes                 | first two accepted, unrelated must fail                       |
 | CUA use                   | one active / two active                                             | user boundary            | representative only | two active pruned by product usage assumption                 |
 | Deep-link receiver        | prod / preview                                                      | OS global scheme handler | yes                 | both valid but nondeterministic                               |
-| Update trigger            | startup / poll / menu / force gate                                  | updater code             | yes                 | all must be disabled in Preview                               |
+| Update trigger            | startup / poll / menu / force gate                                  | updater code             | yes                 | Preview only checks on explicit menu action                  |
 | Business data             | default shared root / explicit custom root                          | services paths           | representative      | identity change must not rewrite data root                    |
 | CI pipeline               | MR parent / Preview child / tag release                             | GitLab workflow          | yes                 | Preview entry and release isolation depend on pipeline source |
 | Preview command           | not clicked / running / succeeded / failed                          | manual trigger           | representative      | not clicked must not block production MR DAG                  |
@@ -157,7 +157,7 @@ workflow path selection
 | ZPREVIEW-002 | production                                       | package                           | all platforms            | existing ZCode identity unchanged                                                                | accepted       | regression case                                      |
 | ZPREVIEW-003 | prod and Preview installed                       | launch both                       | desktop lifecycle        | both instances remain running with separate Electron data                                        | accepted       | manual smoke                                         |
 | ZPREVIEW-004 | Preview running                                  | read tasks/settings/credentials   | business data            | same `~/.zcode` repositories as production                                                       | accepted       | no data migration                                    |
-| ZPREVIEW-005 | Preview packaged                                 | startup/menu/force config         | updater                  | no update check, no update UI, no force-update block                                             | accepted       | no auto update                                       |
+| ZPREVIEW-005 | Preview packaged                                 | startup/menu/force config         | updater                  | explicit menu check downloads the LING installer, no background checks or force-update block    | accepted       | no auto update                                       |
 | ZPREVIEW-006 | signed Preview                                   | start CUA                         | macOS Helper             | launcher passes Preview app-id + Team requirement                                                | accepted       | permission remains Helper-owned                      |
 | ZPREVIEW-007 | signed production                                | start CUA                         | macOS Helper             | production launcher continues to pass                                                            | accepted       | regression case                                      |
 | ZPREVIEW-008 | unrelated signed app                             | forge launcher pid                | macOS Helper             | fails launcher requirement                                                                       | accepted       | security negative case                               |
@@ -178,7 +178,7 @@ workflow path selection
 | ZPREVIEW-P01 | 两个应用同时执行 CUA                        | 任一时刻只有一个应用使用 CUA               | 无需引入全局 CUA lease 和新 UI 状态         | 分别验证 prod/Preview 可启动 Helper |
 | ZPREVIEW-P02 | Preview 独立账号/任务/配置                  | 业务数据明确共享                           | Preview 仅是内部测试入口                    | 验证路径解析未改写 `ZCODE_HOME`     |
 | ZPREVIEW-P03 | Preview 独立 scheme                         | 用户接受 deep-link 抢占                    | 避免改 OAuth callback 配置                  | 保留 `zcode` protocol 配置断言      |
-| ZPREVIEW-P04 | Preview 更新 channel                        | Preview 禁止更新                           | 内部包由重新下载安装替换                    | 断言 updater、菜单和强更均禁用      |
+| ZPREVIEW-P04 | Preview 更新 channel                        | Preview 仅支持手动下载安装                 | 更新检查按 LING 发布规则选择安装包          | 断言后台 updater、强更均禁用      |
 | ZPREVIEW-P05 | branch/tag/web pipeline 展示 Preview 命令   | 手动入口仅限 MR                            | 与 MR merge/approve 同级是本次明确边界      | CI rules 静态断言                   |
 | ZPREVIEW-P06 | 转发 parent 的 cache/temp/default variables | trigger 只允许显式 Preview controls 跨边界 | job-only runner paths 必须由 child 自己计算 | CI config 静态断言 + 真实 child log |
 
@@ -193,7 +193,7 @@ workflow path selection
 | ZPREVIEW-001 | `ZCODE_ENV=test`                     | 解析 electron-builder identity  | Preview product/app/executable/package identity 正确                                             | config                        | verified                           |
 | ZPREVIEW-002 | `ZCODE_ENV=production`               | 解析 electron-builder identity  | 所有生产 identity 不变                                                                           | config                        | verified                           |
 | ZPREVIEW-003 | 模拟 packaged test runtime           | 解析 desktop runtime paths      | name=`ZCode Preview`，Electron userData 分离                                                     | runtime + filesystem path     | verified                           |
-| ZPREVIEW-005 | packaged test runtime                | 初始化更新器并构建菜单          | 不请求 feed、不显示更新入口、不执行强更                                                          | runtime + menu + network mock | verified                           |
+| ZPREVIEW-005 | packaged test runtime                | 初始化更新器并构建菜单          | 无后台请求和强更，手动检查复用 LING 安装包下载                                                    | runtime + menu + network mock | 待验证 Preview 打包态              |
 | ZPREVIEW-006 | Preview app id + official Team       | Helper 校验 launcher            | requirement 接受                                                                                 | native requirement unit       | verified                           |
 | ZPREVIEW-007 | production app id + official Team    | Helper 校验 launcher            | requirement 接受                                                                                 | native requirement unit       | verified                           |
 | ZPREVIEW-008 | 其他 app id                          | Helper 校验 launcher            | requirement 拒绝                                                                                 | native requirement unit       | verified                           |
@@ -250,7 +250,7 @@ workflow path selection
 | `ZCODE_ENV` 语义 | 不变，仍只表示后端环境 | 原 Boundary「新增第三种环境值」的排除继续有效 |
 | 身份推导 | `flavor = ZCODE_PREVIEW_IDENTITY 为真 \|\| ZCODE_ENV=test ? preview : production` | 测试后端永远是 Preview，开关无法把测试后端包变成正式 `ZCode` |
 | 身份含义 | 整套 Preview 身份，不是只改显示名 | appId `dev.zcode.app.preview`、`ZCode Preview` 应用名、独立 Electron `userData`、Linux `zcode-preview`、Helper 安装子目录 `computer-use/preview`、Windows AUMID |
-| 更新 | Preview 身份在两种后端下都禁用 updater / 强更 / 菜单与标题栏更新入口 | stable feed 上只有正式 `ZCode` 安装包，装到 Preview bundle 上等于再装一份正式版 |
+| 更新 | Preview 身份在两种后端下都禁用自动更新和强更，手动检查可下载 LING 安装包 | [LING GitHub Releases 更新](ling-github-updates.md) |
 | 产物后缀 | `_TEST` 只标记 `ZCODE_ENV=test`；生产后端的 Preview 没有后缀 | 生产 Preview 靠 productName 区分：`ZCode Preview-<version>-mac-arm64.dmg` vs `ZCode-<version>-mac-arm64.dmg` |
 | 发布链路 | `ZCODE_PREVIEW_IDENTITY == "1"` 与 `ZCODE_ENV == "test"` 同等对待：所有 release job `when: never`，`publish-release.sh` 硬拦截 | 生产后端的 Preview 仍是内部包 |
 | CUA Helper | 不改 | app id 仍是 `dev.zcode.app.preview`，Helper 的 launcher allowlist 已接受 |
@@ -297,7 +297,7 @@ workflow path selection
 | --- | --- | --- | --- | --- |
 | ZPREVIEW-020 | `ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1` | electron-builder 解析为 Preview 身份、无 `_TEST` 后缀 | `desktopProductIdentity.test.ts`、真实加载 `electron-builder.config.js` 四组组合 | verified |
 | ZPREVIEW-021 | `ZCODE_ENV=test ZCODE_PREVIEW_IDENTITY=0` | 仍是 Preview，开关不能生成测试后端的正式 `ZCode` | `desktopProductIdentity.test.ts` | verified |
-| ZPREVIEW-022 | renderer / shared 注入 `__ZCODE_PRODUCT_FLAVOR__=preview` + `__ZCODE_ENV__=production` | `ZCODE_ENV=production`、`ZCODE_PRODUCT_FLAVOR=preview`；更新入口隐藏 | `shared/test/env.test.ts`、`viteRendererConfig.test.ts`、`windowsCaptionMenuButton.test.ts` | verified |
+| ZPREVIEW-022 | renderer / shared 注入 `__ZCODE_PRODUCT_FLAVOR__=preview` + `__ZCODE_ENV__=production` | `ZCODE_ENV=production`、`ZCODE_PRODUCT_FLAVOR=preview`；保留手动更新入口 | `shared/test/env.test.ts`、`viteRendererConfig.test.ts`、桌面菜单 | 待验证 Preview 打包态 |
 | ZPREVIEW-023 | 生产后端 Preview 缺少 Apple 凭据 | notarize fail-closed，寻找 `*mac-arm64.dmg`（无 `_TEST`） | `notarizeMacosScript.test.ts` | verified |
 | ZPREVIEW-024 | `publish-release.sh` 收到 `ZCODE_PREVIEW_IDENTITY=1` | 退出 1，不读取密钥 | `publishReleaseScript.test.ts` | verified |
 | ZPREVIEW-025 | CI 配置 | `build:preview:production` 存在且 optional；三条身份规则写 Preview 目录且带签名变量；7 个 release gate 含身份条件 | `ciNodeVersionConfig.test.ts` | verified |
@@ -335,7 +335,7 @@ MR !2636 合入后 bug scanner 报出两项，均成立，本轮修正：
 | ZPREVIEW-027 | `initAutoUpdater({ enabled: false })` 后调用 `checkForUpdateMenuClick` | 不调用 `checkForUpdates` / `setFeedURL`，向 renderer 发 `dev-skipped`，记录禁用日志 | `autoUpdaterReadyState.test.ts` | verified |
 | ZPREVIEW-028 | `ZCODE_PREVIEW_IDENTITY` 取 `true/yes/on/false/no/off/2` | identity resolver 抛 `expected 1 or 0` | `desktopProductIdentity.test.ts` | verified |
 | ZPREVIEW-029 | CI 配置 | `resolve_zcode_env` 两个实现均不含 `true/yes/on` 真值列表 | `ciNodeVersionConfig.test.ts` | verified |
-| ZPREVIEW-030 | 生产后端 Preview 打包态点击托盘「检查更新」 | 入口不存在 | 托盘模块无单测，待 ZPREVIEW-026 手工 smoke 一并覆盖 | missing |
+| ZPREVIEW-030 | 生产后端 Preview 打包态点击托盘「检查更新」 | 使用 LING 安装包检查下载 | 托盘模块无单测，待 ZPREVIEW-026 手工 smoke 一并覆盖 | missing |
 
 ### 验证
 

@@ -1,4 +1,9 @@
-import { posix } from "node:path";
+import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
+import { join, posix } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { net } from "electron";
 import type { CustomPublishOptions, PackageFileInfo } from "builder-util-runtime";
 import {
   DEFAULT_ZCODE_ENDPOINT_ORIGIN,
@@ -26,6 +31,11 @@ export const ELECTRON_MANIFEST_API_PATH = "/api/v1/releases/electron/manifest";
 const MANIFEST_ACCEPT_HEADER = "application/x-yaml,text/yaml,text/plain,*/*";
 const LING_RELEASES_API = "https://api.github.com/repos/aqcool/ling-desktop/releases";
 const LING_RELEASE_DOWNLOADS = "https://github.com/aqcool/ling-desktop/releases/download/";
+const LING_RELEASE_LIST_URL = `${LING_RELEASES_API}?per_page=100`;
+const LING_RELEASE_HEADERS = {
+  Accept: "application/vnd.github+json",
+  "User-Agent": "LING-Desktop",
+};
 
 interface GitHubRelease {
   tag_name: string;
@@ -34,7 +44,136 @@ interface GitHubRelease {
   published_at: string;
   name?: string | null;
   body?: string | null;
-  assets: Array<{ name: string }>;
+  assets: Array<{ name: string; size?: number }>;
+}
+
+function getLingReleaseCandidates(raw: unknown, currentVersion: string) {
+  if (!Array.isArray(raw)) throw new Error("Invalid LING GitHub release list");
+  const releases = raw as GitHubRelease[];
+  return releases
+    .flatMap((release) => {
+      const tag = release?.tag_name;
+      if (typeof tag !== "string" || !tag.startsWith("ling-v") || release.draft !== false)
+        return [];
+      const version = tag.slice("ling-v".length);
+      if (
+        semver.valid(version) !== version ||
+        !semver.gt(version, currentVersion) ||
+        !Array.isArray(release.assets)
+      )
+        return [];
+      return [{ release, version }];
+    })
+    .sort((left, right) => semver.rcompare(left.version, right.version));
+}
+
+type LingInstaller = { version: string; name: string; size: number; url: URL };
+
+async function fetchLingReleaseFile(url: string | URL, headers?: Record<string, string>) {
+  const response = await net.fetch(url.toString(), {
+    credentials: "omit",
+    headers,
+    signal: AbortSignal.timeout(headers ? 30_000 : 60 * 60 * 1000),
+  });
+  if (!response.ok || !response.body) throw new Error(`GitHub HTTP ${response.status}`);
+  return response;
+}
+
+export async function findLingInstaller(
+  currentVersion: string,
+  channel: ElectronReleaseChannel,
+): Promise<LingInstaller | null> {
+  const platform =
+    process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : process.platform;
+  const target = `${platform}-${process.arch}`;
+  const extensions =
+    platform === "mac"
+      ? [".dmg"]
+      : platform === "win"
+        ? [".exe"]
+        : platform === "linux"
+          ? process.env.APPIMAGE
+            ? [".AppImage"]
+            : [".deb", ".AppImage"]
+          : [];
+  if (!extensions.length) return null;
+
+  const response = await fetchLingReleaseFile(LING_RELEASE_LIST_URL, LING_RELEASE_HEADERS);
+  for (const { release, version } of getLingReleaseCandidates(
+    await response.json(),
+    currentVersion,
+  )) {
+    // 手动分发的正式版本号在 GitHub 标为预发布，预览开关按版本号后缀判断。
+    if (channel === "stable" && semver.prerelease(version)) continue;
+    if (!release.assets.some((asset) => asset?.name === "SHA256SUMS")) continue;
+    for (const extension of extensions) {
+      const name = `LING-${version}-${target}${extension}`;
+      const asset = release.assets.find((entry) => entry?.name === name);
+      const size = asset?.size;
+      if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) continue;
+      const base = new URL(`${release.tag_name}/`, LING_RELEASE_DOWNLOADS);
+      return { version, name, size, url: new URL(name, base) };
+    }
+  }
+  return null;
+}
+
+export async function downloadLingInstaller(
+  installer: LingInstaller,
+  directory: string,
+  onProgress: (receivedBytes: number) => void,
+): Promise<string> {
+  const { name, size, url } = installer;
+  const sumsResponse = await fetchLingReleaseFile(new URL("SHA256SUMS", url), {
+    Accept: "text/plain",
+  });
+  const expectedHash = (await sumsResponse.text())
+    .split(/\r?\n/)
+    .map((line) => line.match(/^([a-f\d]{64})\s+(.+)$/i))
+    .find((match) => match?.[2] === name)?.[1]
+    ?.toLowerCase();
+  if (!expectedHash) throw new Error("Missing installer checksum");
+
+  await mkdir(directory, { recursive: true });
+  const destination = join(directory, name);
+  const cached = await stat(destination).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+    return undefined;
+  });
+  if (cached?.isFile() && cached.size === size) {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(destination)) hash.update(chunk);
+    if (hash.digest("hex") === expectedHash) return destination;
+  }
+
+  const staging = await mkdtemp(join(directory, ".ling-"));
+  const temporary = join(staging, name);
+  try {
+    const response = await fetchLingReleaseFile(url);
+    const hash = createHash("sha256");
+    let receivedBytes = 0;
+    await pipeline(
+      response.body!,
+      async function* (source: AsyncIterable<Uint8Array>) {
+        for await (const chunk of source) {
+          receivedBytes += chunk.byteLength;
+          if (receivedBytes > size) throw new Error("Invalid installer size");
+          hash.update(chunk);
+          onProgress(receivedBytes);
+          yield chunk;
+        }
+      },
+      createWriteStream(temporary, { mode: name.endsWith(".AppImage") ? 0o700 : 0o600 }),
+    );
+    // 下载中断或内容不匹配时只清理临时文件，系统始终打开完整校验后的安装包。
+    if (receivedBytes !== size || hash.digest("hex") !== expectedHash) {
+      throw new Error("Installer verification failed");
+    }
+    await rename(temporary, destination);
+    return destination;
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
 }
 
 type LingGitHubUpdateOptions = CustomPublishOptions & {
@@ -83,33 +222,19 @@ export class LingGitHubUpdateProvider extends Provider<UpdateInfo> {
     if (!this.extensions.length) return noUpdate;
 
     const manifestName = `ling-update-${this.target}.json`;
-    const headers = { Accept: "application/vnd.github+json", "User-Agent": "LING-Desktop" };
-    const raw = await this.httpRequest(new URL(`${LING_RELEASES_API}?per_page=100`), headers);
-    const releases: GitHubRelease[] = JSON.parse(raw ?? "null");
-    if (!Array.isArray(releases)) throw new Error("Invalid LING GitHub release list");
-
-    const candidates = releases.flatMap((release) => {
-      const version = release.tag_name?.slice("ling-v".length);
-      if (
-        !version ||
-        semver.valid(version) !== version ||
-        release.tag_name !== `ling-v${version}` ||
-        release.draft ||
-        (channel === "stable" && (release.prerelease || semver.prerelease(version))) ||
-        !semver.gt(version, currentVersion) ||
-        !release.assets?.some((asset) => asset.name === manifestName) ||
-        !this.extensions.some((ext) =>
+    const raw = await this.httpRequest(new URL(LING_RELEASE_LIST_URL), LING_RELEASE_HEADERS);
+    const candidates = getLingReleaseCandidates(JSON.parse(raw ?? "null"), currentVersion);
+    const selected = candidates.find(
+      ({ release, version }) =>
+        !(channel === "stable" && (release.prerelease || semver.prerelease(version))) &&
+        release.assets.some((asset) => asset?.name === manifestName) &&
+        this.extensions.some((ext) =>
           release.assets.some(
             (asset) =>
-              asset.name.toLowerCase() === `LING-${version}-${this.target}`.toLowerCase() + ext,
+              asset?.name?.toLowerCase() === `LING-${version}-${this.target}`.toLowerCase() + ext,
           ),
-        )
-      )
-        return [];
-      return [{ release, version }];
-    });
-    candidates.sort((left, right) => semver.rcompare(left.version, right.version));
-    const selected = candidates[0];
+        ),
+    );
     if (!selected) return noUpdate;
 
     const baseUrl = new URL(`${selected.release.tag_name}/`, LING_RELEASE_DOWNLOADS);

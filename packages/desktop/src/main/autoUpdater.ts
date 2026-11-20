@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- autoUpdater 需要集中维护 Electron 事件、菜单状态与 IPC 交互，过度拆分会让更新状态流更难追踪 */
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
+import { join } from "node:path";
 import type { ISettingService } from "@zcode/services";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
@@ -19,7 +20,12 @@ import {
 } from "@zcode/shared";
 import { logger } from "./logger.js";
 import { verifyWindowsAuthenticodeSignature } from "../../scripts/powershell-command.mjs";
-import { LingGitHubUpdateProvider, ManifestUpdateProvider } from "./manifestUpdateProvider.js";
+import {
+  downloadLingInstaller,
+  findLingInstaller,
+  LingGitHubUpdateProvider,
+  ManifestUpdateProvider,
+} from "./manifestUpdateProvider.js";
 
 export const CHECK_FOR_UPDATE_MENU_ID = "check-for-update";
 const AUTO_UPDATE_POLL_INTERVAL_MS = 15 * 60 * 1000;
@@ -57,9 +63,7 @@ const acknowledgedPostUpdateReleaseNotesVersions = new Set<string>();
 const cancelledDownloadTokens = new WeakSet<CancellationToken>();
 let pendingCancelledDownloadErrorCount = 0;
 let autoUpdaterSettingService: SettingServiceLike | undefined;
-// initAutoUpdater({ enabled: false }) 只清轮询并 return，electron-updater 实例保持未配置
-// （占位 feed、autoDownload 默认值）。任何漏改成按身份判断的入口若仍调用手动检查，
-// 都会对占位 feed 发真实请求。这里记住“本 flavor 已禁用”，让手动检查在模块内部 fail-closed。
+// 签名更新器禁用时仍可手动下载，入口不能向未初始化的 electron-updater 发请求。
 let autoUpdaterDisabledForProductFlavor = false;
 
 type SettingServiceLike = Pick<ISettingService, "get" | "update">;
@@ -572,6 +576,7 @@ function getMenuItemLabel(state: AutoUpdaterMenuState): string {
         desktopMenuMessageIds.helpUpdateAvailableVersion,
         { version: state.version },
       );
+    case "installer-download":
     case "download-progress":
       return formatDesktopMenuMessage(
         menuLocale,
@@ -620,6 +625,8 @@ function isSameAutoUpdaterMenuState(left: AutoUpdaterMenuState, right: AutoUpdat
         right.channel === left.channel &&
         JSON.stringify(right.releaseNotes ?? null) === JSON.stringify(left.releaseNotes ?? null)
       );
+    case "installer-download":
+      return right.kind === left.kind && right.progress === left.progress;
     case "idle":
     case "checking":
     default:
@@ -1627,6 +1634,7 @@ export async function acknowledgePostUpdateReleaseNotes(
 }
 
 export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Promise<void> {
+  autoUpdaterSettingService = options.settingService;
   if (options.enabled === false) {
     autoUpdaterDisabledForProductFlavor = true;
     if (autoUpdatePollTimer) {
@@ -1643,7 +1651,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   if (options.locale) {
     menuLocale = options.locale;
   }
-  autoUpdaterSettingService = options.settingService;
 
   if (autoUpdatePollTimer) {
     clearInterval(autoUpdatePollTimer);
@@ -1937,6 +1944,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
 }
 
 function ensureAutoUpdatePollInterval() {
+  if (autoUpdaterDisabledForProductFlavor || !canUseAutoUpdaterInCurrentRuntime()) return;
   if (menuState.kind === "download-progress") {
     if (autoUpdatePollTimer) {
       clearInterval(autoUpdatePollTimer);
@@ -2081,6 +2089,46 @@ export function requestAutoUpdateCheckWithoutWindow(reason = "force-update") {
     });
 }
 
+async function checkForLingInstaller(targetWindow: BrowserWindow) {
+  if (menuState.kind === "checking" || menuState.kind === "installer-download") return;
+
+  const report = (payload: UpdateCheckResultPayload) => {
+    if (!targetWindow.isDestroyed() && !targetWindow.webContents.isDestroyed()) {
+      targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, payload);
+    }
+  };
+  setAutoUpdaterMenuState({ kind: "checking", enabled: false });
+  try {
+    const currentVersion = app.isPackaged ? app.getVersion() : ZCODE_VERSION || app.getVersion();
+    const channel = await resolveUpdateReleaseChannel(autoUpdaterSettingService);
+    const installer = await findLingInstaller(currentVersion, channel);
+    if (!installer) {
+      report({ kind: "up-to-date", currentVersion });
+      return;
+    }
+    report({ kind: "downloading", version: installer.version });
+    const setProgress = (receivedBytes: number) => {
+      const progress = `${Math.floor((receivedBytes / installer.size) * 100)}%`;
+      setAutoUpdaterMenuState({ kind: "installer-download", enabled: false, progress });
+    };
+    setProgress(0);
+    const path = await downloadLingInstaller(
+      installer,
+      join(app.getPath("downloads"), "LING Updates"),
+      setProgress,
+    );
+    // AppImage 或 DEB 交给用户替换或安装，避免将 AppImage 当作自动启动的新版本。
+    if (process.platform === "linux" || (await shell.openPath(path))) {
+      shell.showItemInFolder(path);
+    }
+  } catch (error) {
+    logger.warn("[auto-update] manual installer failed:", error);
+    report({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+  } finally {
+    setAutoUpdaterMenuState({ kind: "idle", enabled: true });
+  }
+}
+
 export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
   if (quitAndInstallState !== "idle") return;
   logger.info("[auto-update] user clicked Check for Updates");
@@ -2097,20 +2145,8 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
     return;
   }
 
-  if (!canUseAutoUpdaterInCurrentRuntime()) {
-    logger.info("[auto-update] skip manual check: not packaged");
-    targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, {
-      kind: "dev-skipped",
-    } satisfies UpdateCheckResultPayload);
-    return;
-  }
-
-  if (autoUpdaterDisabledForProductFlavor) {
-    // 入口本应已按产品身份隐藏；这里是最后一道闸，不让未初始化的 updater 实例向占位 feed 发请求。
-    logger.info("[auto-update] skip manual check: updater disabled for this product flavor");
-    targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, {
-      kind: "dev-skipped",
-    } satisfies UpdateCheckResultPayload);
+  if (autoUpdaterDisabledForProductFlavor || !canUseAutoUpdaterInCurrentRuntime()) {
+    void checkForLingInstaller(targetWindow);
     return;
   }
 

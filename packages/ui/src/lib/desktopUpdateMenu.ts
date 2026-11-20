@@ -17,6 +17,7 @@ export function getUpdateMenuLabelId(state: UpdateStatePayload | null) {
       return "desktopMenu.help.checkingForUpdates";
     case "update-available":
       return "desktopMenu.help.updateAvailableVersion";
+    case "installer-download":
     case "download-progress":
       return "desktopMenu.help.downloadingUpdateProgress";
     case "update-downloaded":
@@ -34,6 +35,7 @@ export function getUpdateMenuLabelValues(
     case "update-available":
     case "update-downloaded":
       return { version: state.version };
+    case "installer-download":
     case "download-progress":
       return { progress: state.progress };
     default:

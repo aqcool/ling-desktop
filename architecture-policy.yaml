@@ -2132,6 +2132,12 @@ exceptions:
     rule: unmanaged-new-file
     paths: [apps/zcode-cli/packages/core/src/tool/handlers/workflow-skill-gate.ts]
     reason: 已入库的工作流技能门只更新一句注释，跟随 compaction 后读取状态改为只留补回的文件；门的判据、代码与 Core 模块边界不变，接管整个 tool 目录不在本次范围内。
+  - id: desktop-installer-update-menu-unmanaged-edit
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/hooks/useDesktopUpdateMenu.ts
+      - packages/ui/src/lib/desktopUpdateMenu.ts
+    reason: 复用已入库的桌面更新菜单订阅和文案映射，安装包检查和下载仍由桌面主进程管理。
   - id: browser-device-presets-export-unmanaged-new-files
     rule: unmanaged-new-file
     paths:
