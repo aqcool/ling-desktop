@@ -28,6 +28,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # 标签触发时默认 checkout 会把附注标签改为提交引用，破坏下方校验。
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
       - name: Resolve the immutable release source

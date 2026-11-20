@@ -22,6 +22,8 @@ sequenceDiagram
 
 仓库签名 Secrets 为 `LING_MAC_CSC_LINK`、`LING_MAC_CSC_KEY_PASSWORD`、`LING_MAC_SIGNING_IDENTITY`、`LING_APPLE_ID`、`LING_APPLE_ID_PASSWORD`、`LING_APPLE_TEAM_ID`、`LING_WIN_CSC_LINK` 和 `LING_WIN_CSC_KEY_PASSWORD`。对已安装的旧手动版，先手动安装首个启用自动更新的版本。
 
+标签推送与手动发布都从默认分支检出完整历史，验证远端附注标签对象及其指向的提交。各平台始终打包该标签指向的提交。
+
 验收覆盖以下场景。
 
 - 同一次构建的目标架构、版本、文件名、格式和 SHA-512 必须与清单一致。Mac arm64 和 x64 清单可同时存在。
