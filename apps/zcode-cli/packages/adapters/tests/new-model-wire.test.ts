@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { createModelId, createModelProviderId } from "@zcode/contracts";
+import {
+  createModelId,
+  createModelProviderId,
+  runWithModelInvocationContext,
+  type ModelToolContract,
+} from "@zcode/contracts";
 import {
   createRegistryModelConfig,
   createRegistryProviderConfig,
@@ -8,6 +13,108 @@ import {
   parseZCodeBuiltinModelConfigRules,
 } from "@zcode/provider";
 import { AiSdkModelAdapter } from "../src/model/runner.js";
+
+describe("ChatGPT 订阅函数工具 schema", () => {
+  it.each([
+    ["gpt-6.2-astra", true],
+    ["gpt-6.2-sol", true],
+    ["gpt-6.2-sol", false],
+  ] as const)("%s / 订阅=%s 的流式与一次性请求", async (modelId, subscription) => {
+    const apiType = "openai-responses";
+    const baseUrl = subscription
+      ? "https://chatgpt.com/backend-api/codex"
+      : "https://api.openai.com/v1";
+    const providerId = createModelProviderId("wire-fixture");
+    const release = JSON.parse(
+      await readFile(
+        new URL("../../../../../config/provider/zcode-builtin.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const modelConfig = createRegistryModelConfig(
+      parseZCodeBuiltinModelConfigRules(release.config.modelConfigRules).resolve({
+        providerId,
+        modelId,
+        apiType,
+        baseUrl,
+      }),
+    );
+    const providerConfig = createRegistryProviderConfig(
+      parseProviderConfig({
+        group: "standard-personal",
+        access: subscription
+          ? { type: "subscription-oauth", vendor: "openai-chatgpt" }
+          : { type: "api-key", apiKey: "fixture" },
+        api: { type: apiType, baseUrl },
+      }),
+    );
+    if (!modelConfig.ok || !providerConfig.ok) throw new Error("incomplete fixture");
+
+    const requests: Array<{ model: string; stream?: boolean; tools: Record<string, unknown>[] }> =
+      [];
+    const model = new AiSdkModelAdapter({
+      env: {},
+      retry: { maxAttempts: 1 },
+      transport: async (_url, init) => {
+        if (typeof init?.body !== "string") throw new Error("expected JSON request");
+        requests.push(JSON.parse(init.body));
+        return Response.json({ error: { message: "captured wire request" } }, { status: 400 });
+      },
+    }).createModel({
+      providerId,
+      modelId: createModelId(modelId),
+      providerConfig: providerConfig.config,
+      modelConfig: modelConfig.config,
+      options: { maxOutputTokens: 4000, reasoningLevel: subscription ? "medium" : "disabled" },
+    });
+    const tool: ModelToolContract = {
+      name: "mcp__fixture__set_labels",
+      inputSchema: {
+        type: "object",
+        properties: {
+          labels: {
+            type: "object",
+            propertyNames: { type: "string", pattern: "^[a-z]+$" },
+            additionalProperties: { type: "string" },
+          },
+        },
+      },
+    };
+    const request = {
+      messages: [{ role: "user" as const, content: "hi" }],
+      tools: [tool],
+    };
+    const invocation = {
+      refreshRuntimeHeadersBeforeAttempt: async () => ({
+        headersApplied: true,
+        requestAuth: { apiKey: "fixture" },
+      }),
+    };
+    await expect(
+      runWithModelInvocationContext(invocation, () => model.generateText(request)),
+    ).rejects.toThrow();
+    await expect(
+      runWithModelInvocationContext(invocation, async () => {
+        for await (const _event of model.streamText(request)) {
+          // 消费到 HTTP 响应错误，避免只构造未开始的请求。
+        }
+      }),
+    ).rejects.toThrow();
+
+    expect(requests).toHaveLength(2);
+    for (const body of requests) {
+      expect(body.model).toBe(modelId);
+      expect(body.tools).toHaveLength(1);
+      expect(body.tools[0]).toMatchObject({
+        type: "function",
+        name: tool.name,
+        parameters: tool.inputSchema,
+      });
+      if (subscription) expect(body.tools[0]?.strict).toBe(false);
+      else expect(body.tools[0]).not.toHaveProperty("strict");
+    }
+  });
+});
 
 describe("新目录通过真实 SDK 发出的请求", () => {
   for (const [modelId, apiType, baseUrl, levels] of [

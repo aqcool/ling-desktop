@@ -35,6 +35,18 @@ function mergeRequestHeaders(
   };
 }
 
+function prepareModelTools(request: AiSdkModelTextRequest, resolved: ResolvedAiSdkModel) {
+  return toAiSdkTools(request.tools, {
+    toolSearchEnabled: request.toolSearchEnabled,
+    providerKind: resolved.providerKind,
+    modelId: resolved.modelId,
+    requiresMfjsToolSchema: resolved.properties.requiresMfjsToolSchema,
+    supportsNativeWebSearch: resolved.properties.supportsNativeWebSearch,
+    // Codex Responses 会隐式尝试严格编译；动态键工具的 propertyNames 会让整轮请求被拒。
+    defaultStrict: resolved.chatGptSubscription ? false : undefined,
+  });
+}
+
 export function createGenerateTextOptions(input: {
   anthropicMetadataUserId?: string;
   env?: EnvRecord;
@@ -57,13 +69,7 @@ export function createGenerateTextOptions(input: {
   return removeUndefined({
     model: input.resolved.model,
     messages,
-    tools: toAiSdkTools(input.request.tools, {
-      toolSearchEnabled: input.request.toolSearchEnabled,
-      providerKind: input.resolved.providerKind,
-      modelId: input.resolved.modelId,
-      requiresMfjsToolSchema: input.resolved.properties.requiresMfjsToolSchema,
-      supportsNativeWebSearch: input.resolved.properties.supportsNativeWebSearch,
-    }),
+    tools: prepareModelTools(input.request, input.resolved),
     toolChoice: toAiSdkToolChoice(input.request.toolChoice),
     temperature: input.request.temperature,
     topP: input.request.topP,
@@ -111,13 +117,7 @@ export function createStreamTextOptions(input: {
   return removeUndefined({
     model: input.resolved.model,
     messages,
-    tools: toAiSdkTools(input.request.tools, {
-      toolSearchEnabled: input.request.toolSearchEnabled,
-      providerKind: input.resolved.providerKind,
-      modelId: input.resolved.modelId,
-      requiresMfjsToolSchema: input.resolved.properties.requiresMfjsToolSchema,
-      supportsNativeWebSearch: input.resolved.properties.supportsNativeWebSearch,
-    }),
+    tools: prepareModelTools(input.request, input.resolved),
     toolChoice: toAiSdkToolChoice(input.request.toolChoice),
     temperature: input.request.temperature,
     topP: input.request.topP,

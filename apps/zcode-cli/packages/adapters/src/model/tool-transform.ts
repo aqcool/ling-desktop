@@ -13,6 +13,8 @@ export interface AiSdkToolTransformOptions {
   requiresMfjsToolSchema?: boolean;
   supportsNativeWebSearch?: boolean;
   providerKind?: "openai" | "anthropic" | "openai-compatible" | "gateway" | "custom";
+  /** 由请求适配层显式选择非严格模式，省略时沿用 SDK/服务端行为。 */
+  defaultStrict?: false;
 
   /** 本次请求的模型 id，仅用于首方 strict 资格判定；缺席即不启用 strict。 */
   modelId?: string;
@@ -33,6 +35,7 @@ export function toAiSdkTools(
     }
 
     const strictSchema = resolveStrictToolSchema(contract, options);
+    const strict = strictSchema === undefined ? options.defaultStrict : true;
     const baseTool = {
       description: contract.description,
       inputSchema: jsonSchema<unknown>(
@@ -42,7 +45,7 @@ export function toAiSdkTools(
           options,
         ),
       ),
-      ...(strictSchema === undefined ? {} : { strict: true }),
+      ...(strict === undefined ? {} : { strict }),
       needsApproval: contract.needsApproval,
       ...providerOptionsForClientTool(options, contract),
     };

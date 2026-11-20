@@ -10,6 +10,14 @@ MCP 工具（名称以 `mcp__` 开头）按名字排序排在最后，顺序与 
 （fork/后台/目录作用域 skill、署名行、Jupyter、teammate/cross-session、worktree 等未支持，不出现在描述里）。
 只改请求投影，不改变执行、权限或持久化；升级后第一个请求的 tools 段缓存失效一次。
 
+## ChatGPT 订阅函数工具的校验模式
+
+模型 runner 根据已解析的 ChatGPT 订阅身份，在流式和一次性 Codex Responses 请求的函数工具上显式发送
+`strict: false`。省略该字段会让 Responses 尝试按严格子集编译工具参数，GPT-6.2 会因动态键对象的
+`propertyNames` 等关键字在模型回答前拒绝整轮请求。保留原始工具 schema，工具执行仍由原输入校验与权限控制。
+普通 OpenAI API Key 和其他供应商沿用原投影。回归检查 GPT-6.2 Astra、Sol 两条请求路径的最终 JSON，
+覆盖动态键 schema 的保留、`strict: false` 的显式传输和普通 API Key 请求。
+
 工具结果文本（2026-10-18）：Read 去重只比较该文件最近一次 Read 视图；空内容警告按读取结果区分；
 部分视图的页长按比例估算，提示改为 `read_truncation_notice` 附件，排在该批 tool result 之后；
 未知工具名统一为 `<tool_use_error>Error: No such tool available: X</tool_use_error>`；
