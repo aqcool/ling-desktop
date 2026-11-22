@@ -168,5 +168,6 @@
   "packages/zcode-server-cli/test/verifyRemoteSshTarget.test.ts",
   "packages/desktop/test/credential-keyring-assets.test.ts",
   "packages/desktop/test/stdioTapCredentialRedaction.test.ts",
-  "scripts/test/ling-github-update-manifest.test.mjs"
+  "scripts/test/ling-github-update-manifest.test.mjs",
+  "scripts/test/ling-macos-release.test.mjs"
 ]

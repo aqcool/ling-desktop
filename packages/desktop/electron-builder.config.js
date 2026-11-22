@@ -953,7 +953,9 @@ export default {
     // z-code 之前只有本地未签名打包配置，CI 即使注入了证书变量，
     // electron-builder 也不会自动切到 hardened runtime / entitlement 这套发布参数。
     // 这里显式收拢到环境开关，保证本地开发不被签名配置绑死，CI 发布时再按需打开。
-    identity: shouldEnableMacSigning ? macSigningIdentity : null,
+    // 修复原因：null 会跳过整包签名，仅留下 Electron 链接器签名，隔离下载后会被 macOS 判为损坏。
+    // 已发布 3.18.6 的完整签名校验失败；恢复旧 LING 的 ad-hoc 签名，封印最终 app 资源。
+    identity: shouldEnableMacSigning ? macSigningIdentity : "-",
     // LING 签名发布在生成 ZIP 前公证并 staple 主应用；其它打包保留各自的公证入口。
     notarize: signedLingRelease,
     ...(signedLingRelease ? { forceCodeSigning: true } : {}),
@@ -967,11 +969,13 @@ export default {
     // 命中后可跳过已预签名目录的重复签名/遍历，同时保留主 app 与框架签名。
     // CUA Helper 在独立 job 中已完成 Developer ID 签名和 notarization staple；
     // electron-builder 若再次签名嵌套 Helper 会改变 CDHash，使最终用户包中的 staple 失效。
-    signIgnore: signedLingRelease ? [] : [
-      "[/\\\\]Contents[/\\\\]Resources[/\\\\]cua-helper([/\\\\]|$)",
-      "[/\\\\]Contents[/\\\\]Resources[/\\\\]glm([/\\\\]|$)",
-      "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools([/\\\\]|$)",
-    ],
+    signIgnore: signedLingRelease
+      ? []
+      : [
+          "[/\\\\]Contents[/\\\\]Resources[/\\\\]cua-helper([/\\\\]|$)",
+          "[/\\\\]Contents[/\\\\]Resources[/\\\\]glm([/\\\\]|$)",
+          "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools([/\\\\]|$)",
+        ],
   },
   win: {
     target: ["nsis"],

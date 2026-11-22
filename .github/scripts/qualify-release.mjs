@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { writeLingUpdateManifest } from "./ling-update-manifest.mjs";
+import { verifyMacReleaseSignature } from "./macos-release-signature.mjs";
 
 const {
   TARGET_OS: os,
@@ -62,7 +63,14 @@ for (const extension of extensions) {
   );
   const source = join(dist, matches[0]);
   assert(statSync(source).size > 0, `Empty installer: ${source}`);
-  if (extension === ".dmg") execFileSync("hdiutil", ["verify", source], { stdio: "inherit" });
+  if (extension === ".dmg") {
+    execFileSync("hdiutil", ["verify", source], { stdio: "inherit" });
+    await verifyMacReleaseSignature({
+      appPath: join(dist, appPath, ".."),
+      imagePath: source,
+      requireNotarization: updateEnabled,
+    });
+  }
   if (extension === ".deb") {
     assert.equal(
       execFileSync("dpkg-deb", ["--field", source, "Architecture"], { encoding: "utf8" }).trim(),
@@ -80,14 +88,6 @@ for (const extension of extensions) {
 }
 
 if (updateEnabled) {
-  if (os === "mac") {
-    const bundle = join(dist, appPath, "..");
-    execFileSync("codesign", ["--verify", "--deep", "--strict", bundle], { stdio: "inherit" });
-    execFileSync("xcrun", ["stapler", "validate", bundle], { stdio: "inherit" });
-    const image = join(output, `${prefix}.dmg`);
-    execFileSync("codesign", ["--verify", image], { stdio: "inherit" });
-    execFileSync("xcrun", ["stapler", "validate", image], { stdio: "inherit" });
-  }
   if (os === "win") {
     const config = readFileSync(join(resources, "app-update.yml"), "utf8");
     assert.match(

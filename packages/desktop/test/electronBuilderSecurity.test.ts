@@ -139,6 +139,29 @@ it("安装包使用 desktop 依赖中的唯一 Electron 版本，并声明 macOS
   expect(config.mac?.minimumSystemVersion).toBe("13.0.0");
 });
 
+it("无证书的 macOS 包仍签署完整应用，不能保留 Electron 链接器签名", async () => {
+  vi.stubEnv("ZCODE_ENABLE_MAC_SIGN", "0");
+  vi.stubEnv("LING_SIGNED_RELEASES", "0");
+  vi.stubEnv("APPLE_SIGNING_IDENTITY", "Developer ID Application: Unused Developer");
+  const { default: config } = await import("../electron-builder.config.js");
+
+  expect(config.mac?.identity).toBe("-");
+  expect(config.mac?.hardenedRuntime).toBe(false);
+  expect(config.mac?.notarize).toBe(false);
+});
+
+it("显式开启 Developer ID 发布时保留证书签名与公证", async () => {
+  vi.stubEnv("ZCODE_ENABLE_MAC_SIGN", "1");
+  vi.stubEnv("LING_SIGNED_RELEASES", "1");
+  vi.stubEnv("APPLE_SIGNING_IDENTITY", "Developer ID Application: Example Developer (EXAMPLE)");
+  const { default: config } = await import("../electron-builder.config.js");
+
+  expect(config.mac?.identity).toBe("Example Developer (EXAMPLE)");
+  expect(config.mac?.hardenedRuntime).toBe(true);
+  expect(config.mac?.notarize).toBe(true);
+  expect(config.mac?.forceCodeSigning).toBe(true);
+});
+
 it("macOS afterExtract 从 app Resources 保留 Electron 原始许可", async () => {
   vi.stubEnv("ZCODE_TARGET_OS", "darwin");
   const { default: config } = await import("../electron-builder.config.js");
