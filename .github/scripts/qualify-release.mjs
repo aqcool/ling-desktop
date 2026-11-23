@@ -11,6 +11,7 @@ import {
 import { join, resolve } from "node:path";
 import { writeLingUpdateManifest } from "./ling-update-manifest.mjs";
 import { verifyMacReleaseSignature } from "./macos-release-signature.mjs";
+import { verifyPackagedSubscriptions } from "./packaged-subscriptions.mjs";
 
 const {
   TARGET_OS: os,
@@ -44,7 +45,11 @@ const resources = join(dist, appPath, resourcesPath);
 const agent = join(resources, "glm", "zcode.cjs");
 const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
 const run = (args) =>
-  execFileSync(executable, args, { env, encoding: "utf8", timeout: 60_000 }).trim();
+  execFileSync(executable, args, {
+    env,
+    encoding: "utf8",
+    timeout: 60_000,
+  }).trim();
 
 assert.equal(run(["-p", "process.arch"]), arch);
 const agentVersion = run([agent, "--version"]);
@@ -73,7 +78,9 @@ for (const extension of extensions) {
   }
   if (extension === ".deb") {
     assert.equal(
-      execFileSync("dpkg-deb", ["--field", source, "Architecture"], { encoding: "utf8" }).trim(),
+      execFileSync("dpkg-deb", ["--field", source, "Architecture"], {
+        encoding: "utf8",
+      }).trim(),
       "amd64",
     );
   }
@@ -87,6 +94,11 @@ for (const extension of extensions) {
   }
 }
 
+const subscriptionTemplates = await verifyPackagedSubscriptions({
+  executable,
+  resources,
+});
+
 if (updateEnabled) {
   if (os === "win") {
     const config = readFileSync(join(resources, "app-update.yml"), "utf8");
@@ -98,7 +110,10 @@ if (updateEnabled) {
     const signatureCheck =
       "if ((Get-AuthenticodeSignature -LiteralPath $env:LING_INSTALLER_PATH).Status -ne 'Valid') { exit 1 }";
     execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", signatureCheck], {
-      env: { ...process.env, LING_INSTALLER_PATH: join(output, `${prefix}.exe`) },
+      env: {
+        ...process.env,
+        LING_INSTALLER_PATH: join(output, `${prefix}.exe`),
+      },
       stdio: "inherit",
     });
   }
@@ -107,7 +122,15 @@ if (updateEnabled) {
 writeFileSync(
   join(output, `${prefix}-report.json`),
   JSON.stringify(
-    { target, version, revision, agentVersion, agentSmoke: "passed", updateEnabled },
+    {
+      target,
+      version,
+      revision,
+      agentVersion,
+      agentSmoke: "passed",
+      subscriptionTemplates,
+      updateEnabled,
+    },
     null,
     2,
   ) + "\n",

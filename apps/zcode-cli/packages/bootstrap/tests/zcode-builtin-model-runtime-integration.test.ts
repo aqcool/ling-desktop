@@ -1,6 +1,9 @@
 import type { CreateAiSdkModelOptions } from "@zcode/adapters/model";
 import type { Model } from "@zcode/contracts";
 import { fileURLToPath } from "node:url";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ApiKeyAccessConfig,
   ModelConfigRules,
@@ -13,6 +16,7 @@ import {
 } from "@zcode/provider";
 import {
   NodeZCodeBuiltinProviderConfigSource,
+  decodeZCodeBuiltinRelease,
   type ZCodeBuiltinProviderConfigSnapshot,
 } from "@zcode/provider-node";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -32,6 +36,100 @@ beforeAll(async () => {
 });
 
 afterAll(() => source.dispose());
+
+describe("CLI 与 Host 共用的订阅配置交付", () => {
+  it("修复已缓存的上游目录，并在刷新、重启和 Managed Worker 中保留订阅模板", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ling-subscription-release-"));
+    const activeFilePath = join(directory, "active.json");
+    const bundled = JSON.parse(await readFile(zcodeBuiltinProviderConfigFilePath, "utf8"));
+    const subscriptions = ["claude-subscription", "chatgpt-subscription", "grok-subscription"];
+    const remote = structuredClone(bundled);
+    remote.revision = bundled.revision + 2;
+    remote.config.providerConfigRules.templateRules =
+      remote.config.providerConfigRules.templateRules.filter(
+        (template: { templateId: string }) => !subscriptions.includes(template.templateId),
+      );
+    remote.config.providerConfigRules.templateRules[0].templateNameMap["en-US"] =
+      "Updated upstream provider";
+    await writeFile(activeFilePath, JSON.stringify(remote));
+    const createHost = () =>
+      new NodeZCodeBuiltinProviderConfigSource({
+        bundledFilePath: zcodeBuiltinProviderConfigFilePath,
+        activeFilePath,
+        watch: false,
+      });
+    const host = createHost();
+    let worker: NodeZCodeBuiltinProviderConfigSource | undefined;
+    let restarted: NodeZCodeBuiltinProviderConfigSource | undefined;
+    try {
+      const snapshot = await host.read();
+      for (const templateId of subscriptions) {
+        expect(snapshot.providerTemplates.get(templateId)?.config.access?.type).toBe(
+          "subscription-oauth",
+        );
+      }
+      expect(snapshot.providerTemplates.toJSON()[0]?.templateNameMap["en-US"]).toBe(
+        "Updated upstream provider",
+      );
+      const chatgpt = snapshot.providerTemplates.get("chatgpt-subscription")!.config;
+      expect(chatgpt.api?.baseUrl).toBe("https://chatgpt.com/backend-api/codex");
+      expect(chatgpt.builtinModelIds).toEqual(
+        expect.arrayContaining(["gpt-6.2-astra", "gpt-6.2-sol"]),
+      );
+
+      // 真正发请求的 CLI 从 Host 物化的 Active 读取，不能只修复设置页投影。
+      worker = new NodeZCodeBuiltinProviderConfigSource({
+        bundledFilePath: activeFilePath,
+        watch: false,
+      });
+      expect((await worker.read()).providerTemplates.toJSON()).toEqual(
+        snapshot.providerTemplates.toJSON(),
+      );
+      expect((await worker.read()).revision).toBe(snapshot.revision);
+      expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(remote))).toBe("unchanged");
+
+      remote.revision += 1;
+      remote.config.providerConfigRules.templateRules[0].templateNameMap["en-US"] =
+        "Next upstream provider";
+      // 即使上游出现同 ID 模板，授权厂商、地址和模型清单仍由随包配置维护。
+      const conflicting = structuredClone(
+        bundled.config.providerConfigRules.templateRules.find(
+          (template: { templateId: string }) => template.templateId === "chatgpt-subscription",
+        ),
+      );
+      conflicting.config.api.baseUrl = "https://example.invalid/overridden";
+      remote.config.providerConfigRules.templateRules.push(conflicting);
+      expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(remote))).toBe("updated");
+      const updated = await host.read();
+      expect(updated.providerTemplates.get("chatgpt-subscription")?.config.api?.baseUrl).toBe(
+        chatgpt.api?.baseUrl,
+      );
+      expect(updated.providerTemplates.toJSON()[0]?.templateNameMap["en-US"]).toBe(
+        "Next upstream provider",
+      );
+      expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(remote))).toBe("unchanged");
+
+      const beforeRestart = await readFile(activeFilePath, "utf8");
+      restarted = createHost();
+      expect((await restarted.read()).providerTemplates.toJSON()).toEqual(
+        updated.providerTemplates.toJSON(),
+      );
+      expect(await readFile(activeFilePath, "utf8")).toBe(beforeRestart);
+      const stale = { ...remote, revision: remote.revision - 1 };
+      expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(stale))).toBe("stale");
+      const conflict = structuredClone(remote);
+      conflict.config.providerConfigRules.templateRules[0].templateNameMap["en-US"] = "Conflict";
+      await expect(host.applyRemoteRelease(decodeZCodeBuiltinRelease(conflict))).rejects.toThrow(
+        "对应不同内容",
+      );
+    } finally {
+      restarted?.dispose();
+      worker?.dispose();
+      host.dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("真实 ZCode Built-in Config 到 Active Model", () => {
   it("API Key Personal Overlay 经 Registry 原样装配到 Adapter", () => {

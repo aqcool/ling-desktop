@@ -4,10 +4,34 @@ Claude、ChatGPT、Grok 的订阅登录是普通个人供应商，凭证类型�
 
 ## 所有者
 
+- 三个订阅模板属于 LING 随包功能，由包内配置唯一维护；上游 CDN 的较高 revision 不得删除或改写它们。普通供应商和通用模型能力规则继续跟随上游。订阅模型沿用已有同厂商模型规则，不另建能力目录。
+- `NodeZCodeBuiltinProviderConfigSource` 在同一文件锁内，把选中的上游 Release 与包内三个订阅模板组合，再原子物化到现有 Active 文件。Host、Managed Worker、独立 CLI 和手机目标 Host 都读取这一份结果，不在 UI 补入口或另存缓存。修复前已缓存的缺模板 Release 在首次读取时自动修复；无需删除个人供应商或凭据。
 - 供应商配置保存访问类型、厂商、请求地址和模型目录。`claude-subscription`、`chatgpt-subscription`、`grok-subscription` 分别对应 `anthropic`、`openai-chatgpt`、`xai`。
 - 访问令牌和刷新令牌在凭据库，键为 `subscription-oauth:${providerId}`。配置、设置同步和日志都不保存令牌。
 - 登录使用与 Pi 相同的公开 OAuth 客户端：Claude Pro/Max（PKCE，本地回调 `127.0.0.1:53692`）、ChatGPT Codex（PKCE，本地回调 `127.0.0.1:1455`）、xAI Grok（设备码）。客户端没有密钥。
 - 每次模型请求由 Host 读取当前访问令牌。过期则先刷新，再把访问令牌交给当次请求。ChatGPT 同时带 `ChatGPT-Account-ID`。
+
+### 上游配置更新顺序与验收
+
+```mermaid
+sequenceDiagram
+    participant U as 上游 CDN
+    participant S as Release Source（唯一写入者）
+    participant B as 包内订阅模板
+    participant A as Endpoint Active 文件
+    participant H as Host / Worker Registry
+    U->>S: 较高 revision 的供应商配置
+    S->>S: 获得现有 Active 文件锁并校验 revision
+    S->>B: 读取 LING 所有的三个模板
+    S->>A: 原子写入上游配置 + 包内订阅模板
+    S->>H: 通过既有变更事件发布同一 revision
+```
+
+组合不增加发布序号；同号同内容幂等、低版本忽略、同号普通供应商内容冲突仍拒绝。比较远端内容前采用相同的订阅模板组合规则，避免合法重复下载被误报冲突。Endpoint 隔离、刷新 lease、Account 配对和桌面连续/手机恢复传输均沿用既有机制；此次不改会话事件顺序。
+
+验收必须覆盖：已有 revision 48 缓存缺少三个订阅模板时启动自动恢复；后续较高 revision 和重启仍保留三个入口；同号重复刷新幂等；普通供应商的更新仍生效；Managed Worker 读取 Active 得到相同模板与 revision；ChatGPT 模板仍包含 GPT-6.2 Astra/Sol 并使用 Codex 地址。桌面在生产配置环境进入「模型设置 → 添加供应商」应能看到三个订阅入口，选择 ChatGPT 后展示授权登录卡。
+
+发布检查直接运行每个平台安装包中的 Electron 和 Agent，使用临时数据目录：先启动协议进程定位实际缓存，再写入缺少三个订阅模板的较高 revision 配置，再次启动并检查自动恢复和重启保留。包内模板或恢复结果不正确时阻止发布，不能只检查源码或 `--version`。发布报告的 `subscriptionTemplates` 必须为 `passed`；不访问用户数据或执行真实账号授权。
 
 ## 事件顺序
 

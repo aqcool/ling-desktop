@@ -76,7 +76,7 @@ HTTP 支持属于客户端代码能力，不能通过修改远端 JSON 让旧客
 ## 生效与恢复边界
 
 - 启动在兼容有效的包内/Active 候选中选较高 revision；在线低版本忽略，同版本同内容不变，同版本不同内容拒绝。启动遇到同号缓存内容冲突会回包内可信候选。
-- Provider 与 Model 规则整体替换；结构合法不保证业务正确。下载失败保留基线，不承诺错误业务配置会自动回滚。
+- 上游 Provider 与 Model 规则按 Release 更新；LING 自有的 Claude、ChatGPT、Grok 订阅模板始终由包内配置覆盖后物化到同一 Active 文件，不能被上游目录删除或改写，见[订阅授权供应商](../subscription-oauth-providers.md#所有者)。结构合法不保证业务正确。下载失败保留基线，不承诺错误业务配置会自动回滚。
 - Host/独立 CLI 持有刷新；每分钟检查、成功默认一小时后再下载，失败按分钟指数退避至一小时。手动 force 绕到期限制，不绕有效 lease。
 - 缓存按平台、App 版本、控制面 Endpoint 隔离；换 CDN URL 不重置来源版本。测试/正式不能只凭相同 revision 判断内容一致。
 - Managed Worker 不独立下载；手机使用目标 Host。Builtin 与 Account 未对齐时保留上一份完整 Registry，不能把状态混合发布。

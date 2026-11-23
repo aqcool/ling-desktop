@@ -202,7 +202,7 @@ jobs:
           for target in mac-arm64 mac-x64 win-x64 linux-x64; do
             prefix="LING-$VERSION-$target"
             jq -e --arg target "$target" --arg version "$VERSION" --arg revision "$REVISION" --arg update "$AUTO_UPDATE" \
-              '.target == $target and .version == $version and .revision == $revision and .agentSmoke == "passed" and (.updateEnabled // false) == ($update == "1")' \
+              '.target == $target and .version == $version and .revision == $revision and .agentSmoke == "passed" and .subscriptionTemplates == "passed" and (.updateEnabled // false) == ($update == "1")' \
               "$prefix-report.json" > /dev/null
             assets+=("$prefix-report.json")
             case "$target" in

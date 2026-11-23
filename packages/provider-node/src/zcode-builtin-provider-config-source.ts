@@ -2,7 +2,11 @@ import { watch, type FSWatcher } from "node:fs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import type { ProviderConfigLayerSnapshot, ProviderSource } from "@zcode/provider";
+import {
+  ProviderTemplateMap,
+  type ProviderConfigLayerSnapshot,
+  type ProviderSource,
+} from "@zcode/provider";
 import { atomicWritePrivateTextFile, withFileLock } from "@zcode/shared/node";
 import {
   decodeZCodeBuiltinRelease,
@@ -72,14 +76,18 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
       const current = await this.#readAndMaterializeLocked();
       this.#assertNotDisposed();
       if (release.revision < current.revision) return "stale" as const;
-      if (release.revision === current.revision) {
-        if (serializeZCodeBuiltinRelease(release) === serializeZCodeBuiltinRelease(current)) {
+      const incoming = withBundledSubscriptionTemplates(
+        release,
+        (await readBundledReleaseCandidate(this.#bundledFilePath)).release,
+      );
+      if (incoming.revision === current.revision) {
+        if (serializeZCodeBuiltinRelease(incoming) === serializeZCodeBuiltinRelease(current)) {
           return "unchanged" as const;
         }
         throw new Error(`ZCode Built-in 相同 revision ${release.revision} 对应不同内容`);
       }
-      await this.#writeActiveLocked(release);
-      this.#observedSignature = signatureOf(release);
+      await this.#writeActiveLocked(incoming);
+      this.#observedSignature = signatureOf(incoming);
       return "updated" as const;
     });
     if (result === "updated" && !this.#disposed) this.#emit("remote-updated");
@@ -107,7 +115,10 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
         ? Promise.resolve(null)
         : readReleaseCandidate(this.#activeFilePath),
     ]);
-    const selected = selectReleaseCandidate(bundled, active);
+    const selected = withBundledSubscriptionTemplates(
+      selectReleaseCandidate(bundled, active),
+      bundled?.release,
+    );
     if (this.#activeFilePath !== this.#bundledFilePath) {
       const activeSignature = active?.release ? signatureOf(active.release) : null;
       if (activeSignature !== signatureOf(selected)) await this.#writeActiveLocked(selected);
@@ -171,6 +182,34 @@ interface ReleaseCandidate {
   readonly error?: unknown;
 }
 
+const LING_SUBSCRIPTION_TEMPLATE_IDS = new Set([
+  "claude-subscription",
+  "chatgpt-subscription",
+  "grok-subscription",
+]);
+
+function withBundledSubscriptionTemplates(
+  release: ZCodeBuiltinRelease,
+  bundled: ZCodeBuiltinRelease | undefined,
+): ZCodeBuiltinRelease {
+  if (!bundled || release === bundled) return release;
+  const subscriptions = bundled.config.providerTemplates
+    .entries()
+    .filter(([templateId]) => LING_SUBSCRIPTION_TEMPLATE_IDS.has(templateId));
+  if (subscriptions.length === 0) return release;
+  // 上游 revision 48 曾缺少 LING 自有的三个订阅模板，整份替换后授权入口消失。
+  // 读取旧缓存和接受下载都先组合随包模板，再写同一 Active；Worker 因而读取相同事实。
+  const templates = new Map(release.config.providerTemplates.entries());
+  for (const [templateId, template] of subscriptions) templates.set(templateId, template);
+  return Object.freeze({
+    ...release,
+    config: Object.freeze({
+      ...release.config,
+      providerTemplates: new ProviderTemplateMap(templates),
+    }),
+  });
+}
+
 /**
  * Bug 原因：远端 Core 只在启动时把构建内嵌的 Bundled 物化到 `runtime/provider/bundled`，
  * 运行中该目录与 Endpoint Active 一起被删除后，每次读取都拿到两个 ENOENT，Provisioning
@@ -197,7 +236,9 @@ async function readBundledReleaseCandidate(filePath: string): Promise<ReleaseCan
 
 async function readReleaseCandidate(filePath: string): Promise<ReleaseCandidate> {
   try {
-    return { release: decodeZCodeBuiltinRelease(JSON.parse(await readFile(filePath, "utf8"))) };
+    return {
+      release: decodeZCodeBuiltinRelease(JSON.parse(await readFile(filePath, "utf8"))),
+    };
   } catch (error) {
     // Bug 原因：ENOENT 曾直接返回 null，两份文件都缺失时 AggregateError 的错误列表为空，
     // 日志只剩“均不可用”而没有路径。缺失同样是无效候选，保留原始错误供汇总报告。

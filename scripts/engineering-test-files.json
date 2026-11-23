@@ -170,5 +170,6 @@
   "packages/desktop/test/stdioTapCredentialRedaction.test.ts",
   "scripts/test/ling-github-update-manifest.test.mjs",
   "scripts/test/ling-macos-release.test.mjs",
+  "scripts/test/ling-packaged-subscriptions.test.mjs",
   "scripts/test/ling-release-workflow.test.mjs"
 ]
