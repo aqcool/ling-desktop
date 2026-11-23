@@ -129,9 +129,14 @@ jobs:
             : "${APPLE_APP_SPECIFIC_PASSWORD:?Missing LING_APPLE_ID_PASSWORD}"
             : "${APPLE_TEAM_ID:?Missing LING_APPLE_TEAM_ID}"
             export ZCODE_ENABLE_MAC_SIGN=1
-          elif [[ "$TARGET_OS" == mac && "$TARGET_ARCH" == x64 ]]; then
-            # Intel Runner 上 dmgbuild 两次无法弹出写入中的镜像，改为直接从目录生成安装盘。
-            export CUSTOM_DMGBUILD_PATH="$GITHUB_WORKSPACE/release-tools/.github/scripts/build-unsigned-intel-dmg.sh"
+          elif [[ "$TARGET_OS" == mac ]]; then
+            # ad-hoc 签名也会初始化证书配置；空 CSC_LINK 会被 Builder 当作项目目录导入并报 not a file。
+            # 手动版必须移除变量，正式签名分支继续保留上面的非空凭据校验。
+            unset CSC_LINK CSC_KEY_PASSWORD
+            if [[ "$TARGET_ARCH" == x64 ]]; then
+              # Intel Runner 上 dmgbuild 两次无法弹出写入中的镜像，改为直接从目录生成安装盘。
+              export CUSTOM_DMGBUILD_PATH="$GITHUB_WORKSPACE/release-tools/.github/scripts/build-unsigned-intel-dmg.sh"
+            fi
           fi
           corepack pnpm --filter @zcode/desktop run bundle --os "$TARGET_OS" --arch "$TARGET_ARCH"
           if [[ "$TARGET_OS" == mac && "$ZCODE_AUTO_UPDATE" == 1 ]]; then

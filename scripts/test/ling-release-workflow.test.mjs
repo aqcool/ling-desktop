@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,50 @@ const workflow = parse(
   await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8"),
 );
 const prepare = workflow.jobs.prepare.steps.find((step) => step.id === "release");
+
+test.each(["arm64", "x64"])("无证书的 macOS %s 构建不向打包工具传递空证书路径", async (arch) => {
+  const root = await mkdtemp(join(tmpdir(), "ling-manual-signing-env-"));
+  const bin = join(root, "bin");
+  const output = join(root, "probe");
+  const build = workflow.jobs.build.steps.find(
+    (step) => step.name === "Build and verify packaged dependencies",
+  );
+  try {
+    await mkdir(bin);
+    await writeFile(
+      join(bin, "corepack"),
+      `#!/bin/bash
+set -eu
+test -z "\${CSC_LINK+x}" || exit 31
+test -z "\${CSC_KEY_PASSWORD+x}" || exit 32
+printf '%s\\n%s\\n' "$*" "\${CUSTOM_DMGBUILD_PATH:-}" > "$PROBE_OUTPUT"
+`,
+      { mode: 0o755 },
+    );
+    await execute("bash", ["-e", "-c", build.run], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        TARGET_OS: "mac",
+        TARGET_ARCH: arch,
+        ZCODE_AUTO_UPDATE: "0",
+        CSC_LINK: "",
+        CSC_KEY_PASSWORD: "",
+        CUSTOM_DMGBUILD_PATH: "",
+        GITHUB_WORKSPACE: root,
+        PROBE_OUTPUT: output,
+      },
+    });
+    const [command, dmgBuilder] = (await readFile(output, "utf8")).split("\n");
+    expect(command).toBe(`pnpm --filter @zcode/desktop run bundle --os mac --arch ${arch}`);
+    expect(dmgBuilder).toBe(
+      arch === "x64" ? join(root, "release-tools/.github/scripts/build-unsigned-intel-dmg.sh") : "",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 async function withRepository(check) {
   const root = await mkdtemp(join(tmpdir(), "ling-release-source-"));
