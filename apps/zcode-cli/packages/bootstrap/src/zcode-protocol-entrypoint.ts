@@ -9,14 +9,21 @@ import type { McpElicitationPort, McpNotificationPort } from "@zcode/contracts";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
 import { createNodeLoggerFactory } from "@zcode/adapters/logging";
 import {
+  createSkillCatalogSourceRegistry,
+  type SkillCatalogSourceRegistry,
+} from "@zcode/adapters/skills/catalog";
+import {
+  createInMemoryMcpToolCatalog,
   createMcpAdapterConnectionPool,
   createMcpProcessRegistry,
+  createMcpConfigSourceRegistry,
+  type McpConfigSourceRegistry,
   type McpConnectionPool,
   type McpProcessRegistry,
 } from "@zcode/adapters/mcp";
 import { createNodeSessionDataFiles, type SqliteSessionStore } from "@zcode/adapters/storage";
 import { traceContextToLogContext, createRootTraceContext } from "@zcode/contracts";
-import type { McpPort, ModelSelection } from "@zcode/contracts";
+import type { McpPort, McpToolCatalogPort, ModelSelection } from "@zcode/contracts";
 import type { PresentationSurface } from "@zcode/core";
 import type { RunZCodeProtocolAgentOptions, ZCodeAppOptions } from "./app/types.js";
 import { createZCodeApp } from "./app/create-app.js";
@@ -137,6 +144,9 @@ export async function runZCodeProtocolAgent(
   let credentialCipherBridge: ReturnType<typeof createProtocolCredentialCipher> | undefined;
   let mcpPort: McpPort | undefined;
   let mcpProcessRegistry: McpProcessRegistry | undefined;
+  let mcpToolCatalogPort: McpToolCatalogPort | undefined;
+  let mcpConfigSourceRegistry: McpConfigSourceRegistry | undefined;
+  let skillCatalogSourceRegistry: SkillCatalogSourceRegistry | undefined;
   let protocolMaintenance: ReturnType<typeof startProtocolMaintenance> | undefined;
   let providerRegistryRuntime:
     | Awaited<ReturnType<typeof startProcessProviderRegistryRuntime>>
@@ -293,6 +303,13 @@ export async function runZCodeProtocolAgent(
             workingDirectory: options.cwd,
           });
     mcpPort = mcpConnectionPool?.acquireLease({ leaseId: "protocol-settings" });
+    mcpToolCatalogPort = mcpConnectionPool
+      ? createInMemoryMcpToolCatalog({ platform: process.platform })
+      : undefined;
+    // 同一 CLI 进程内的会话共用 MCP 配置 watcher 与读盘结果；修复前每个会话各建一份。
+    mcpConfigSourceRegistry = createMcpConfigSourceRegistry({ logger });
+    // 同一 CLI 进程内同一 workspace 的会话共用 skill 目录 watcher 与读盘结果，规则与 MCP 配置源相同。
+    skillCatalogSourceRegistry = createSkillCatalogSourceRegistry({ logger });
     const activeProviderRegistryRuntime = providerRegistryRuntime;
     const protocolCliStorageRoot = getCliStorageRoot(resolvePath(configResult.config.storage.dir));
     const modelSelectionFacade = createNodeModelSelectionFacade(
@@ -329,6 +346,11 @@ export async function runZCodeProtocolAgent(
                   }),
               }
             : {}),
+          mcpToolCatalogPort,
+          mcpConfigSourceRegistry,
+          skillCatalogSourceRegistry,
+          // 桌面交互入口：首个请求不等全部 MCP server，自动任务轮次仍由 runtime 改为等待。
+          mcpStartupPolicy: "background",
           providerEndpointRoutingPort,
           sourceTitle: "electron",
         }),
@@ -425,6 +447,9 @@ export async function runZCodeProtocolAgent(
       sessionStore,
       providerRegistryRuntime,
     });
+    // 会话关闭步骤有时限，未关完的会话不会释放配置 view；在清理之后强制关闭，watcher 句柄不阻止进程退出。
+    mcpConfigSourceRegistry?.close();
+    skillCatalogSourceRegistry?.close();
     logger.info("ZCode Protocol agent shutdown completed", {
       ...traceContextToLogContext(traceContext),
       event: "zcode_protocol.shutdown.completed",

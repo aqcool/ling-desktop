@@ -632,6 +632,8 @@ function RootInner({
   const handleOpenDirectoryBrowser = useCallback(() => {
     setDirectoryBrowserOpen(true);
   }, []);
+  // 桌面端退出流程露出登录入口前到 App 重启为 true；期间只渲染启动画面，不暴露登录入口。
+  const [isLogoutRelaunchPending, setIsLogoutRelaunchPending] = useState(false);
   const handleReauthenticationRequired = useCallback(() => {
     // 登录页已移除。失效提示仍由 OAuth effect 展示，这里不再打开欢迎登录页。
     logger.info("[Root] 登录失效，不再打开登录页");
@@ -670,6 +672,7 @@ function RootInner({
     onOpenRemoteConnection: allowRemoteWorkspace ? handleOpenRemoteConnection : undefined,
     openRemoteProjectWorkspace: openPreparedRemoteProjectWorkspace,
     openMobileProjectDraft: webRemoteControlWorkspaceSwitcher?.openProjectDraft,
+    setLogoutRelaunchPending: setIsLogoutRelaunchPending,
     workbenchGroupClientMode: isWebRemoteControlRoot
       ? "web-remote-replayable"
       : "desktop-continuous",
@@ -1384,7 +1387,8 @@ function RootInner({
 
   if (credentialRecovery.state) return <CredentialStoreRecovery recovery={credentialRecovery} />;
 
-  if (isStartupRenderBlocked) {
+  // 退出中阻断态复用启动画面：与重启后的启动画面视觉连续，且不渲染登录页或工作区。
+  if (isStartupRenderBlocked || isLogoutRelaunchPending) {
     const loadingLabel = intl.formatMessage({ id: "common.loading" });
     return (
       <RootShell>
@@ -1454,73 +1458,73 @@ function RootInner({
       {remoteConnectionDialog}
       {directoryBrowserDialog}
       {!workspaceShellPath ? (
-          isSettingsTabActive ? (
-            <ScopedErrorBoundary
-              scope="settings-page"
-              resetKeys={["settings-root"]}
-              variant="panel"
-              className="h-full"
-            >
-              <SettingsPage {...settingsLayerProps} />
-            </ScopedErrorBoundary>
-          ) : null
-        ) : (
-          <RemoteWorkspaceControllerProvider controller={remoteWorkspaceController}>
-            <RemoteProjectPresentationProvider
-              reconnectingKeys={reconnectingRemoteWorkspaceKeys}
-              errors={remoteWorkspaceErrorByWorkspaceKey}
-              recovery={remoteWorkspaceRecoveryByWorkspaceKey}
-              onReconnect={
-                webRemoteControlWorkspaceSwitcher?.reconnectWorkspace ??
-                handleReconnectRemoteWorkspace
+        isSettingsTabActive ? (
+          <ScopedErrorBoundary
+            scope="settings-page"
+            resetKeys={["settings-root"]}
+            variant="panel"
+            className="h-full"
+          >
+            <SettingsPage {...settingsLayerProps} />
+          </ScopedErrorBoundary>
+        ) : null
+      ) : (
+        <RemoteWorkspaceControllerProvider controller={remoteWorkspaceController}>
+          <RemoteProjectPresentationProvider
+            reconnectingKeys={reconnectingRemoteWorkspaceKeys}
+            errors={remoteWorkspaceErrorByWorkspaceKey}
+            recovery={remoteWorkspaceRecoveryByWorkspaceKey}
+            onReconnect={
+              webRemoteControlWorkspaceSwitcher?.reconnectWorkspace ??
+              handleReconnectRemoteWorkspace
+            }
+          >
+            <RootWorkspaceContent
+              workspaceScopedServices={workspaceScopedServices}
+              workspaceShellPath={workspaceShellPath}
+              workspaceIdentity={workspaceShellIdentity}
+              workspaceRemoteSessionId={workspaceShellRemoteSessionId}
+              activeWorkspacePath={activeWorkspacePath}
+              isSettingsTabActive={isSettingsTabActive}
+              handleConnectRemote={handleConnectRemote}
+              handleSelectRemoteProject={handleSelectRemoteProject}
+              handleCancelRemoteProject={handleCancelRemoteProject}
+              handleReconnectRemoteWorkspace={handleReconnectRemoteWorkspace}
+              handleCreateTask={handleCreateTask}
+              handleCreateConversationTask={handleCreateConversationTask}
+              handleResolveConversationWorkspace={handleResolveConversationWorkspaceForShell}
+              handleOpenWorkspace={handleOpenWorkspace}
+              handleOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}
+              handleOpenRemoteWorkspace={
+                allowRemoteWorkspace ? handleOpenRemoteConnection : undefined
               }
-            >
-              <RootWorkspaceContent
-                workspaceScopedServices={workspaceScopedServices}
-                workspaceShellPath={workspaceShellPath}
-                workspaceIdentity={workspaceShellIdentity}
-                workspaceRemoteSessionId={workspaceShellRemoteSessionId}
-                activeWorkspacePath={activeWorkspacePath}
-                isSettingsTabActive={isSettingsTabActive}
-                handleConnectRemote={handleConnectRemote}
-                handleSelectRemoteProject={handleSelectRemoteProject}
-                handleCancelRemoteProject={handleCancelRemoteProject}
-                handleReconnectRemoteWorkspace={handleReconnectRemoteWorkspace}
-                handleCreateTask={handleCreateTask}
-                handleCreateConversationTask={handleCreateConversationTask}
-                handleResolveConversationWorkspace={handleResolveConversationWorkspaceForShell}
-                handleOpenWorkspace={handleOpenWorkspace}
-                handleOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}
-                handleOpenRemoteWorkspace={
-                  allowRemoteWorkspace ? handleOpenRemoteConnection : undefined
-                }
-                remoteConnectionInProgress={remoteConnectionInProgress}
-                remoteWorkspaceSessions={remoteWorkspaceSessions}
-                allowRemoteWorkspace={allowRemoteWorkspace}
-                handleBackFromSettings={handleBackFromSettings}
-                handleLogout={user ? handleLogout : undefined}
-                onLogin={undefined}
-                user={user}
-                reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
-                remoteWorkspaceRecoveryByWorkspaceKey={remoteWorkspaceRecoveryByWorkspaceKey}
-                remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
-                remoteConnectionLogs={remoteConnectionLogs}
-                allowOpenWorkspace={allowOpenWorkspace}
-                webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
-                initialSidebarFileTreeOpen={initialSidebarFileTreeOpen}
-                initialWebRemoteControlMobileNavigationIntent={
-                  initialWebRemoteControlMobileNavigationIntent
-                }
-                webRemoteControlTerminalTransportState={webRemoteControlTerminalTransportState}
-                isDesktop={isDesktop}
-                isMacDesktop={isMacDesktop}
-                isWindowsDesktop={isWindowsDesktop}
-                supportsEmbeddedBrowser={supportsEmbeddedBrowser}
-              />
-            </RemoteProjectPresentationProvider>
-          </RemoteWorkspaceControllerProvider>
-        )}
-        {onboardingDialog}
+              remoteConnectionInProgress={remoteConnectionInProgress}
+              remoteWorkspaceSessions={remoteWorkspaceSessions}
+              allowRemoteWorkspace={allowRemoteWorkspace}
+              handleBackFromSettings={handleBackFromSettings}
+              handleLogout={user ? handleLogout : undefined}
+              onLogin={undefined}
+              user={user}
+              reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
+              remoteWorkspaceRecoveryByWorkspaceKey={remoteWorkspaceRecoveryByWorkspaceKey}
+              remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
+              remoteConnectionLogs={remoteConnectionLogs}
+              allowOpenWorkspace={allowOpenWorkspace}
+              webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
+              initialSidebarFileTreeOpen={initialSidebarFileTreeOpen}
+              initialWebRemoteControlMobileNavigationIntent={
+                initialWebRemoteControlMobileNavigationIntent
+              }
+              webRemoteControlTerminalTransportState={webRemoteControlTerminalTransportState}
+              isDesktop={isDesktop}
+              isMacDesktop={isMacDesktop}
+              isWindowsDesktop={isWindowsDesktop}
+              supportsEmbeddedBrowser={supportsEmbeddedBrowser}
+            />
+          </RemoteProjectPresentationProvider>
+        </RemoteWorkspaceControllerProvider>
+      )}
+      {onboardingDialog}
     </RootShell>
   );
 }

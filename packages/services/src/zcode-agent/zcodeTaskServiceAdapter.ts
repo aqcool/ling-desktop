@@ -11,10 +11,7 @@ import { createZCodeAgentConnectionScope } from "#src/zcode-agent/zcodeAgentConn
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  Emitter,
-  Event,
-} from "@zcode/rpc";
+import { Emitter, Event } from "@zcode/rpc";
 import {
   coalesceConsecutiveZCodeAssistants,
   createSessionTraceId,
@@ -2984,6 +2981,30 @@ export function createZCodeTaskServiceAdapter(
       if (!archived && !result.completed && !result.incomplete)
         return { ...result, blockedReason: "not-archived" as const };
       return result;
+    },
+
+    async previewArchivedTaskDeletions({ tasks }) {
+      const preview = options.zcodeAgentService.previewSessionDeletions;
+      if (!preview) throw new Error("session-data.unavailable");
+      if (!tasks.length) return { results: [] };
+      const archived = await Promise.all(tasks.map((task) => taskIndexRepo.isTaskArchived(task)));
+      const { results } = await preview({
+        items: tasks.map((task) => ({
+          sessionId: task.taskId,
+          workspace: normalizeWorkspaceParams(task),
+        })),
+      });
+      // 未归档判定与单项预检一致：已在删除或已完成的续删不受归档状态影响。
+      return {
+        results: results.map((result, index) =>
+          "preview" in result &&
+          !archived[index] &&
+          !result.preview.completed &&
+          !result.preview.incomplete
+            ? { preview: { ...result.preview, blockedReason: "not-archived" as const } }
+            : result,
+        ),
+      };
     },
 
     async permanentlyDeleteArchivedTask(params) {

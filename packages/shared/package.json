@@ -36,6 +36,8 @@
     "./request-security": "./src/request-security-edition/index.ts",
     "./web-remote-relay": "./src/web-remote-relay/index.ts",
     "./ling-mobile-pairing": "./src/web-remote-relay/lingMobilePairingRoutes.ts",
+    "./preinstalled-tools": "./src/preinstalled-tools/contract.ts",
+    "./preinstalled-tools/node": "./src/preinstalled-tools/node.ts",
     "./credential-security": "./src/credential-security/module.ts"
   },
   "scripts": {

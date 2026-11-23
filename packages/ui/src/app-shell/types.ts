@@ -15,7 +15,7 @@ import type {
   UpdateStatePayload,
   UserInfo,
 } from "@zcode/shared";
-import type {  IServiceAccessor } from "@zcode/services";
+import type { IServiceAccessor } from "@zcode/services";
 import type { SavedWorkflowsOpenTarget } from "@/settings/saved-workflows/SavedWorkflowsSection.js";
 import type { SavedWorkflowHubTarget } from "@/v4/savedWorkflowHubContext.js";
 import type { WebRemoteControlWorkspaceSwitcherApi } from "@/root/types.js";
@@ -39,7 +39,6 @@ import type { WorkspaceZCodeUIState } from "@/store/zcodeSessionStore.js";
 import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.js";
 import type {
   ChatSearchResultHighlightRequest,
-  ChatViewSummaryPanelVariant,
   ConversationFindMatchState,
 } from "@/v4/legacyChatViewTypes.js";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
@@ -258,8 +257,6 @@ export interface WorkspaceShellLayoutProps extends AppProps {
   isSidePaneOpen: boolean;
   /** Side Pane 完整视图控制器（仅桌面；spec：docs/ui/side-pane-full-view.md）。 */
   sidePaneFullView?: SidePaneFullViewController;
-  summaryPanelVariantOverride: ChatViewSummaryPanelVariant | null;
-  onSummaryPanelVariantOverrideChange: (variant: ChatViewSummaryPanelVariant | null) => void;
   sidePaneState: WorkspaceSidePaneState | null;
   recentClosedSidePaneTabs: RecentClosedSidePaneTab[];
   shellPanelIds: string[];
@@ -346,6 +343,7 @@ export interface WorkspaceShellLayoutProps extends AppProps {
   handleOpenDeveloperTools: () => void;
   handleOpenFileManager: (target?: FileManagerTarget) => void;
   handleNavigateFileManager: (tabId: string, source: CodeViewerSource) => void;
+  handleCodeViewerFocusRequestApplied: (tabId: string, requestId: string) => void;
   handleOpenPluginMarket: () => void;
   handleOpenTerminalTab: () => void;
   handleToggleGit: () => void;

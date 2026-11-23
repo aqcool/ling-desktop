@@ -22,7 +22,6 @@ import {
   type JsonSchema,
   type PdfDocumentPort,
   type Logger,
-  type McpPort,
   type ModelRequestAdmission,
   type SessionId,
   type SessionStorePort,
@@ -50,7 +49,6 @@ export interface ScriptWorkflowAgentRuntimeDeps {
   imageProcessorPort: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   logger: Logger;
-  mcpPort?: McpPort;
   /** 父会话的 model factory：child 与主 turn 从同一份 Registry 视图造 Model，不各自冻结。 */
   modelFactory: NonNullable<AgentRuntimeDeps["modelFactory"]>;
   permissionService: PermissionService;
@@ -67,7 +65,7 @@ export interface ScriptWorkflowAgentRuntimeDeps {
   workingDirectory: string;
 }
 
-export function createScriptWorkflowAgentRuntime(input: {
+export async function createScriptWorkflowAgentRuntime(input: {
   childSessionId: SessionId;
   deps: ScriptWorkflowAgentRuntimeDeps;
   request: WorkflowAgentCallInput;
@@ -115,7 +113,7 @@ export function createScriptWorkflowAgentRuntime(input: {
    * （apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md「Subagent sessions」）。
    */
   browserControlPort?: BrowserControlPort;
-}): AgentRuntime {
+}): Promise<AgentRuntime> {
   // dwf actor 经 configOverrides.workflowActor 走 builder 的叠加路径，此时 systemPrompt 必须
   // 缺席（builder 对二者同在抛错）——父会话自带的 custom system prompt 不得漏给子代理，所以
   // 从继承的配置里把它剥掉，而不是靠后面的覆盖。
@@ -124,6 +122,7 @@ export function createScriptWorkflowAgentRuntime(input: {
     input.configOverrides?.workflowActor === undefined
       ? (input.request.opts?.systemPrompt ?? inheritedSystemPrompt)
       : undefined;
+  const childMcp = await input.deps.runtime.createChildMcpAccess();
   const parentSelection = input.deps.runtime.getSessionModelSelection();
   const requestedSelection = input.request.opts?.model
     ? parseProviderQualifiedModelSelection(input.request.opts.model)
@@ -155,6 +154,7 @@ export function createScriptWorkflowAgentRuntime(input: {
       toolAllowlist: input.request.opts?.tools,
       workingDirectory: input.deps.workingDirectory,
       ...input.configOverrides,
+      mcp: childMcp.config,
     },
     {
       ...createRuntimeDeps(input.deps, input.traceContext, input.childSessionId, {
@@ -174,6 +174,7 @@ export function createScriptWorkflowAgentRuntime(input: {
           ? {}
           : { parentTurnId: input.traceContext.turnId }),
       }),
+      ...childMcp.deps,
       ...(input.browserControlPort === undefined
         ? {}
         : {
@@ -259,7 +260,6 @@ function createRuntimeDeps(
     imageProcessorPort: deps.imageProcessorPort,
     pdfDocumentPort: deps.pdfDocumentPort,
     logger: deps.logger,
-    mcpPort: deps.mcpPort,
     modelFactory: deps.modelFactory,
     resolveEffectiveModelSelection: deps.appOptions.resolveEffectiveModelSelection,
     // permissionBroker + providerRuntimeHeadersPort 都在这里面：父 runtime 派生，路由身份已改写成父会话。

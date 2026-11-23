@@ -17,7 +17,7 @@ import {
   clearAppData,
   clickTestIdByDom,
   clickTestIdByWebDriver,
-  seedSettings,
+  pinE2ELocale,
   setInputValueByTestIdDom,
   waitForDefaultWorkspaceReady,
 } from "#e2e/helpers/desktop-app";
@@ -40,7 +40,6 @@ const RUN_PROMPT = "E2E_AUTOMATION_TITLE_STABLE 随机介绍一位红楼梦人�
 const AUTOMATION_TITLE = "AUTOMATION_TITLE_STABLE_TASK";
 const FINAL_TOKEN = "automation-title-stable-done";
 
-
 describe("automation run keeps the first-input session title", () => {
   after(async () => {
     await browser.electron.restoreAllMocks();
@@ -51,10 +50,9 @@ describe("automation run keeps the first-input session title", () => {
     this.timeout(150000);
     await waitForDefaultWorkspaceReady(90_000);
 
-    // 卡片运行次数/下次运行是本 case 的可见证据；显式固定中文 locale，避免 WDIO
-    // 继承英文系统语言后把“已运行 0 次”渲染为 “Ran 0 times”。
-    await seedSettings({ locale: "zh-CN", localePreference: "zh-CN" });
     await prepareV4ConversationE2E({ resetDraftBeforeProvider: true });
+    // 首帧跟随宿主语言，mac runner 上是英文；seedSettings 对已启动的 renderer 无效，须用 pinE2ELocale。
+    await pinE2ELocale("zh-CN");
     await clickTestIdByDom(TID_AUTOMATIONS_OPEN, {
       timeoutMsg: "侧栏没有出现定时任务入口",
     });
@@ -99,7 +97,6 @@ describe("automation run keeps the first-input session title", () => {
       "定时任务执行会话没有完成",
       90000,
     );
-
 
     // automation 执行轮只能读取任务定义；写工具必须在发给 provider 前被 turn-scoped
     // denylist 移除，避免任务在运行时自改、自删或递归创建新任务。

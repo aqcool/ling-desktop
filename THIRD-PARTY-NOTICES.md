@@ -182,6 +182,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 
 - @inquirer/type@3.0.10 — MIT
 
+- @isaacs/fs-minipass@4.0.1 — ISC
+
 - @jimp/core@1.6.1 — MIT
 
 - @jimp/diff@1.6.1 — MIT
@@ -383,6 +385,22 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 - @nodelib/fs.stat@2.0.5 — MIT
 
 - @nodelib/fs.walk@1.2.8 — MIT
+
+- @number0/iroh-darwin-arm64@1.2.0 — MIT
+
+- @number0/iroh-linux-arm64-gnu@1.2.0 — MIT
+
+- @number0/iroh-linux-arm64-musl@1.2.0 — MIT
+
+- @number0/iroh-linux-x64-gnu@1.2.0 — MIT
+
+- @number0/iroh-linux-x64-musl@1.2.0 — MIT
+
+- @number0/iroh-win32-arm64-msvc@1.2.0 — MIT
+
+- @number0/iroh-win32-x64-msvc@1.2.0 — MIT
+
+- @number0/iroh@1.2.0 — MIT OR Apache-2.0
 
 - @open-draft/deferred-promise@2.2.0 — MIT
 
@@ -883,6 +901,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 - chevrotain@12.0.0 — Apache-2.0
 
 - chokidar@4.0.3 — MIT
+
+- chownr@3.0.0 — BlueOak-1.0.0
 
 - class-variance-authority@0.7.1 — Apache-2.0
 
@@ -1650,6 +1670,10 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 
 - minimist@1.2.8 — MIT
 
+- minipass@7.1.3 — BlueOak-1.0.0
+
+- minizlib@3.1.0 — MIT
+
 - mkdirp@1.0.4 — MIT
 
 - mlly@1.8.2 — MIT
@@ -2086,6 +2110,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 
 - tailwindcss@4.2.2 — MIT
 
+- tar@7.5.13 — BlueOak-1.0.0
+
 - tiny-invariant@1.3.3 — MIT
 
 - tiny-typed-emitter@2.1.0 — MIT
@@ -2275,6 +2301,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 - y18n@5.0.8 — ISC
 
 - yallist@3.1.1 — ISC
+
+- yallist@5.0.0 — BlueOak-1.0.0
 
 - yaml@2.9.0 — ISC
 
@@ -4218,6 +4246,51 @@ Licensed under the MIT license.
 
 Copyright (c) 2023 Simon Boudrias (twitter: [@vaxilart](https://twitter.com/Vaxilart))<br/>
 Licensed under the MIT license.
+
+````
+
+### Notice 4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b
+
+- @isaacs/fs-minipass@4.0.1: LICENSE
+
+- isexe@2.0.0: LICENSE
+
+- lru-cache@5.1.1: LICENSE
+
+- mute-stream@2.0.0: LICENSE
+
+- once@1.4.0: LICENSE
+
+- semver@6.3.1: LICENSE
+
+- semver@7.7.4: LICENSE
+
+- which@2.0.2: LICENSE
+
+- which@4.0.0: LICENSE
+
+- wrappy@1.0.2: LICENSE
+
+- yallist@3.1.1: LICENSE
+
+
+
+````text
+The ISC License
+
+Copyright (c) Isaac Z. Schlueter and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ````
 
@@ -30644,6 +30717,75 @@ This software is released under the terms of the MIT license.
 
 ````
 
+### Notice f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050
+
+- @number0/iroh-darwin-arm64@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh-linux-arm64-gnu@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh-linux-arm64-musl@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh-linux-x64-gnu@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh-linux-x64-musl@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh-win32-arm64-msvc@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh-win32-x64-msvc@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+- @number0/iroh@1.2.0: https://raw.githubusercontent.com/n0-computer/iroh-ffi/66a8d619a4d791d458d582f312df6e0ab42bc541/LICENSE-MIT
+
+
+
+````text
+Copyright 2025 N0, INC.
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+````
+
+### Notice d17682438cb8c19ced193e71ee9a7850951e351829c6ad22f188c83c674e46b5
+
+- @number0/iroh@1.2.0: README.md (license section)
+
+
+
+````text
+## License
+
+This project is licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   http://opensource.org/licenses/MIT)
+
+at your option.
+
+````
+
 ### Notice b1688598c3e32605b3973902a546225e0159349c05a0f74db67f76e08e116e65
 
 - @open-draft/deferred-promise@2.2.0: https://registry.npmjs.org/@open-draft%2fdeferred-promise/2.2.0
@@ -35316,6 +35458,81 @@ THE SOFTWARE.
 ## License
 
 MIT (c) Paul Miller (<https://paulmillr.com>), see [LICENSE](LICENSE) file.
+
+````
+
+### Notice a49c9ba464796f65b59fca3f1e6ca40912df1e859f575383223f7ec6c5baae09
+
+- chownr@3.0.0: LICENSE.md
+
+- yallist@5.0.0: LICENSE.md
+
+
+
+````text
+All packages under `src/` are licensed according to the terms in
+their respective `LICENSE` or `LICENSE.md` files.
+
+The remainder of this project is licensed under the Blue Oak
+Model License, as follows:
+
+-----
+
+# Blue Oak Model License
+
+Version 1.0.0
+
+## Purpose
+
+This license gives everyone as much permission to work with
+this software as possible, while protecting contributors
+from liability.
+
+## Acceptance
+
+In order to receive this license, you must agree to its
+rules.  The rules of this license are both obligations
+under that agreement and conditions to your license.
+You must not do anything with this software that triggers
+a rule that you cannot or will not follow.
+
+## Copyright
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe that contributor's
+copyright in it.
+
+## Notices
+
+You must ensure that everyone who gets a copy of
+any part of this software from you, with or without
+changes, also gets the text of this license or a link to
+<https://blueoakcouncil.org/license/1.0.0>.
+
+## Excuse
+
+If anyone notifies you in writing that you have not
+complied with [Notices](#notices), you can keep your
+license by taking all practical steps to comply within 30
+days after the notice.  If you do not do so, your license
+ends immediately.
+
+## Patent
+
+Each contributor licenses you to do everything with this
+software that would otherwise infringe any patent claims
+they can license or become able to license.
+
+## Reliability
+
+No contributor can revoke this license.
+
+## No Liability
+
+***As far as the law allows, this software comes as is,
+without any warranty or condition, and no contributor
+will be liable to anyone for any damages related to this
+software or this license, under any kind of legal claim.***
 
 ````
 
@@ -45279,54 +45496,15 @@ SOFTWARE.
 
 ````
 
-### Notice 4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b
-
-- isexe@2.0.0: LICENSE
-
-- lru-cache@5.1.1: LICENSE
-
-- mute-stream@2.0.0: LICENSE
-
-- once@1.4.0: LICENSE
-
-- semver@6.3.1: LICENSE
-
-- semver@7.7.4: LICENSE
-
-- which@2.0.2: LICENSE
-
-- which@4.0.0: LICENSE
-
-- wrappy@1.0.2: LICENSE
-
-- yallist@3.1.1: LICENSE
-
-
-
-````text
-The ISC License
-
-Copyright (c) Isaac Z. Schlueter and Contributors
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
-IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-````
-
 ### Notice 8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004
 
 - isexe@3.1.5: LICENSE.md
 
+- minipass@7.1.3: LICENSE.md
+
 - sax@1.6.0: LICENSE.md
+
+- tar@7.5.13: LICENSE.md
 
 
 
@@ -52630,6 +52808,42 @@ MIT
 [codecov-url]: https://app.codecov.io/gh/minimistjs/minimist/
 [actions-image]: https://img.shields.io/endpoint?url=https://github-actions-badge-u3jn4tfpocch.runkit.sh/minimistjs/minimist
 [actions-url]: https://github.com/minimistjs/minimist/actions
+
+````
+
+### Notice df05697a04b8997c79d423930534e59cc18828f6e22d0c8c2d62fcbea1c4f50b
+
+- minizlib@3.1.0: LICENSE
+
+
+
+````text
+Minizlib was created by Isaac Z. Schlueter.
+It is a derivative work of the Node.js project.
+
+"""
+Copyright (c) 2017-2023 Isaac Z. Schlueter and Contributors
+Copyright (c) 2017-2023 Node.js contributors. All rights reserved.
+Copyright (c) 2017-2023 Joyent, Inc. and other Node contributors. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
 
 ````
 

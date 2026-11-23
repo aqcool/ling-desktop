@@ -45,11 +45,13 @@ import { useUsageEntitlement } from "@/hooks/useUsageEntitlement.js";
 import {
   addPendingSettingsSectionListener,
   clearPendingSettingsPluginOrigin,
+  clearPendingSettingsHookWorkspacePath,
   clearPendingSettingsPluginScopeKey,
   consumeInitialSettingsSection,
   consumePendingSettingsSourceServerId,
   consumePendingSettingsSourceServerDetails,
   consumePendingSettingsPluginOrigin,
+  consumePendingSettingsHookWorkspacePath,
   consumePendingSettingsPluginScopeKey,
   consumePendingSettingsPluginTab,
   consumePendingSettingsModelProviderTarget,
@@ -391,12 +393,16 @@ export function SettingsPage({
   const [pluginScopeKey, setPluginScopeKey] = useState(() =>
     consumePendingSettingsPluginScopeKey(),
   );
+  const [hookWorkspacePath, setHookWorkspacePath] = useState(() =>
+    consumePendingSettingsHookWorkspacePath(),
+  );
   const [settingsSectionNavigationVersion, setSettingsSectionNavigationVersion] = useState(0);
   useEffect(() => {
     // React Strict Mode 会双执行 state initializer；来源和 scopeKey 都在挂载完成后再清理，
     // Marketplace 只返回 User 已安装视图；Workspace 仍通过设置页自身的配置层切换进入。
     clearPendingSettingsPluginOrigin();
     clearPendingSettingsPluginScopeKey();
+    clearPendingSettingsHookWorkspacePath();
   }, []);
   const [settingsBreadcrumbItems, setSettingsBreadcrumbItems] = useState<
     readonly SettingsBreadcrumbItem[]
@@ -672,6 +678,8 @@ export function SettingsPage({
   const navigateToSettingsSection = (section: SettingsSectionId, setting?: SettingsSearchId) => {
     setPluginNavigationOrigin(undefined);
     setTargetSourceServerId(undefined);
+    // SG-01：worktree 审核上下文只属于「去审核」那次导航；侧栏或搜索进入钩子时按普通入口。
+    setHookWorkspacePath(undefined);
     setSettingsSectionNavigationVersion((version) => version + 1);
     setActiveSettingsSection(section);
     if (setting) setSearchTarget({ id: setting });
@@ -766,6 +774,8 @@ export function SettingsPage({
   }, [sharedSettings?.recentProjects, workspaceTabs]);
   const toolSearchMode = sharedSettings?.toolSearchMode ?? DEFAULT_APP_TOOL_SEARCH_MODE;
   const nativeSearchEnhancementsEnabled = sharedSettings?.nativeSearchEnhancementsEnabled !== false;
+  const totalTokensReminderEnabled = sharedSettings?.totalTokensReminderEnabled === true;
+  const agentAlwaysBackgroundEnabled = sharedSettings?.agentAlwaysBackgroundEnabled !== false;
   const askUserQuestionAutoResolutionEnabled =
     sharedSettings?.askUserQuestionAutoResolutionEnabled !== false;
   const modelIoFullRetentionEnabled = sharedSettings?.modelIoFullRetentionEnabled === true;
@@ -840,6 +850,7 @@ export function SettingsPage({
         }
         // MCP 独立分区也接收工作区意图，否则会话内审核会误落到用户配置。
         setPluginScopeKey(detail?.pluginScopeKey);
+        setHookWorkspacePath(detail?.hookWorkspacePath);
         if (resolveSettingsSection(section) === "plugin" && detail?.pluginTab) {
           setPluginTab(detail.pluginTab);
           setPluginNavigationOrigin(detail.pluginOrigin);
@@ -964,6 +975,18 @@ export function SettingsPage({
     },
     [updateSharedSettings],
   );
+  const handleTotalTokensReminderEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await updateSharedSettings({ totalTokensReminderEnabled: enabled });
+    },
+    [updateSharedSettings],
+  );
+  const handleAgentAlwaysBackgroundEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await updateSharedSettings({ agentAlwaysBackgroundEnabled: enabled });
+    },
+    [updateSharedSettings],
+  );
   const handleAskUserQuestionAutoResolutionEnabledChange = useCallback(
     async (enabled: boolean) => {
       await updateSharedSettings({ askUserQuestionAutoResolutionEnabled: enabled });
@@ -980,9 +1003,9 @@ export function SettingsPage({
     async (proxy: string) => {
       const normalizedProxy = proxy.trim();
       await localHostServices.settingService.update({
-            // Bugfix: RPC 会丢弃 undefined；清空代理必须传空串，由服务层删除旧字段。
-            httpProxy: normalizedProxy,
-          });
+        // Bugfix: RPC 会丢弃 undefined；清空代理必须传空串，由服务层删除旧字段。
+        httpProxy: normalizedProxy,
+      });
       setHttpProxy(normalizedProxy);
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
@@ -996,9 +1019,9 @@ export function SettingsPage({
         .filter(Boolean)
         .join(",");
       await localHostServices.settingService.update({
-            // Bugfix: 清空 No Proxy 必须传空串，否则旧绕过规则会继续影响下次启动。
-            httpProxyNoProxy: normalizedNoProxy,
-          });
+        // Bugfix: 清空 No Proxy 必须传空串，否则旧绕过规则会继续影响下次启动。
+        httpProxyNoProxy: normalizedNoProxy,
+      });
       setHttpProxyNoProxy(normalizedNoProxy);
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
@@ -1008,9 +1031,9 @@ export function SettingsPage({
     async (caCertPath: string) => {
       const normalizedCaCertPath = caCertPath.trim();
       await localHostServices.settingService.update({
-            // Bugfix: 清空自定义 CA 必须传空串，否则旧 NODE_EXTRA_CA_CERTS 路径会残留。
-            httpProxyCaCertPath: normalizedCaCertPath,
-          });
+        // Bugfix: 清空自定义 CA 必须传空串，否则旧 NODE_EXTRA_CA_CERTS 路径会残留。
+        httpProxyCaCertPath: normalizedCaCertPath,
+      });
       setHttpProxyCaCertPath(normalizedCaCertPath);
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
@@ -1063,8 +1086,8 @@ export function SettingsPage({
   const handleDesktopChromiumHardwareAccelerationChange = useCallback(
     async (enabled: boolean) => {
       await localHostServices.settingService.update({
-            desktopChromiumHardwareAccelerationEnabled: enabled,
-          });
+        desktopChromiumHardwareAccelerationEnabled: enabled,
+      });
       setDesktopChromiumHardwareAccelerationEnabled(enabled);
       toast(
         intl.formatMessage({
@@ -1077,8 +1100,8 @@ export function SettingsPage({
   const handleEmbeddedBrowserAllowInsecureCertificatesChange = useCallback(
     async (enabled: boolean) => {
       await localHostServices.settingService.update({
-            embeddedBrowserAllowInsecureCertificates: enabled,
-          });
+        embeddedBrowserAllowInsecureCertificates: enabled,
+      });
       setEmbeddedBrowserAllowInsecureCertificates(enabled);
       // 证书策略在 main 启动时装到 Session 上，改完必须重启才会换掉 verifyProc。
       toast(
@@ -1247,9 +1270,9 @@ export function SettingsPage({
                       className="m-1 w-[calc(100%-0.5rem)] justify-start gap-2 rounded-xl bg-surface px-1.5 text-remote-foreground-muted hover:bg-surface-hover hover:text-foreground max-lg:m-1 max-lg:size-10 max-lg:justify-center max-lg:px-0"
                       onClick={() => {
                         if (pluginNavigationOrigin === "plugin-store") {
-                              requestPluginStoreOpen("user");
-                            }
-onBack?.();
+                          requestPluginStoreOpen("user");
+                        }
+                        onBack?.();
                       }}
                     >
                       <ArrowLeft className="size-4" />
@@ -1486,9 +1509,7 @@ onBack?.();
                               defaultHomeDir={defaultHomeDir}
                               showIntegratedTerminalShell={hostPlatform === "win32"}
                               setLocalePreference={handleFooterLocaleChange}
-                              setNotificationEnabled={(enabled) =>
-                                setNotificationEnabled(enabled)
-                              }
+                              setNotificationEnabled={(enabled) => setNotificationEnabled(enabled)}
                               setNotificationSoundEnabled={(enabled) =>
                                 setNotificationSoundEnabled(enabled)
                               }
@@ -1520,6 +1541,14 @@ onBack?.();
                               onNativeSearchEnhancementsEnabledChange={
                                 handleNativeSearchEnhancementsEnabledChange
                               }
+                              totalTokensReminderEnabled={totalTokensReminderEnabled}
+                              onTotalTokensReminderEnabledChange={
+                                handleTotalTokensReminderEnabledChange
+                              }
+                              agentAlwaysBackgroundEnabled={agentAlwaysBackgroundEnabled}
+                              onAgentAlwaysBackgroundEnabledChange={
+                                handleAgentAlwaysBackgroundEnabledChange
+                              }
                               messageStreamShowReasoning={messageStreamShowReasoning}
                               messageStreamShowTodos={messageStreamShowTodos}
                               zcodeInteractionBehavior={zcodeInteractionBehavior}
@@ -1540,6 +1569,7 @@ onBack?.();
                               onModelIoFullRetentionEnabledChange={
                                 handleModelIoFullRetentionEnabledChange
                               }
+                              replyLanguage={sharedSettings?.replyLanguage}
                             />
                           ) : activeSection === "dataSync" ? (
                             isDesktop ? (
@@ -1637,22 +1667,8 @@ onBack?.();
                                   );
                                   onBack?.();
                                   if (target) {
+                                    // 已确认只需返回设备工作区；旧项目 DOM 标识已移除，不再异步查找并抢占焦点。
                                     activateTab(target.id);
-                                    requestAnimationFrame(() => {
-                                      const row = Array.from(
-                                        document.querySelectorAll<HTMLElement>(
-                                          "[data-remote-project-identity]",
-                                        ),
-                                      ).find(
-                                        (element) =>
-                                          element.dataset.remoteProjectIdentity ===
-                                          target.workspaceIdentity,
-                                      );
-                                      row?.scrollIntoView({ block: "center" });
-                                      row
-                                        ?.querySelector<HTMLElement>('[role="button"]')
-                                        ?.focus({ preventScroll: true });
-                                    });
                                   }
                                 }}
                                 settings={sharedSettings}
@@ -1677,9 +1693,7 @@ onBack?.();
                               theme={theme}
                               setTheme={(nextTheme) => handleFooterThemeChange(nextTheme)}
                               uiFontSizePx={uiFontSizePx}
-                              setUiFontSizePx={(fontSizePx) =>
-                                setUiFontSizePx(fontSizePx)
-                              }
+                              setUiFontSizePx={(fontSizePx) => setUiFontSizePx(fontSizePx)}
                             />
                           ) : activeSection === "shortcuts" ? (
                             <ShortcutSettingsSection isDesktop={Boolean(isDesktop)} />
@@ -1816,6 +1830,10 @@ onBack?.();
                             />
                           ) : activeSection === "hooks" ? (
                             <HooksSection
+                              key={`hooks:${settingsSectionNavigationVersion}`}
+                              // 只有 worktree 审核意图才固定范围；其他入口保持原有默认范围。
+                              initialScopeKey={hookWorkspacePath ? pluginScopeKey : undefined}
+                              reviewWorkspacePath={hookWorkspacePath}
                               workspacePath={activeWorkspacePath}
                               workspaceIdentity={activeWorkspaceIdentity}
                             />

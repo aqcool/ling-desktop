@@ -136,6 +136,7 @@ async function executeProjectMemoryExtraction(
       messageCount: input.messageCount,
     });
     await runMemoryAgentLoop({
+      bashShellSelection: input.snapshot.bashShellSelection,
       abortSignal: input.abortSignal,
       entries: projectMemoryAgentEntries(input.snapshot, prompt),
       executeToolCalls: createProjectMemoryAgentToolRunner(runtime, input.snapshot),

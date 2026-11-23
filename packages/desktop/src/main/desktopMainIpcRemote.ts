@@ -27,6 +27,7 @@ import {
   type WebRemoteControlIpcManager,
 } from "./desktopWebRemoteControlIpc.js";
 import { openFileUrlInDefaultApp, openPathInDefaultApp } from "./desktopMainIpcHelpers.js";
+import type { ConfirmExecutableFileOpen } from "@desktop/main/file-open-apps/index.js";
 
 function isPublicRemoteReasonCode(code: string | undefined): code is string {
   // Bug 原因：前缀 OR 形成第二份公开码真源，任何内部 source-server-* 字符串都会穿透
@@ -181,6 +182,8 @@ export function registerRemoteIpcHandlers(options: {
     warn: (...args: unknown[]) => void;
     error: (...args: unknown[]) => void;
   };
+  /** 系统默认打开可执行类文件前的用户确认（见 file-open-apps/executableOpenGuard）。 */
+  confirmExecutableFileOpen: ConfirmExecutableFileOpen;
   webRemoteControlManager: WebRemoteControlIpcManager;
   createRemoteWorkspaceSession: (
     win: BrowserWindow,
@@ -224,7 +227,6 @@ export function registerRemoteIpcHandlers(options: {
   listAvailableDockerContainers: () => Promise<unknown[]>;
   listSSHConfigAliases: () => Promise<unknown[]>;
 }) {
-
   ipcMain.on(InternalChannels.ScopedServicePortReady, (event, rawPayload: unknown) => {
     if (!rawPayload || typeof rawPayload !== "object") return;
     const payload = rawPayload as {
@@ -267,7 +269,7 @@ export function registerRemoteIpcHandlers(options: {
       return;
     }
     if (new URL(url).protocol === "file:") {
-      void openFileUrlInDefaultApp(url, options.logger);
+      void openFileUrlInDefaultApp(url, options.logger, options.confirmExecutableFileOpen);
       return;
     }
     const sender = event.sender;
@@ -298,7 +300,7 @@ export function registerRemoteIpcHandlers(options: {
   });
 
   ipcMain.handle(PlatformChannels.OpenExternalFile, async (_event, rawPath: string) =>
-    openPathInDefaultApp(rawPath, options.logger),
+    openPathInDefaultApp(rawPath, options.logger, options.confirmExecutableFileOpen),
   );
 
   ipcMain.on(PlatformChannels.RendererReady, (event) => {

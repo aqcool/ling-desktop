@@ -14,6 +14,8 @@ export const ZCODE_CUA_PRODUCT_HELPER_ENV_KEY = "ZCODE_CUA_PRODUCT_HELPER";
 export const ZCODE_CUA_BROKER_SOCKET_ENV_KEY = "ZCODE_CUA_PERMISSION_BROKER_SOCKET";
 export const ZCODE_SERVER_OPS_BRIDGE_ENV_KEY = "ZCODE_SERVER_OPS_BRIDGE";
 export const ZCODE_IMAGEGEN_BRIDGE_ENV_KEY = "ZCODE_IMAGEGEN_BRIDGE";
+/** 独立 CLI 自签凭据组时的 socket 哨兵值：node_repl 见到它就在本进程内运行 broker。 */
+export const ZCODE_CUA_IN_PROCESS_BROKER_SOCKET = "in-process";
 // 官方命令端点（agent 侧代理，技术方案 5.8）：地址与 session token 只由 agent 按 session 注入
 // Bash/tool 子进程，不随 agent 全局 env 继承。
 export const ZCODE_OFFICIAL_ENDPOINT_ENV_KEY = "ZCODE_OFFICIAL_ENDPOINT";
@@ -181,6 +183,15 @@ function captureZCodeCuaBrokerCredentials(env: Record<string, string | undefined
   }
 }
 
+export function mintStandaloneZCodeCuaBrokerCredentials(): boolean {
+  if (capturedCuaBrokerCredentials) return false;
+  capturedCuaBrokerCredentials = Object.freeze({
+    socket: ZCODE_CUA_IN_PROCESS_BROKER_SOCKET,
+    pluginAuthority: globalThis.crypto.randomUUID().replaceAll("-", ""),
+  });
+  return true;
+}
+
 export function getCapturedZCodeCuaBrokerCredentials(): {
   socket: string | undefined;
   pluginAuthority: string | undefined;
@@ -280,7 +291,11 @@ export function shouldSanitizeZCodeRuntimeEnvKey(key: string): boolean {
 
 export function shouldCaptureZCodeToolEnvPassthroughKey(key: string): boolean {
   const upperKey = key.toUpperCase();
-  if (upperKey.startsWith("OTEL_") || upperKey.startsWith("ZCODE_TELEMETRY_") || upperKey === "ZCODE_MODEL_TELEMETRY_ENABLED") {
+  if (
+    upperKey.startsWith("OTEL_") ||
+    upperKey.startsWith("ZCODE_TELEMETRY_") ||
+    upperKey === "ZCODE_MODEL_TELEMETRY_ENABLED"
+  ) {
     return false;
   }
   if (NON_TOOL_PASSTHROUGH_RUNTIME_ENV_KEYS.some((candidate) => candidate === upperKey)) {

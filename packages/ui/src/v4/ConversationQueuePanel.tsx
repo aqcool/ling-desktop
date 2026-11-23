@@ -325,9 +325,7 @@ const QueueRow = memo(function QueueRow({
           data-testid={testId(TID_V4_QUEUE_ITEM_SEND_NOW, item.queueItemId)}
           data-queue-item-id={item.queueItemId}
           disabled={rowLocked}
-          onClick={() =>
-            onSendNow(item.queueItemId)
-          }
+          onClick={() => onSendNow(item.queueItemId)}
         >
           <ArrowUpFromLine className="size-3.5" />
           {intl.formatMessage({ id: isCompact ? "chat.queue.runNow" : "chat.queue.sendNow" })}
@@ -427,7 +425,7 @@ function ConversationQueuePanelImpl({
       data-queue-count={queue.items.length}
       data-queue-auto-drain={queue.autoDrain ? "true" : "false"}
       className={cn(
-        "relative z-0 w-full overflow-hidden rounded-t-2xl border border-border bg-surface p-1 backdrop-blur-md",
+        "relative z-0 w-full overflow-hidden rounded-t-2xl border-[0.5px] border-border bg-surface p-1 backdrop-blur-md",
         "-mb-7 pb-7",
       )}
     >

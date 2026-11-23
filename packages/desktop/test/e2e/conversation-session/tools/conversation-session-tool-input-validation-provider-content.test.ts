@@ -12,15 +12,19 @@ import {
 
 const PROMPT_MARKER = "E2E_TOOL_INPUT_VALIDATION_PROVIDER_CONTENT";
 const COLD_PROMPT_MARKER = "E2E_TOOL_INPUT_VALIDATION_COLD_REPLAY";
-const RAW_INPUT_MARKER = "E2E_TOOL_INPUT_VALIDATION_RAW_SHOULD_NOT_LEAK";
+const RAW_INPUT_MARKER = "E2E_TOOL_INPUT_VALIDATION_RAW_INPUT";
+const RAW_INPUT = `not-json-${RAW_INPUT_MARKER}`;
 const LIVE_DONE = "E2E_TOOL_INPUT_VALIDATION_LIVE_OK";
 const COLD_DONE = "E2E_TOOL_INPUT_VALIDATION_COLD_OK";
 const TOOL_CALL_ID = "toolu_e2e_tool_input_validation";
 const TOOL_NAME = "AskUserQuestion";
 const LEGACY_VALIDATION_CONTENT = "Tool input failed inputSchema validation";
+// 入参 JSON 无法解析时不再按 {} 报缺参；错误正文带原始串的预览（不超过 200 个码元）。
+const MISSING_PARAMETER_CONTENT = "The required parameter `questions` is missing";
 const VALIDATION_CONTENT = [
-  "<tool_use_error>InputValidationError: AskUserQuestion failed due to the following issue:",
-  "The required parameter `questions` is missing</tool_use_error>",
+  "<tool_use_error>InputValidationError: AskUserQuestion was called with input that could not be parsed as JSON.",
+  `You sent (first ${RAW_INPUT.length} of ${RAW_INPUT.length} bytes): ${RAW_INPUT}`,
+  "Common causes: unescaped backslashes in file paths (use / or \\\\), unescaped control characters, or truncated output. Retry with valid JSON.</tool_use_error>",
 ].join("\n");
 
 describe("Z02 工具输入校验 provider content E2E", () => {
@@ -88,8 +92,10 @@ describe("Z02 工具输入校验 provider content E2E", () => {
 
 function assertValidationHistory(requestJson: unknown) {
   const serialized = JSON.stringify(requestJson);
-  expect(serialized).not.toContain(RAW_INPUT_MARKER);
+  // 原始串只出现在 tool_result 的预览里一次；tool_use.input 仍是 {}（下方精确断言）。
+  expect(serialized.split(RAW_INPUT_MARKER)).toHaveLength(2);
   expect(serialized).not.toContain(LEGACY_VALIDATION_CONTENT);
+  expect(serialized).not.toContain(MISSING_PARAMETER_CONTENT);
 
   const messages = readRecordArray(readRecord(requestJson).messages);
   const contentBlocks = messages.flatMap((message, messageIndex) =>

@@ -29,6 +29,8 @@ const groups = [
 function Composer() {
   const [model, setModel] = useState("one");
   const [effort, setEffort] = useState("high");
+  const [fast, setFast] = useState(false);
+  const [managed, setManaged] = useState(false);
   const { reportComposerDockHeight } = useConversationPanePresentation();
   useEffect(() => reportComposerDockHeight(56), [reportComposerDockHeight]);
   return (
@@ -41,13 +43,15 @@ function Composer() {
         modelGroups={groups}
         normalizedValue={model}
         triggerLabel={groups.flatMap((g) => g.items).find((item) => item.value === model)!.name}
-        showManageModelsAction={false}
+        showManageModelsAction={params.has("ling")}
+        manageModelsLabel="Manage models"
+        onManageModels={() => setManaged(true)}
         lockReasonMessage="Unavailable"
         isItemLocked={(value) => value === "locked"}
         onValueChange={setModel}
         composerOptions={{
           providerLabel: "Provider",
-          modelsLabel: "Models",
+          modelsLabel: params.get("locale") === "zh-CN" ? "模型" : "Models",
           effortLabel: "Effort",
           selectModelLabel: "Select model",
           levels: [
@@ -56,10 +60,16 @@ function Composer() {
           ],
           value: effort,
           onValueChange: setEffort,
+          fast: params.has("ling")
+            ? { enabled: fast, label: "Fast", onChange: setFast }
+            : undefined,
         }}
       />
       <output data-testid="selection" hidden>
         {model}
+      </output>
+      <output data-testid="managed" hidden>
+        {String(managed)}
       </output>
     </div>
   );
@@ -116,7 +126,7 @@ function Fixture() {
   );
 }
 createRoot(document.getElementById("root")!).render(
-  <ZCodeIntlProvider initialLocale="en-US">
+  <ZCodeIntlProvider initialLocale={params.get("locale") === "zh-CN" ? "zh-CN" : "en-US"}>
     <TooltipProvider>
       <Fixture />
     </TooltipProvider>

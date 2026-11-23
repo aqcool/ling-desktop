@@ -19,10 +19,6 @@ describe("node_repl call ledger", () => {
     ledger.resolve(first.token)?.facts.cuaApps.push({ appKey: "darwin:com.apple.notes" });
     expect(first.facts.cuaApps).toEqual([{ appKey: "darwin:com.apple.notes" }]);
     expect(second.facts.cuaApps).toEqual([]);
-    // broker 经 resolve 拿到的条目与 tools/call 持有的是同一份 facts。
-    ledger.resolve(first.token)!.facts.computerUse = true;
-    expect(first.facts.computerUse).toBe(true);
-    expect(second.facts.computerUse).toBe(false);
   });
 
   it("rejects unknown tokens and tokens of closed calls", () => {

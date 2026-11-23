@@ -1,5 +1,23 @@
 /** Russian translations（缺失 key 由 IntlProvider 回退到 en-US） */
 const ruRU: Record<string, string> = {
+  "chat.capsule.todo.running": "Выполняется",
+  "chat.capsule.todo.completed": "Завершено",
+  "chat.capsule.todo.pending": "Ожидание",
+  "chat.capsule.files": "Изменено файлов: {count}",
+  "chat.capsule.activity.completed": "Завершено",
+  "chat.capsule.activity.stopped": "Остановлено",
+  "chat.capsule.activity.failed": "Ошибка",
+  "chat.capsule.activity.running": "Активно",
+  "chat.capsule.activityLabel": "Действия:",
+  "chat.capsule.staged": "В индексе",
+  "chat.capsule.unstaged": "Вне индекса",
+  "chat.capsule.fileChanged": "Изменён",
+  "chat.capsule.goal.failed": "Ошибка",
+  "chat.capsule.goal.verified": "Завершено",
+  "chat.capsule.goal.verifying": "Проверка",
+  "chat.capsule.goal.paused": "Приостановлено",
+  "chat.capsule.goal.notSatisfied": "Не достигнуто",
+
   "plugin.discovery.installAndEnable": "Установить и включить в этой рабочей области",
   "plugin.discovery.enableInWorkspace": "Включить в этой рабочей области",
   "plugin.discovery.workspaceInstall":
@@ -886,7 +904,7 @@ const ruRU: Record<string, string> = {
   "conversationShare.error.invalidSelection":
     "Выбранный диалог изменился. Откройте панель публикации заново и выберите его снова.",
   "conversationShare.error.invalidConversation":
-    "Выбранный диалог нельзя опубликовать. Просмотрите проблемы и повторите попытку.",
+    "Выбранный диалог нельзя опубликовать. Снимите выбор с последних ходов и повторите попытку. Если ошибка повторится, скопируйте ID запроса из сведений об ошибке и сообщите о ней.",
   "conversationShare.error.runningTurn":
     "Выбранный ход ещё выполняется. Снимите выбор или дождитесь завершения, прежде чем делиться.",
   "conversationShare.error.streamingRow":
@@ -1792,9 +1810,6 @@ const ruRU: Record<string, string> = {
   "subagentDirectory.status.failed": "Ошибка",
   "subagentDirectory.status.cancelled": "Отменён",
   "subagentDirectory.status.lost": "Потерян",
-  "chat.statusPanel.endedAgents": "Завершённые",
-  "chat.statusPanel.endedWorkflows": "Завершённые рабочие процессы",
-  "chat.statusPanel.workflowsLive": "Выполняется: {count}",
   "workflowDirectory.title": "Запуски рабочих процессов",
   "workflowDirectory.running": "Выполняются",
   "workflowDirectory.runningEmpty": "Нет выполняющихся рабочих процессов",
@@ -1819,6 +1834,7 @@ const ruRU: Record<string, string> = {
   "chat.selections.commentAdd": "Добавить комментарий",
   "chat.selections.commentDeleted": "Аннотация удалена",
   "chat.selections.commentUndo": "Отменить",
+  "chat.selections.sentTitle": "Отправлено с сообщением",
   "chat.selections.listHeader": "Аннотаций в следующем сообщении: {count}",
   "chat.selections.listHint": "Номера соответствуют ответу",
   "chat.selections.removeAll": "Удалить все аннотации",
@@ -2488,6 +2504,9 @@ const ruRU: Record<string, string> = {
     "Ошибка страницы перехвачена, поэтому приложение не показывает пустой экран. Сначала попробуйте ещё раз, а если проблема повторяется, перезагрузите приложение.",
   "appError.retry": "Повторить",
   "appError.reload": "Перезагрузить приложение",
+  "appError.restart": "Перезапустить приложение",
+  "appError.restartHint":
+    "При перезапуске все окна приложения закроются. Несохранённые изменения могут быть потеряны.",
   "appError.hint": "Диагностические сведения записаны для расследования.",
   "appError.details": "Показать стек компонентов",
   "appError.unknown": "Неизвестная ошибка",
@@ -3478,6 +3497,7 @@ const ruRU: Record<string, string> = {
   "settings.shortcuts.command.switchTheme": "Переключить светлую/тёмную тему",
   "settings.shortcuts.command.toggleSidePane": "Показать/скрыть боковую панель справа",
   "settings.shortcuts.command.toggleSidePaneFullView": "Войти в полноэкранный вид или выйти",
+  "settings.shortcuts.command.toggleVoiceInput": "Начать или завершить голосовой ввод",
   "settings.shortcuts.command.toggleTerminal": "Показать/скрыть терминал",
   "settings.shortcuts.command.previousConversation": "Предыдущая задача",
   "settings.shortcuts.command.nextConversation": "Следующая задача",
@@ -3532,6 +3552,19 @@ const ruRU: Record<string, string> = {
   "settings.nativeSearchEnhancements": "Улучшенные Find и Grep",
   "settings.nativeSearchEnhancementsDescription":
     "Использовать улучшенные Find и Grep в новых сеансах и сеансах, восстановленных после перезапуска. Активные сеансы сохраняют текущую настройку; в Windows Find не меняется.",
+  "settings.totalTokensReminder": "Напоминание о бюджете токенов",
+  "settings.totalTokensReminderDescription":
+    "В новых сеансах и сеансах, восстановленных после перезапуска, сообщать модели фиксированный бюджет токенов и остаток на каждом ходе. Это только напоминание, расход не ограничивается. Активные сеансы сохраняют текущую настройку.",
+  "settings.agentAlwaysBackground": "Всегда запускать субагентов в фоне",
+  "settings.agentAlwaysBackgroundDescription":
+    "Субагенты всегда запускаются в фоне, а их результаты приходят на следующих ходах, поэтому во время их работы можно продолжать. Если выключить, выбирает модель: субагенты работают на переднем плане, пока модель не запросит фон. Действует в новых сеансах и сеансах, восстановленных после перезапуска; активные сеансы сохраняют текущую настройку.",
+  "settings.replyLanguage": "Язык ответов",
+  "settings.replyLanguageDescription":
+    "Агент отвечает на этом языке. Оставьте пустым, чтобы следовать языку беседы.",
+  "settings.replyLanguagePlaceholder": "Например: Русский, English, 日本語",
+  "settings.replyLanguageSaveError": "Не удалось сохранить язык ответов",
+  "settings.replyLanguageLocalOnly":
+    "Язык ответов можно задать только в локальном приложении. Откройте «Настройки → Поведение и инструменты» в настольном приложении.",
   "settings.memory": "Память",
   "settings.personalization.title": "Персонализация",
   "settings.personalization.description":
@@ -5169,11 +5202,13 @@ const ruRU: Record<string, string> = {
     "Ещё не синхронизировано. Сначала выполните вход через OAuth.",
   "settings.modelProvider.customTitle": "Пользовательские провайдеры",
   "settings.modelProvider.emptyTitle": "Провайдеров пока нет",
-  "settings.modelProvider.emptyDescription": "После добавления его можно изменить или удалить здесь и выбрать в чате.",
+  "settings.modelProvider.emptyDescription":
+    "После добавления его можно изменить или удалить здесь и выбрать в чате.",
   "settings.modelProvider.subscriptionOAuth.action": "Авторизовать",
   "settings.modelProvider.subscriptionOAuth.signOut": "Выйти",
   "settings.modelProvider.subscriptionOAuth.signedIn": "Вход выполнен",
-  "settings.modelProvider.subscriptionOAuth.pastePlaceholder": "Вставьте адрес перенаправления или код",
+  "settings.modelProvider.subscriptionOAuth.pastePlaceholder":
+    "Вставьте адрес перенаправления или код",
   "settings.modelProvider.subscriptionOAuth.continue": "Продолжить",
   "settings.modelProvider.subscriptionOAuth.cancel": "Отмена",
   "settings.modelProvider.subscriptionOAuth.deviceCode": "Код устройства",
@@ -5505,6 +5540,8 @@ const ruRU: Record<string, string> = {
     "Откройте этот плагин в доступном сеансе текущего проекта.",
   "settings.plugins.store.ui.unavailable":
     "В этом проекте нет интерфейса плагина. Проверьте, включён ли плагин.",
+  "settings.plugins.store.ui.disabledInWorkspace":
+    "Этот плагин отключён в текущем проекте. Включите его для проекта в управлении плагинами, затем откройте.",
   "settings.plugins.store.ui.chooseSurface": "Выберите интерфейс плагина",
   "settings.plugins.store.ui.preview": "Увеличить превью",
   "settings.plugins.store.ui.capability":
@@ -5621,6 +5658,15 @@ const ruRU: Record<string, string> = {
   "settings.plugins.updateAll.aborted":
     "Массовое обновление остановлено, так как изменилась область плагинов; обновлено плагинов: {count}",
   "settings.plugins.list.updateAvailable": "Обновить",
+  "settings.plugins.workspaceTrust.pending": "Ожидает доверия",
+  "settings.plugins.workspaceTrust.pendingHint":
+    "Этот плагин задан в конфигурации проекта и не загружается, пока вы ему не доверитесь. После этого новые сеансы запускают его хуки, MCP-серверы, навыки, команды и агентов.",
+  "settings.plugins.workspaceTrust.trust": "Доверять",
+  "settings.plugins.workspaceTrust.trusted":
+    "Плагину {plugin} выдано доверие. Он загрузится в новых сеансах.",
+  "settings.plugins.workspaceTrust.changed":
+    "Объявления плагина {plugin} изменились. Проверьте их и доверьтесь снова.",
+  "settings.plugins.workspaceTrust.failed": "Не удалось доверить плагину {plugin}",
   "settings.plugins.list.versionChanged": "Изменён",
   "settings.plugins.restore": "Восстановить",
   "settings.plugins.restorableBuiltins.title": "Восстановить встроенные плагины",
@@ -5809,7 +5855,10 @@ const ruRU: Record<string, string> = {
   "settings.hooks.review.trust": "Доверять",
   "settings.hooks.review.notice":
     "Хуки могут выполняться вне песочницы, поэтому просим проверить недавно установленные или изменённые хуки",
+  "settings.hooks.review.worktreeNotice":
+    "Доверие применяется к исходному репозиторию {path} и его worktree",
   "settings.hooks.review.unavailable": "Это подключение не может доверять этому хуку.",
+  "settings.hooks.review.scriptUnavailable": "Скрипт отсутствует или не читается",
   "settings.hooks.review.reason.review_superseded": "Проверка обновлена — подтвердите ещё раз",
   "settings.hooks.review.reason.snapshot_mismatch":
     "Конфигурация хука изменилась — требуется проверка",
@@ -6115,7 +6164,7 @@ const ruRU: Record<string, string> = {
   "chat.message.forking": "Ответвление...",
   "chat.message.fork.unavailable": "Ответвить можно после завершения задачи",
   "chat.message.fork.unsupported": "Текущий агент пока не поддерживает ответвление",
-  "chat.message.fork.failed": "Не удалось ответвить сеанс: {error}",
+  "chat.message.fork.failed": "Не удалось ответвить сеанс. Повторите попытку позже.",
   "chat.message.fork.derivedFrom": "Ответвлено от диалога",
   "chat.message.fork.derivedFromMissing":
     "Ответвлено от старого диалога (данные отслеживания утеряны)",
@@ -6319,59 +6368,19 @@ const ruRU: Record<string, string> = {
   "chat.target.status.paused": "Приостановлена",
   "chat.target.status.budget_limited": "Ограничена бюджетом",
   "chat.target.status.complete": "Выполнена",
-  "chat.target.pause": "Приостановить цель",
-  "chat.target.resume": "Возобновить цель",
+  "chat.target.elapsed": "Прошло {duration}",
+  "chat.target.pause": "Приостановить",
+  "chat.target.resume": "Возобновить",
   "chat.target.clear": "Сбросить цель",
-  "chat.summaryPanel.title": "Статус",
   "chat.summaryPanel.duration.hours": "ч",
   "chat.summaryPanel.duration.minutes": "мин",
   "chat.summaryPanel.duration.seconds": "с",
-  "chat.summaryPanel.showMini": "Свернуть в капсулу",
-  "chat.summaryPanel.showPanel": "Развернуть статус",
-  "chat.summaryPanel.displayMode": "Режим отображения панели статуса",
-  "chat.summaryPanel.displayModeAuto": "Разворачивать автоматически",
-  "chat.summaryPanel.displayModeExpanded": "Всегда развёрнута",
-  "chat.summaryPanel.displayModeCollapsed": "Всегда свёрнута",
-  "chat.summaryPanel.runningBackgroundTasks": "Фоновые задачи в работе",
-  "chat.summaryPanel.runningBackgroundTasksMiniValue": "В фоне: {count}",
-  "chat.summaryPanel.runningBackgroundTasksMiniValuePlural": "В фоне: {count}",
   "chat.summaryPanel.stopRunningBackgroundTask": "Остановить фоновую задачу",
   "chat.summaryPanel.stopRunningSubagent": "Остановить работающего субагента",
   "chat.summaryPanel.stopSubagentFailed": "Не удалось остановить субагента. Повторите попытку.",
   "chat.summaryPanel.openRunningSubagentSession": "Открыть сеанс субагента",
-  "chat.composer.backgroundWorks.tooltipTerminal": "Открыть запущенные терминалы",
-  "chat.composer.backgroundWorks.tooltipAgent": "Открыть запущенных агентов",
-  "chat.composer.backgroundWorks.tooltipWorkflow": "Открыть запущенные рабочие процессы",
-  "chat.composer.backgroundWorks.tooltipWorkflowDetails": "Открыть сведения о рабочем процессе",
-  "chat.composer.backgroundWorks.tooltipMixed": "Открыть запущенные терминалы и агентов",
-  "chat.composer.backgroundWorks.ariaLabel":
-    "Открыть фоновые задачи: Bash — {bashCount}, рабочие процессы — {workflowCount}, субагенты — {subagentCount}, всего — {count}",
   "chat.summaryPanel.goalIterationValue": "Итерация {count}",
-  "chat.summaryPanel.todoGoalIterationGroup": "Итерация {count}",
-  "chat.summaryPanel.todoSessionGroup": "Сеанс",
-  "chat.statusPanel.environment": "Инструменты Git",
-  "chat.statusPanel.changes": "Изменения",
-  "chat.statusPanel.branch": "Ветка",
-  "chat.statusPanel.commitPush": "Коммит / Push",
-  "chat.statusPanel.clean": "Чисто",
-  "chat.statusPanel.goal": "Цель",
-  "chat.statusPanel.sessionPlans": "Планы",
-  "chat.statusPanel.planFallback": "План",
-  "chat.statusPanel.openPlan": "Открыть план: {title}",
-  "chat.statusPanel.todo": "Прогресс",
-  "chat.statusPanel.todoCompletedExpanded": "Скрыть выполненные ({count})",
-  "chat.statusPanel.todoCompletedFold": "Выполнено: {count}",
-  "chat.statusPanel.todoEarlierFold": "Ранее: {count}",
-  "chat.statusPanel.todoLaterFold": "Далее: {count}",
-  "chat.statusPanel.todoWaitingExpanded": "Скрыть ожидающие ({count})",
-  "chat.statusPanel.todoWaitingFold": "Ожидают: {count}",
-  "chat.statusPanel.terminals": "Терминалы",
-  "chat.statusPanel.agents": "Агенты",
-  "chat.statusPanel.workflows": "Рабочие процессы",
-  "chat.statusPanel.runningStatusValue": "В фоне: {count}",
-  "chat.statusPanel.runningStatusValuePlural": "В фоне: {count}",
-  "chat.statusPanel.runningAgentsValue": "Выполняется: {count}",
-  "chat.statusPanel.runningAgentsValuePlural": "Выполняется: {count}",
+  "chat.statusPanel.viewAllChanges": "Просмотреть все изменения",
   "chat.statusPanel.runningStop": "Остановить",
   "chat.toolbar.connection.switchFailed":
     "Не удалось переключить подключение. Выберите снова, чтобы повторить.",
@@ -6407,6 +6416,7 @@ const ruRU: Record<string, string> = {
   "chat.goal.runningBlocked": "Задайте цель после завершения текущей задачи.",
   "chat.goal.planModeBlocked":
     "Цель недоступна в режиме планирования. Смените режим, чтобы продолжить.",
+  "chat.slash.app.plan.label": "Режим планирования",
   "chat.slash.app.plan.description": "Включить режим планирования",
   "chat.compact.runningBlocked": "Сожмите контекст после завершения текущей задачи.",
   "chat.compact.queued": "Сжатие поставлено в очередь и будет выполнено по порядку.",
@@ -7954,6 +7964,8 @@ const ruRU: Record<string, string> = {
   "automations.runNowQueued": "Запущено — скоро начнётся",
   "automations.runNowAlreadyRunning": "Запуск уже выполняется",
   "automations.runNowFailed": "Не удалось запустить",
+  "automations.runNowHostMismatch":
+    "Задача принадлежит другому устройству и не может быть запущена здесь",
   "automations.error.create": "Не удалось создать задачу. Повторите попытку.",
   "automations.error.createLimit":
     "Можно хранить не более {limit} запланированных задач, включая приостановленные, завершённые и с ошибкой. Удалите одну, прежде чем создавать новую.",

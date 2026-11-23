@@ -256,7 +256,7 @@ export function ChatErrorBanner({
         data-testid={TID_CHAT_ERROR_BANNER}
         data-error-code={error.code}
         className={cn(
-          "w-full flex flex-wrap items-center gap-2 rounded-xl bg-surface backdrop-blur-md border border-border px-3 py-2",
+          "w-full flex flex-wrap items-center gap-2 rounded-xl bg-surface backdrop-blur-md border-[0.5px] border-border py-2 pl-3 pr-2",
         )}
       >
         {/* 配置恢复需要可操作的完整提示；手机横幅若与按钮挤在同一行，正文会只剩省略号。 */}
@@ -289,7 +289,7 @@ export function ChatErrorBanner({
           <>
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={onOpenModelSettings}
               className={cn(actionButtonClassName, "gap-1.5")}
@@ -305,7 +305,7 @@ export function ChatErrorBanner({
           <>
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               className={actionButtonClassName}
               data-testid={TID_CHAT_ERROR_DETAILS_BUTTON}
@@ -336,26 +336,25 @@ export function ChatErrorBanner({
         {!modelConfigMissing ? (
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => {
               void handleCopyError();
             }}
-            className={cn(actionButtonClassName, "gap-1.5")}
+            className={actionButtonClassName}
             aria-label={intl.formatMessage({ id: "chat.error.copyFull" })}
           >
-            <CopyIcon className="size-3.5" />
             {intl.formatMessage({ id: "chat.error.copyFull" })}
           </Button>
         ) : null}
 
         {remoteConnectionFailure && onReconnect ? (
-          <Button variant="outline" size="sm" onClick={onReconnect}>
+          <Button variant="secondary" size="sm" onClick={onReconnect}>
             {intl.formatMessage({ id: "remote.conversation.reconnect" })}
           </Button>
         ) : null}
         {!remoteConnectionFailure && !modelConfigMissing && onRetry ? (
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={retryDisabled}>
+          <Button variant="secondary" size="sm" onClick={onRetry} disabled={retryDisabled}>
             {retryLabel ?? intl.formatMessage({ id: "chat.error.retry" })}
           </Button>
         ) : null}
@@ -363,7 +362,7 @@ export function ChatErrorBanner({
         {onDismiss ? (
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon-sm"
             onClick={onDismiss}
             className={cn(iconButtonClassName)}
@@ -396,9 +395,7 @@ function buildErrorCopyText({
     message,
     "",
     traceId ? formatMessage("chat.error.copy.errorTraceId", { traceId }) : null,
-    detail
-      ? ["", formatMessage("chat.error.copy.errorDetail"), detail].join("\n")
-      : null,
+    detail ? ["", formatMessage("chat.error.copy.errorDetail"), detail].join("\n") : null,
   ]
     .filter((line): line is string => line != null)
     .join("\n");

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import tsupConfig, {
+  resolvePreinstalledToolsTestBuild,
   resolveBuildRemoteCdnReleaseRoots,
   resolveDesktopTsupBundleSecurityOptions,
 } from "../tsup.config";
@@ -43,6 +44,22 @@ function getDefines(configName: string): Record<string, string> {
 }
 
 describe("desktop tsup chunk isolation", () => {
+  it("预装清单覆盖只能由显式 E2E 构建开启，运行时变量和 test 后端不构成权限", () => {
+    expect(
+      resolvePreinstalledToolsTestBuild({
+        ZCODE_ENV: "test",
+        ZCODE_E2E_PREINSTALLED_TOOLS_CATALOG: "/tmp/fixture.json",
+      }),
+    ).toBe(false);
+    expect(resolvePreinstalledToolsTestBuild({ NODE_ENV: "production" })).toBe(false);
+    expect(
+      resolvePreinstalledToolsTestBuild({
+        NODE_ENV: "production",
+        VITE_ZCODE_E2E_STORE_BRIDGE: "1",
+      }),
+    ).toBe(true);
+  });
+
   it("ZIP 解包器应外置，避免 Electron ESM 启动时动态 require fs 崩溃", () => {
     for (const name of ["main", "host", "scheduler"]) expect(getExternal(name)).toContain("yauzl");
   });
@@ -127,19 +144,15 @@ describe("desktop tsup chunk isolation", () => {
     ).toThrow("OSS_PATH_PREFIX must contain one value or match CDN_DOMAIN count");
   });
 
-
-
-
   it("安装包身份与后端环境作为两个编译期常量注入每个 bundle", () => {
     // 打包后的应用不能依赖机器环境变量：ZCODE_PREVIEW_IDENTITY 在构建时折叠成 __ZCODE_PRODUCT_FLAVOR__。
     for (const entry of ["main", "host", "preload"] as const) {
       const defines = getDefines(entry);
       expect(defines).toHaveProperty("__ZCODE_ENV__");
       expect(defines).toHaveProperty("__ZCODE_PRODUCT_FLAVOR__");
-      expect(["\"production\"", "\"preview\""]).toContain(defines.__ZCODE_PRODUCT_FLAVOR__);
+      expect(['"production"', '"preview"']).toContain(defines.__ZCODE_PRODUCT_FLAVOR__);
     }
   });
-
 
   it("所有 tsup 子构建都应关闭 esbuild legal comments 输出", () => {
     for (const configName of ["main", "host", "preload"]) {

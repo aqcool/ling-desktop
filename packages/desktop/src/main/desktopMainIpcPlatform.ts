@@ -25,7 +25,10 @@ import {
   type WindowControlsOverlayReadyPayload,
 } from "@zcode/shared";
 import { getAppIconDataUrl, getInstalledEditors } from "./editors.js";
-import { createFileApplicationService } from "@desktop/main/file-open-apps/index.js";
+import {
+  createFileApplicationService,
+  type ConfirmExecutableFileOpen,
+} from "@desktop/main/file-open-apps/index.js";
 import type { FileApplicationTarget } from "@zcode/shared";
 import { getApplicationIcon } from "./applicationIcons.js";
 import { exportLogs } from "./exportLogs.js";
@@ -43,7 +46,7 @@ import { syncWindowControlsOverlayForZoomLevel } from "./desktopWindowButtonPosi
 import { resolveDesktopZoomLevelFromFactor } from "./desktopZoom.js";
 import { resolveDesktopWindowChromeState } from "./desktopWindowChromeState.js";
 import { handleWindowUnreadCountSync } from "./desktopWindowLifecycle.js";
-import {  openPathInFileManager } from "./desktopMainIpcHelpers.js";
+import { openPathInFileManager } from "./desktopMainIpcHelpers.js";
 import { registerCuaPermissionIpcHandlers } from "./desktopCuaPermissionIpc.js";
 import {
   registerDesktopBrowserIpcHandlers,
@@ -73,6 +76,10 @@ export function registerPlatformIpcHandlers(options: {
     warn: (...args: unknown[]) => void;
   };
   applyApplicationLocale: (locale: Locale) => Promise<void>;
+  /** 系统关联应用打开可执行类文件前的用户确认（见 file-open-apps/executableOpenGuard）。 */
+  confirmExecutableFileOpen: ConfirmExecutableFileOpen;
+  /** 保存 Agent 回复语言并推送给各窗口 Host；写盘失败时抛出。 */
+  applyReplyLanguage: (language: string) => Promise<void>;
   resolveSystemLocale: () => Locale;
   focusWorkspaceInExistingWindow: (
     path: string,
@@ -274,6 +281,12 @@ export function registerPlatformIpcHandlers(options: {
     return options.applyApplicationLocale(result.data);
   });
 
+  ipcMain.handle(PlatformChannels.SetReplyLanguage, (_event, language: unknown) => {
+    // 空串表示清除；长度由 applyReplyLanguage 按 schema 校验。非法值要让设置页收到失败并恢复原值。
+    if (typeof language !== "string") throw new Error("Invalid reply language");
+    return options.applyReplyLanguage(language);
+  });
+
   ipcMain.handle(PlatformChannels.GetSystemLocale, () => options.resolveSystemLocale());
 
   ipcMain.on(PlatformChannels.SyncWindowTabs, (event, paths: string[]) => {
@@ -442,6 +455,7 @@ export function registerPlatformIpcHandlers(options: {
     getInstalledEditors(typeof filePath === "string" ? filePath : undefined),
   );
   const fileApplications = createFileApplicationService({
+    confirmExecutableOpen: options.confirmExecutableFileOpen,
     getIcon: (id, path) => getAppIconDataUrl(id, path),
     logger: options.logger,
   });

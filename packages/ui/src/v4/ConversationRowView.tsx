@@ -1324,6 +1324,7 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
   sessionId,
   turnId,
   sourceCommandIds = EMPTY_SOURCE_COMMAND_IDS,
+  sourceMessageId,
   onFork,
   onFeedbackChange,
   className,
@@ -1338,6 +1339,12 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
   sessionId?: string | null;
   turnId?: string;
   sourceCommandIds?: readonly string[];
+  /**
+   * 本轮发起命令（turnHeader.sourceCommandId），反馈埋点靠它关联到那一轮的 send_btn /
+   * message_completion。completion 取 CLI inputId，只有普通发送与编辑重发经 E2E 证实同值，
+   * 见 docs/monitoring/business-monitoring.md。拿不到（旧快照、轮头未投影）时上报空串。
+   */
+  sourceMessageId?: string;
   onFork?: (target: ConversationRowTarget) => void;
   onRetry?: (target: ConversationRowTarget) => void;
   onFeedbackChange?: AssistantFeedbackHandler;
@@ -1387,10 +1394,8 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
           },
         );
       }
-      if (platform && entityId) {
-      }
     },
-    [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
+    [entityId, localFeedback, onFeedbackChange, rowId],
   );
   const handleFork = useCallback(() => {
     if (entityId) {
