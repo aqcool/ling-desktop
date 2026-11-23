@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { LookupFunction } from "node:net";
 import { rootCertificates } from "node:tls";
 import { Agent, ProxyAgent, WebSocket, fetch as undiciFetch, type Dispatcher } from "undici";
 
@@ -99,6 +100,7 @@ export function resolveHostProxyForUrl(
 }
 
 interface HostApiNetworkTransportDependencies {
+  lookup?: LookupFunction;
   createDispatcher?: typeof createDispatcher;
   fetchWithDispatcher?: (
     input: string,
@@ -123,6 +125,7 @@ export function createHostApiNetworkTransport(
   let disposePromise: Promise<void> | undefined;
   let disposeMode: "close" | "destroy" | undefined;
   const dispatcherFactory = dependencies.createDispatcher ?? createDispatcher;
+  const lookup = dependencies.lookup;
   const fetchWithDispatcher =
     dependencies.fetchWithDispatcher ??
     ((input, init) => undiciFetch(input, init as never) as unknown as Promise<Response>);
@@ -155,7 +158,8 @@ export function createHostApiNetworkTransport(
     if (route.kind === "invalid") {
       throw new Error(route.reason);
     }
-    if (route.kind === "direct" && !options.caCertPath && !tlsGroups) {
+    // Android 包内的 glibc 没有系统 DNS 配置，注入 lookup 后直连也需要 dispatcher。
+    if (route.kind === "direct" && !options.caCertPath && !tlsGroups && !lookup) {
       return { viaProxy: false };
     }
 
@@ -167,7 +171,7 @@ export function createHostApiNetworkTransport(
       }
       const dispatcherGeneration = generation;
       pendingDispatcherCreations += 1;
-      dispatcherPromise = dispatcherFactory(route, options.caCertPath, tlsGroups);
+      dispatcherPromise = dispatcherFactory(route, options.caCertPath, tlsGroups, lookup);
       dispatcherPromises.set(dispatcherKey, dispatcherPromise);
       void dispatcherPromise
         .then((dispatcher) => {
@@ -276,6 +280,7 @@ async function createDispatcher(
   route: Exclude<HostProxyRoute, { kind: "invalid" }>,
   caCertPath: string | undefined,
   tlsGroups?: string,
+  lookup?: LookupFunction,
 ): Promise<Dispatcher> {
   const customCa = caCertPath ? await readFile(caCertPath, "utf8") : undefined;
   const ca = customCa ? mergeHostApiCaCertificates(customCa) : undefined;
@@ -287,9 +292,9 @@ async function createDispatcher(
   if (route.kind === "proxy") {
     return new ProxyAgent({
       uri: route.proxyUrl,
-      proxyTls: ca ? { ca } : undefined,
+      proxyTls: ca || lookup ? { ca, lookup } : undefined,
       requestTls: hasConnect ? connect : undefined,
     });
   }
-  return new Agent({ connect: hasConnect ? connect : undefined });
+  return new Agent({ connect: hasConnect || lookup ? { ...connect, lookup } : undefined });
 }

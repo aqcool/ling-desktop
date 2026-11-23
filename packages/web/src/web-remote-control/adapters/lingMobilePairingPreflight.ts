@@ -1,7 +1,7 @@
 import { LING_MOBILE_PAIRING } from "@zcode/shared/ling-mobile-pairing";
 import { withWebRemoteControlHttpSignal } from "./webRemoteControlHttpSignal.js";
 
-// 小入口必须先兑换短时配对码，之后才下载应用代码。
+// 小入口先兑换配对码，再下载应用代码。
 export async function redeemLingMobilePairingCode(
   url: URL,
   replaceHref: (href: string) => void,
@@ -15,8 +15,14 @@ export async function redeemLingMobilePairingCode(
   }
   const code = url.hash.slice(1);
   const sid = url.searchParams.get("sid");
-  url.hash = "";
-  replaceHref(url.href);
+  // 局域网链接保留在地址栏，刷新或从书签打开时继续兑换 Cookie。
+  if (
+    url.protocol !== "http:" ||
+    url.searchParams.get(LING_MOBILE_PAIRING.queryKey) !== LING_MOBILE_PAIRING.lanQueryValue
+  ) {
+    url.hash = "";
+    replaceHref(url.href);
+  }
   if (!sid) return false;
 
   return withWebRemoteControlHttpSignal(new AbortController().signal, async (signal) => {

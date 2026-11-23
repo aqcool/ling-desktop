@@ -1,3 +1,4 @@
+import { createConnection, isIP, type LookupFunction } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { createLegacyServerCredentialCipher } from "@zcode/shared/credential-security";
@@ -24,6 +25,51 @@ import {
 import { resolveServerLayout } from "../runtime/paths.js";
 
 declare const __ZCODE_BUILTIN_PROVIDER_CONFIG_JSON__: string | undefined;
+
+function dnsError(code: string, host: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`Android DNS ${code} ${host}`), { code, hostname: host });
+}
+
+function createAndroidDnsLookup(socketName: string): LookupFunction {
+  return (host, options, callback) => {
+    const reply = new Promise<string>((resolve, reject) => {
+      const socket = createConnection(`\0${socketName}`);
+      let body = "";
+      socket.setEncoding("utf8");
+      socket.setTimeout(7000, () => socket.destroy(dnsError("ETIMEDOUT", host)));
+      socket.once("connect", () => socket.write(`${host}\n`));
+      socket.on("data", (chunk: string) => {
+        body += chunk;
+        if (body.length > 16384) socket.destroy(dnsError("EPROTO", host));
+      });
+      socket.once("error", reject);
+      socket.once("end", () => resolve(body));
+    });
+    void reply.then(
+      (body) => {
+        const [status, ...lines] = body.trimEnd().split("\n");
+        if (status !== "OK") {
+          const code = status === "ENOTFOUND" || status === "ENETUNREACH" ? status : "EPROTO";
+          callback(dnsError(code, host), "");
+          return;
+        }
+        const family =
+          options.family === 4 || options.family === "IPv4"
+            ? 4
+            : options.family === 6 || options.family === "IPv6"
+              ? 6
+              : 0;
+        const addresses = lines
+          .map((address) => ({ address, family: isIP(address) }))
+          .filter((entry) => entry.family && (!family || family === entry.family));
+        if (!addresses.length) callback(dnsError("ENOTFOUND", host), "");
+        else if (options.all) callback(null, addresses);
+        else callback(null, addresses[0]!.address, addresses[0]!.family);
+      },
+      (error: NodeJS.ErrnoException) => callback(error, ""),
+    );
+  };
+}
 
 export async function runServerCore(generation: number): Promise<void> {
   // Bug 原因：Agent 的模型请求头从 ZCODE_APP_VERSION 读 App 版本，缺失时回退到 CLI 包版本
@@ -67,12 +113,14 @@ export async function runServerCore(generation: number): Promise<void> {
         filePath: join(getAppConfigDir(), "credentials.json"),
       })
     : undefined;
+  const androidDnsSocket = process.env.ZCODE_ANDROID_DNS_SOCKET;
   const { services, workspaceIdentityMapper, migrationFailedPathCount } =
     await createServerHostServices({
       sourceServerId,
       zcodeBuiltinProviderConfigFilePath,
       providerProvisioningTargetEnabled: true,
       credentialCipherProvider,
+      hostApiLookup: androidDnsSocket ? createAndroidDnsLookup(androidDnsSocket) : undefined,
       topicResourceRelayChannel: (request) => topicResourcePeers.getChannel(request),
     });
   const taskActivityTracker = createTaskActivityTracker(services.getOptional(IZCodeAgentService));

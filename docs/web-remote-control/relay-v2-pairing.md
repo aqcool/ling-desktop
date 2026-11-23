@@ -2,6 +2,43 @@
 
 ## LING 扫码入口
 
+### 局域网开发
+
+`LING_MOBILE_REMOTE_URL` 可设为 `http://<本机私网 IPv4>:17328`。桌面网关同时监听该 IPv4
+和 `127.0.0.1:17328`。手机直接访问前者，桌面设备注册和设备侧 WebSocket 只接受回环连接。
+配置 HTTPS origin 时沿用隧道入口和短时一次性配对。
+
+```mermaid
+sequenceDiagram
+    participant M as 桌面 Main 与现有 Host
+    participant G as 桌面网关
+    participant B as 手机浏览器
+    M->>G: 通过回环注册并连接设备
+    G-->>M: 为当前 SID 生成可复用的局域网链接
+    B->>G: 同源 POST 提交链接片段中的配对码
+    G-->>B: 设置 HttpOnly Cookie
+    B->>G: 用 Cookie 换取一次性 WebSocket ticket
+    G->>M: 每个已认证的手机 socket 打开独立连接上下文
+    B<<->>M: 各自通过 attachment 使用同一个窗口 Host
+    M->>G: 关闭远控时撤销 SID 的授权
+```
+
+网关唯一持有链接授权。已开启的远控为同一 SID 保留一个配对码，不按时间过期。每次打开或
+刷新带 `ling-pair=lan` 的链接都可兑换 Cookie，浏览器保留 fragment 供书签及重复打开使用。
+Cookie 仍有独立有效期，重复兑换期间复用仍有效的 Cookie 授权。WebSocket ticket 保持短时且
+只能使用一次。同一局域网链接支持多个 terminal 同时在线。网关负责 socket 鉴权与定向收发，
+Main 为每个 terminal 持有独立的导航、桥接、响应和页面 owner。窗口 Host 与会话执行者共享；
+释放某个 terminal 只撤销其 owner 和 attachment。关闭远控、
+更换窗口或退出桌面会使旧链接失效。桌面重启或局域网 IP 改变后重新复制链接。
+
+验收场景 `LAN-PAIR-01`：启动当前桌面远控，复制一次局域网链接。用浏览器打开，确认显示已有
+工作区和任务。在全新浏览器上下文同时打开原链接，两端分别导航，响应和导航状态互不串扰。
+刷新或关闭其中一端，另一端仍可访问任务。刷新后的页面用新 attachment 从已有会话恢复。
+验收场景 `LAN-PAIR-02`：验证两分钟后原链接仍可兑换，错误配对码、跨源请求和局域网端口上的
+设备侧注册应拒绝。关闭桌面远控后，再打开原链接应拒绝。HTTPS 配对码维持一次有效。
+
+### HTTPS 隧道
+
 `LING_MOBILE_REMOTE_URL` 配置手机浏览器访问的 HTTPS origin。桌面在 `127.0.0.1:17328`
 提供现有 Web 构建和 Relay V2 接口，`cloudflared` 将域名转发到该端口。临时隧道和正式隧道
 使用相同入口。浏览器只访问这个 origin。桌面使用进程内设备凭据注册，不走官方账号。
@@ -717,11 +754,11 @@ Docker 镜像构建不在本轮验证范围。分享镜像验证本地 COPY 源�
 
 以下沿用父 spec 的依赖记录，尚未在本次任务重新取得生产验收证据；不能据此宣布生产可发布。
 
-| 外部依赖                                                   | 归属         | 放行证据                                                                                                      |
-| ---------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------- |
-| 生产 zcode-server 部署 V2 HTTP/WS                          | 服务端维护方 | token 接口无 JWT 返回 401，合法账号完成设备注册与一次性 token 配对                                            |
-| `/api/v1/remote/ws2` 精确路由，同 MID 双端落同一实例       | 网关维护方   | 无 token 返回 401，同 MID 稳定配对，滚动后恢复                                                                |
-| `/remote/v4` 按 `app_version` 取 OSS index，资源按目录路由 | 网关维护方   | 两个版本加载各自资源，release-manifest 返回 JSON，不能是 SPA HTML                                             |
+| 外部依赖                                                   | 归属         | 放行证据                                                                                              |
+| ---------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
+| 生产 zcode-server 部署 V2 HTTP/WS                          | 服务端维护方 | token 接口无 JWT 返回 401，合法账号完成设备注册与一次性 token 配对                                    |
+| `/api/v1/remote/ws2` 精确路由，同 MID 双端落同一实例       | 网关维护方   | 无 token 返回 401，同 MID 稳定配对，滚动后恢复                                                        |
+| `/remote/v4` 按 `app_version` 取 OSS index，资源按目录路由 | 网关维护方   | 两个版本加载各自资源，release-manifest 返回 JSON，不能是 SPA HTML                                     |
 | ZAI/BigModel OAuth 回调白名单                              | OAuth 提供方 | `https://zcode.z.ai/remote/v4` 与 `https://zcode.z.ai/remote/v4` 已登记，测试环境真实登录后回跳原 URL |
 
 发布顺序：生产服务端 V2 → 网关 WS 与 OSS 规则 → OAuth 白名单 → 手机页面新版本目录 → 同版本桌面 App。网关支持版本目录前不运行手动 latest job。当前根版本为 `3.13.0`，覆盖测试 OSS 的同版本目录前必须知会仍使用该版本 V1 桌面的同事。
@@ -764,3 +801,11 @@ Docker 镜像构建不在本轮验证范围。分享镜像验证本地 COPY 源�
 `pnpm test:unit` 全量结果：1,923 文件通过、1 文件失败、2 文件跳过；17,988 项通过、1 项失败、12 项跳过，用时 418.96 秒。唯一失败是 `packages/desktop/test/e2eRuntimePaths.test.ts` 检出已有 `feedback/manual-review/pending/feedback-upload-privacy.test.ts` 使用裸系统临时路径；该违规文件本票未修改，定向重跑仍失败，与 06 既有记录一致。
 
 代码收口与可执行本地验证已完成，完整 Docker 镜像仍受私有 CUA 依赖认证阻塞，七项测试环境真机矩阵均未执行。必要验证未完成且全量存在既有失败，按根 AGENTS.md 保留工作区改动、不自动提交，07 保持 `in-progress`。
+
+### LING 手机 iroh 连接
+
+桌面连上中继后，配对链接包含当前中继 URL。手机可直接使用这个地址，也会通过 DNS TXT 和签名的 PKARR HTTPS 响应发现桌面当前地址。Android 通过系统的 Application Context 读取当前网络的 DNS。配对身份仍由 Endpoint ID 校验。
+
+桌面二维码绑定 MID、稳定的 iroh Endpoint ID 和一次性授权码。手机固定主机公钥，桌面以 QUIC 对端公钥识别已授权手机。首次授权在已认证 QUIC 通道内完成，后续重连可跨地址和桌面运行实例。一次仅暴露用户启用的窗口，关闭远控立即释放其连接。每个连接接入现有 replayable terminal attachment，与桌面窗口共用 Host。连接调度采用 iroh 公共 Relay 和自动直连，扫码不依赖账号目录。
+
+    手机扫码 → QUIC 验证主机公钥 → 桌面验证授权码或已存手机公钥 → 绑定当前窗口 → V4 bootstrap

@@ -68,6 +68,7 @@
     "@modelcontextprotocol/ext-apps": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@napi-rs/keyring": "2.1.2",
+    "@number0/iroh": "1.2.0",
     "@zcode/client": "workspace:*",
     "@zcode/e2e-report": "workspace:*",
     "@zcode/provider": "workspace:*",

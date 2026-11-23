@@ -3,9 +3,12 @@ import { once } from "node:events";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { isIPv4 } from "node:net";
 import { extname, resolve, sep } from "node:path";
+import type { Duplex } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { WebSocket, WebSocketServer } from "ws";
+import { WEB_REMOTE_CONTROL_RPC_TRANSPORT_LIMITS } from "@zcode/shared";
 import {
   LING_MOBILE_PAIRING,
   WEB_REMOTE_CONTROL_RELAY_V2_HTTP as routes,
@@ -16,9 +19,15 @@ import {
   parseWebRemoteControlRelayV2OutgoingMessage,
   type WebRemoteControlRelayV2IncomingMessage,
 } from "@zcode/shared/web-remote-relay";
-import type { WebRemoteControlRegisteredDevice } from "./contract.js";
+import type {
+  AcceptWebRemoteControlLanTerminal,
+  WebRemoteControlRegisteredDevice,
+} from "./contract.js";
+
+import type { IrohMobileHost } from "./irohMobileHost.js";
 
 const COOKIE = "ling-mobile";
+const LOOPBACK = "127.0.0.1";
 const PAIRING_TTL = 120_000;
 const SESSION_TTL = 86_400_000;
 const TOKEN_TTL = 60_000;
@@ -42,6 +51,7 @@ type Device = {
   device?: WebSocket;
   terminal?: WebSocket;
   terminalId?: string;
+  lan?: { accept: AcceptWebRemoteControlLanTerminal; sockets: Set<WebSocket> };
 };
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -68,6 +78,16 @@ function matches(expected: string, candidate: string | undefined): boolean {
   return bytes.length === expectedBytes.length && timingSafeEqual(bytes, expectedBytes);
 }
 
+function isPrivateIpv4(address: string | undefined): boolean {
+  if (!address || !isIPv4(address)) return false;
+  const [first, second = 0] = address.split(".").map(Number);
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
 function send(socket: WebSocket | undefined, message: WebRemoteControlRelayV2IncomingMessage) {
   if (socket?.readyState !== WebSocket.OPEN) return;
   if (socket.bufferedAmount > 8 * 1024 * 1024) {
@@ -82,14 +102,26 @@ function reply(response: ServerResponse, status: number, data?: unknown) {
   response.end(JSON.stringify({ code: status === 200 ? 0 : status, msg: "", data }));
 }
 
-export function createMobilePairingGateway(value: string, webRoot: string, port = 17328) {
+export function createMobilePairingGateway(
+  value: string,
+  webRoot: string,
+  port = 17328,
+  iroh?: IrohMobileHost,
+) {
   const publicUrl = new URL(value);
-  const origin = `http://127.0.0.1:${port}`;
+  const localUrl = new URL(`http://${LOOPBACK}:${port}`);
+  const nativeOnly = Boolean(iroh) && publicUrl.origin === localUrl.origin;
+  const isLan =
+    publicUrl.protocol === "http:" &&
+    publicUrl.port === String(port) &&
+    isPrivateIpv4(publicUrl.hostname);
   if (
-    (publicUrl.protocol !== "https:" && publicUrl.origin !== origin) ||
+    (!isLan && publicUrl.protocol !== "https:" && publicUrl.origin !== localUrl.origin) ||
     publicUrl.href !== `${publicUrl.origin}/`
   ) {
-    throw new Error("LING_MOBILE_REMOTE_URL must be an HTTPS origin");
+    throw new Error(
+      `LING_MOBILE_REMOTE_URL must be an HTTPS origin or a private IPv4 HTTP origin on port ${port}`,
+    );
   }
   const login = { userId: "ling-desktop", jwt: randomBytes(32).toString("base64url") };
   const devices = new Map<string, Device>();
@@ -98,8 +130,14 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
   let registered: WebRemoteControlRegisteredDevice | undefined;
   let started: Promise<void> | undefined;
   const root = resolve(webRoot);
-  const isLocal = (req: IncomingMessage) => req.headers.host === new URL(origin).host;
-  const isPublicHost = (req: IncomingMessage) => req.headers.host === publicUrl.host;
+  const isLocal = (req: IncomingMessage) =>
+    req.headers.host === localUrl.host &&
+    req.socket.localAddress === LOOPBACK &&
+    req.socket.remoteAddress === LOOPBACK;
+  const isPublicHost = (req: IncomingMessage) =>
+    req.headers.host === publicUrl.host &&
+    (!isLan ||
+      (req.socket.localAddress === publicUrl.hostname && isPrivateIpv4(req.socket.remoteAddress)));
 
   function issueTicket(response: ServerResponse, fields: Omit<Ticket, "expiresAt">) {
     const now = Date.now();
@@ -118,6 +156,8 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
     device.pairing = undefined;
     device.session = undefined;
     device.terminal?.close();
+    for (const socket of device.lan?.sockets ?? []) socket.close();
+    device.lan = undefined;
     for (const [token, ticket] of tickets) {
       if (ticket.sid === sid) tickets.delete(token);
     }
@@ -127,7 +167,7 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("X-Content-Type-Options", "nosniff");
-    const path = new URL(req.url ?? "/", origin).pathname;
+    const path = new URL(req.url ?? "/", localUrl.origin).pathname;
     if (req.method === "POST" && Object.values(routes).some((route) => route.path === path)) {
       if (!isLocal(req) || !matches(`Bearer ${login.jwt}`, req.headers.authorization))
         return reply(res, 401);
@@ -159,8 +199,9 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
       return issueTicket(res, { side: "device", sid: registered.deviceSid });
     }
 
-    if (!isPublicHost(req)) return reply(res, 404);
-    if (req.method === "POST" && req.headers.origin === publicUrl.origin) {
+    const fromPublicHost = isPublicHost(req);
+    if (!fromPublicHost && !(isLan && isLocal(req))) return reply(res, 404);
+    if (fromPublicHost && req.method === "POST" && req.headers.origin === publicUrl.origin) {
       if (path === LING_MOBILE_PAIRING.exchangePath) {
         const result = lingMobilePairingExchangeSchema.safeParse(await readBody(req));
         if (!result.success) return reply(res, 400);
@@ -173,12 +214,19 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
           !matches(pairing.value, result.data.code)
         )
           return reply(res, 401);
-        revoke(result.data.sid);
-        const session = randomBytes(32).toString("base64url");
-        device.session = { value: session, expiresAt: Date.now() + SESSION_TTL };
+        // LAN 重开链接时复用有效授权，避免在新 socket 完成认证前踢掉旧连接。
+        if (!isLan) revoke(result.data.sid);
+        const now = Date.now();
+        if (!device.session || device.session.expiresAt <= now) {
+          device.session = {
+            value: randomBytes(32).toString("base64url"),
+            expiresAt: now + SESSION_TTL,
+          };
+        }
+        const { value: session, expiresAt } = device.session;
         res.setHeader(
           "Set-Cookie",
-          `${COOKIE}=${session}; Path=${LING_MOBILE_PAIRING.tokenPath}; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL / 1000}${publicUrl.protocol === "https:" ? "; Secure" : ""}`,
+          `${COOKIE}=${session}; Path=${LING_MOBILE_PAIRING.tokenPath}; HttpOnly; SameSite=Strict; Max-Age=${Math.ceil((expiresAt - now) / 1000)}${publicUrl.protocol === "https:" ? "; Secure" : ""}`,
         );
         return reply(res, 200);
       }
@@ -221,14 +269,76 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
     else await pipeline(createReadStream(file), res);
   }
 
-  const server = createServer({ requestTimeout: 10_000, headersTimeout: 10_000 }, (req, res) => {
-    void serve(req, res).catch(() => {
-      if (res.headersSent) res.destroy();
-      else reply(res, 400);
+  function acceptLanSocket(ws: WebSocket, device: Device, ticket: Ticket) {
+    let receiver: ReturnType<AcceptWebRemoteControlLanTerminal> | undefined;
+    const lan = device.lan;
+    const authTimeout = setTimeout(() => ws.terminate(), 5000);
+    ws.on("error", () => ws.terminate());
+    ws.on("close", () => {
+      clearTimeout(authTimeout);
+      lan?.sockets.delete(ws);
+      receiver?.close();
     });
-  });
-  server.on("upgrade", (req, socket, head) => {
-    const url = URL.parse(req.url ?? "/", origin);
+    ws.on("message", (data, binary) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      let value: unknown;
+      try {
+        value = binary ? null : JSON.parse(data.toString());
+      } catch {
+        value = null;
+      }
+      const message = parseWebRemoteControlRelayV2OutgoingMessage(value);
+      if (!receiver) {
+        if (
+          message?.type !== "auth_init" ||
+          message.device_sid !== ticket.sid ||
+          device.session?.value !== ticket.session ||
+          !lan ||
+          device.lan !== lan ||
+          device.device?.readyState !== WebSocket.OPEN
+        ) {
+          send(ws, { type: "error", code: "AUTH_FAILED" });
+          ws.close();
+          return;
+        }
+        clearTimeout(authTimeout);
+        receiver = lan.accept({
+          sendPayloadResult(payload) {
+            const json = JSON.stringify({ type: "data", payload });
+            const bytes = Buffer.byteLength(json);
+            const maxBytes = WEB_REMOTE_CONTROL_RPC_TRANSPORT_LIMITS.maxPhysicalFrameBytes;
+            if (bytes > maxBytes) return { kind: "oversize", bytes, maxBytes };
+            if (ws.readyState !== WebSocket.OPEN) return { kind: "unavailable" };
+            if (ws.bufferedAmount > 8 * 1024 * 1024) {
+              ws.terminate();
+              return { kind: "unavailable" };
+            }
+            ws.send(json);
+            return { kind: "sent", bytes };
+          },
+          close: () => ws.close(),
+        });
+        lan.sockets.add(ws);
+        send(ws, {
+          type: "auth_ack",
+          device_sid: ticket.sid,
+          terminal_sid: randomUUID(),
+          pair_status: "matched",
+        });
+        receiver.ready();
+      } else if (message?.type === "pair_status_query") {
+        send(ws, { type: "pair_status_ack", pair_status: "matched" });
+      } else if (message?.type === "data") {
+        receiver.receive(message.payload);
+      } else {
+        send(ws, { type: "error", code: "WRONG_PARAM" });
+        ws.close();
+      }
+    });
+  }
+
+  function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
+    const url = URL.parse(req.url ?? "/", localUrl.origin);
     const token = url?.searchParams.get("token") ?? "";
     const ticket = tickets.get(token);
     const device = ticket && devices.get(ticket.sid);
@@ -249,6 +359,10 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
     tickets.delete(token);
     sockets.handleUpgrade(req, socket, head, (ws) => {
       const side = ticket.side;
+      if (isLan && side === "terminal") {
+        acceptLanSocket(ws, device, ticket);
+        return;
+      }
       const peer = side === "device" ? "terminal" : "device";
       const authTimeout = setTimeout(() => ws.terminate(), 5000);
       ws.on("error", () => ws.terminate());
@@ -259,6 +373,8 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
         if (side === "terminal") delete device.terminalId;
         send(device[peer], { type: "pair_status_ack", pair_status: "waiting" });
         if (side === "device") {
+          iroh?.detach(ticket.sid);
+          for (const terminal of device.lan?.sockets ?? []) terminal.close();
           send(device.terminal, { type: "error", code: "DEVICE_OFFLINE" });
           device.terminal?.close();
         }
@@ -316,13 +432,31 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
         }
       });
     });
+  }
+
+  // 分开监听私网和回环，外部连接即使伪造 Host 也无法进入桌面注册接口。
+  const listeners = (isLan ? [LOOPBACK, publicUrl.hostname] : [LOOPBACK]).map((host) => {
+    const server = createServer({ requestTimeout: 10_000, headersTimeout: 10_000 }, (req, res) => {
+      void serve(req, res).catch(() => {
+        if (res.headersSent) res.destroy();
+        else reply(res, 400);
+      });
+    });
+    server.on("upgrade", upgrade);
+    return { host, server };
   });
 
   return {
     login,
-    origin,
-    remoteUrl: new URL("/remote/v4", publicUrl).href,
-    relayWsUrl: `ws://127.0.0.1:${port}${WEB_REMOTE_CONTROL_RELAY_V2_WS_PATH}`,
+    get origin() {
+      return localUrl.origin;
+    },
+    get remoteUrl() {
+      return new URL("/remote/v4", publicUrl).href;
+    },
+    get relayWsUrl() {
+      return `ws://${localUrl.host}${WEB_REMOTE_CONTROL_RELAY_V2_WS_PATH}`;
+    },
     storage: {
       load: async () => registered,
       save: async (device: WebRemoteControlRegisteredDevice) => {
@@ -332,10 +466,19 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
     },
     async start() {
       started ??= (async () => {
-        await stat(resolve(root, "index.html"));
-        server.listen(port, "127.0.0.1");
-        await once(server, "listening");
+        if (!iroh || publicUrl.origin !== localUrl.origin) await stat(resolve(root, "index.html"));
+        await iroh?.start();
+        for (const { host, server } of listeners) {
+          server.listen(port, host);
+          await once(server, "listening");
+          if (nativeOnly && port === 0) {
+            const address = server.address();
+            if (!address || typeof address === "string") throw new Error("Missing gateway address");
+            publicUrl.port = localUrl.port = String(address.port);
+          }
+        }
       })().catch((error: unknown) => {
+        for (const { server } of listeners) server.close();
         started = undefined;
         throw error;
       });
@@ -347,19 +490,36 @@ export function createMobilePairingGateway(value: string, webRoot: string, port 
       if (!device.pairing || device.pairing.expiresAt <= Date.now()) {
         device.pairing = {
           value: randomBytes(32).toString("base64url"),
-          expiresAt: Date.now() + PAIRING_TTL,
+          expiresAt: isLan ? Number.POSITIVE_INFINITY : Date.now() + PAIRING_TTL,
         };
       }
       const url = new URL(baseUrl);
-      url.searchParams.set(LING_MOBILE_PAIRING.queryKey, "1");
+      url.searchParams.set(
+        LING_MOBILE_PAIRING.queryKey,
+        isLan ? LING_MOBILE_PAIRING.lanQueryValue : "1",
+      );
       url.hash = device.pairing.value;
       return url.href;
     },
-    revoke,
+    nativeOnly,
+    nativePairingUrl: iroh ? (sid: string, url: string) => iroh.link(sid, url) : undefined,
+    acceptLanTerminal:
+      isLan || iroh
+        ? (sid: string, accept: AcceptWebRemoteControlLanTerminal) => {
+            const device = devices.get(sid);
+            if (device) iroh?.attach(sid, accept);
+            if (device && isLan) device.lan ??= { accept, sockets: new Set() };
+          }
+        : undefined,
+    revoke(sid: string) {
+      iroh?.detach(sid);
+      revoke(sid);
+    },
     dispose() {
+      iroh?.dispose();
       for (const client of sockets.clients) client.terminate();
       sockets.close();
-      server.close();
+      for (const { server } of listeners) server.close();
     },
   };
 }

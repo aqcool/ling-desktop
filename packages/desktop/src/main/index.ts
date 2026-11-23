@@ -121,6 +121,7 @@ import { readBootstrapApplicationLocale } from "./desktopApplicationLocaleBootst
 import {
   createMobileLogSink,
   createMobilePairingGateway,
+  IrohMobileHost,
   createWebRemoteControlDeviceStorage,
   pullAndExportMobileLogs,
   runWebRemoteControlActionInRenderer,
@@ -837,11 +838,25 @@ const webRemoteControlRelayWsEnvOverride =
   process.env["ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL"]?.trim();
 const webRemoteControlUrlEnvOverride = process.env["ZCODE_WEB_REMOTE_CONTROL_URL"]?.trim();
 const lingMobileRemoteUrl = process.env["LING_MOBILE_REMOTE_URL"]?.trim();
-const mobilePairingGateway = lingMobileRemoteUrl
+// The upstream native package ships macOS arm64, Windows x64 and Linux x64/arm64.
+const supportsIrohMobileHost =
+  (process.platform === "darwin" && process.arch === "arm64") ||
+  (process.platform === "win32" && process.arch === "x64") ||
+  (process.platform === "linux" && (process.arch === "x64" || process.arch === "arm64"));
+const useMobileGateway =
+  Boolean(lingMobileRemoteUrl) ||
+  (supportsIrohMobileHost && !(webRemoteControlRelayWsEnvOverride || webRemoteControlUrlEnvOverride));
+const irohMobileHost =
+  useMobileGateway && supportsIrohMobileHost
+    ? new IrohMobileHost(deviceMid, webRemoteControlCredentialService)
+    : undefined;
+const mobilePairingGateway = useMobileGateway
   ? createMobilePairingGateway(
-      lingMobileRemoteUrl,
+      lingMobileRemoteUrl || "http://127.0.0.1:0",
       process.env["LING_MOBILE_REMOTE_WEB_ROOT"]?.trim() ||
         join(import.meta.dirname, "../../../web/dist"),
+      lingMobileRemoteUrl ? 17328 : 0,
+      irohMobileHost,
     )
   : undefined;
 
@@ -882,6 +897,7 @@ const webRemoteControlManager = createWebRemoteControlManager({
   mobileLogSink: { append: (target, events) => getMobileLogSink().append(target, events) },
   getEndpointUrls: async () => {
     if (mobilePairingGateway) {
+      await mobilePairingGateway.start();
       return {
         ...buildZCodeEndpointUrls(mobilePairingGateway.origin),
         origin: mobilePairingGateway.origin,
@@ -931,11 +947,11 @@ const webRemoteControlManager = createWebRemoteControlManager({
     }),
   startupRestoreStorageProvider: {
     load: async () =>
-      mobilePairingGateway
+      mobilePairingGateway && !mobilePairingGateway.nativeOnly
         ? undefined
         : (await mainSettingService.get()).webRemoteControlLastEnabledContext,
     save: async (context) => {
-      if (mobilePairingGateway) return;
+      if (mobilePairingGateway && !mobilePairingGateway.nativeOnly) return;
       await mainSettingService.update({
         webRemoteControlLastEnabledContext: {
           workspacePath: context.workspacePath,
@@ -945,7 +961,7 @@ const webRemoteControlManager = createWebRemoteControlManager({
       });
     },
     clear: async () => {
-      if (mobilePairingGateway) return;
+      if (mobilePairingGateway && !mobilePairingGateway.nativeOnly) return;
       await mainSettingService.update({
         webRemoteControlLastEnabledContext: undefined,
       });

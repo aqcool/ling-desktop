@@ -10,6 +10,7 @@ import {
 import {
   buildWebRemoteControlExternalQrUrl,
   parseRemoteWorkspaceIdentity,
+  parseWebRemoteControlAppPayload,
   WEB_REMOTE_CONTROL_OUTBOUND_PAYLOAD_BUFFER_TIMEOUT_MS,
   type ZCodeEndpointUrls,
   type HostPreparedProjectWorkspace,
@@ -46,6 +47,7 @@ import {
   WebRemoteControlDeviceTransport,
   MobilePushConnection,
   type WebRemoteControlDeviceTransportOptions,
+  type AcceptWebRemoteControlLanTerminal,
   type WebRemoteControlDeviceTransportState,
   buildWebRemoteControlClientLanguageHeader,
   createWebRemoteControlV2Http,
@@ -124,6 +126,9 @@ interface WindowControlLifecycle {
 }
 
 interface WindowControlRuntime {
+  lanParent?: WindowControlRuntime;
+  lanTerminals?: Set<WindowControlRuntime>;
+  pushedWorkspaceListSignature?: string;
   terminalOwner?: { clientSessionId: string; id: string };
   windowId: number;
   workspacePath: string;
@@ -178,7 +183,10 @@ interface WebRemoteControlManagerDependencies {
   getLogin(): Promise<WebRemoteControlLogin | undefined>;
   localPairing?: {
     pairingUrl(sid: string, baseUrl: string): string;
+    nativeOnly?: boolean;
+    nativePairingUrl?(sid: string, baseUrl: string): string;
     revoke(sid: string): void;
+    acceptLanTerminal?(sid: string, accept: AcceptWebRemoteControlLanTerminal): void;
   };
   deviceStorage: WebRemoteControlDeviceStorage;
   startupRestoreStorageProvider: {
@@ -214,7 +222,11 @@ interface WebRemoteControlManagerDependencies {
     windowId: number,
     context: WebRemoteControlContext & { kind: "local" | "remote"; terminalOwnerId?: string },
   ) => Promise<WebRemoteControlHostAttachmentHandle>;
-  setTerminalOwner: (windowId: number, ownerId: string | null) => void;
+  setTerminalOwner: (
+    windowId: number,
+    ownerId: string | null,
+    previousOwnerId?: string | null,
+  ) => void;
   releaseWorkspaceHostAttachment: (attachmentId: string) => void;
   disposeWorkspaceHostAttachmentsForWindow: (windowId: number, reason: string) => void;
   disposeWorkspaceHostAttachmentsForRemoteSession: (
@@ -514,7 +526,6 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       status,
     };
   }, dependencies.logger);
-  const pushedWorkspaceListSignaturesByWindowId = new Map<number, string>();
   let startupRestoreClaimed = false;
   let lifecycleRevision = 0;
   let authNotificationRevision = 0;
@@ -603,7 +614,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   }
 
   function endTerminalOwner(runtime: WindowControlRuntime): void {
-    const hadOwner = runtime.terminalOwner !== undefined;
+    const owner = runtime.terminalOwner;
     runtime.terminalOwner = undefined;
     // 旧客户端没有页面 owner，但确认断线仍必须结束 attachment，才能回收其独立终端 scope。
     // 同时撤销在途 open，让晚到的 attachment 只释放而不能重新挂回。
@@ -620,7 +631,13 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       };
     }
     disposeRuntimeBridgeResources(runtime);
-    if (hadOwner) dependencies.setTerminalOwner(runtime.windowId, null);
+    if (owner) {
+      dependencies.setTerminalOwner(
+        runtime.windowId,
+        null,
+        runtime.lanParent ? owner.id : undefined,
+      );
+    }
     sendPendingBridgeInvalidation(runtime);
   }
 
@@ -635,14 +652,28 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     endTerminalOwner(runtime);
     const id = randomUUID();
     runtime.terminalOwner = { clientSessionId, id };
-    dependencies.setTerminalOwner(runtime.windowId, id);
+    dependencies.setTerminalOwner(runtime.windowId, id, runtime.lanParent ? null : undefined);
+  }
+
+  function isCurrentRuntime(runtime: WindowControlRuntime): boolean {
+    const parent = runtime.lanParent;
+    return parent
+      ? runtimes.get(runtime.windowId) === parent && parent.lanTerminals?.has(runtime) === true
+      : runtimes.get(runtime.windowId) === runtime;
+  }
+
+  function* allRuntimes() {
+    for (const root of runtimes.values()) {
+      yield root;
+      yield* root.lanTerminals ?? [];
+    }
   }
 
   function isCurrentBridgeRuntime(
     runtime: WindowControlRuntime,
     bridge: WorkspaceBridgeRuntime,
   ): boolean {
-    return runtimes.get(runtime.windowId) === runtime && runtime.currentBridge === bridge;
+    return isCurrentRuntime(runtime) && runtime.currentBridge === bridge;
   }
 
   function degradeBridgeAfterRawFault(
@@ -715,7 +746,15 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   }
 
   function emitRuntimeStatus(runtime: WindowControlRuntime): void {
-    dependencies.onStatusChanged?.(runtime.windowId, buildRuntimeStatus(runtime));
+    const root = runtime.lanParent ?? runtime;
+    dependencies.onStatusChanged?.(root.windowId, buildWindowStatus(root));
+  }
+
+  function buildWindowStatus(runtime: WindowControlRuntime): WebRemoteControlStatus {
+    const active = [...(runtime.lanTerminals ?? [])].find((terminal) => terminal.mobileConnected);
+    return active
+      ? { ...buildRuntimeStatus(active), qrUrl: runtime.qrUrl, connectUrl: runtime.connectUrl }
+      : buildRuntimeStatus(runtime);
   }
 
   function clearMobileTaskView(runtime: WindowControlRuntime): void {
@@ -742,7 +781,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     }
     runtime.mobileDisconnectGraceTimer = setTimeout(() => {
       runtime.mobileDisconnectGraceTimer = undefined;
-      if (runtimes.get(runtime.windowId) !== runtime || runtime.status === "error") {
+      if (!isCurrentRuntime(runtime) || runtime.status === "error") {
         return;
       }
       endTerminalOwner(runtime);
@@ -840,6 +879,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     runtime: WindowControlRuntime,
     payload: WebRemoteControlAppPayload,
   ): void {
+    if (runtime.lanParent && !isCurrentRuntime(runtime)) return;
     if (runtime.pendingOutboundPayloads.length > 0) {
       bufferOutboundPayload(runtime, payload);
       flushPendingOutboundPayloads(runtime);
@@ -884,6 +924,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     clearMobileDisconnectGraceTimer(runtime);
     runtime.pendingOutboundPayloads.length = 0;
     runtime.transport.dispose();
+    closeLanTerminals(runtime);
     mobileLogPulls.cancelOwner(runtime, `remote control closed: ${failure.reason}`);
     runtime.status = "error";
     runtime.mobileConnected = false;
@@ -910,7 +951,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       error: "Desktop disconnected this Web remote control session.",
     });
     runtimes.delete(windowId);
-    pushedWorkspaceListSignaturesByWindowId.delete(windowId);
+    closeLanTerminals(runtime);
     endTerminalOwner(runtime);
     cancelBridgeOpen(runtime);
     disposeRuntimeBridgeResources(runtime);
@@ -1080,11 +1121,11 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     const result = buildWorkspaceListResult(runtime);
     const signature = buildWorkspaceListPushSignature(result);
     // force：手机新建项目后列表可能未变（项目不一定在 tab 里），仍需一次推送驱动手机重读项目树。
-    if (!force && pushedWorkspaceListSignaturesByWindowId.get(runtime.windowId) === signature) {
+    if (!force && runtime.pushedWorkspaceListSignature === signature) {
       return;
     }
 
-    pushedWorkspaceListSignaturesByWindowId.set(runtime.windowId, signature);
+    runtime.pushedWorkspaceListSignature = signature;
     sendAppPayload(runtime, {
       zcode_type: "workspace-list-updated",
       result,
@@ -1223,7 +1264,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         (workspace) => resolveWebRemoteControlWorkspaceKey(workspace) === request.workspaceKey,
       );
     }
-    if (runtimes.get(runtime.windowId) !== runtime || runtime.bridgeOpen !== pending)
+    if (!isCurrentRuntime(runtime) || runtime.bridgeOpen !== pending)
       throw new Error("Workspace bridge request was superseded.");
     if (!target) {
       throw new Error("目标工作区不在当前桌面窗口中，无法创建 Web 远程控制 bridge。");
@@ -1436,7 +1477,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       request,
       dependencies.runRendererAction,
     );
-    if (runtimes.get(runtime.windowId) !== runtime) return;
+    if (!isCurrentRuntime(runtime)) return;
     sendAppPayload(runtime, response);
     if (response.zcode_type === "workspace-create-response" && response.success) {
       pushWorkspaceListUpdated(runtime, true);
@@ -1647,7 +1688,64 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       runtime?.transportState === "paired" && runtime.mobileConnected;
     const preferred = windowId === undefined ? undefined : runtimes.get(windowId);
     if (isPaired(preferred)) return preferred;
-    return [...runtimes.values()].find((runtime) => isPaired(runtime));
+    return [...(preferred?.lanTerminals ?? []), ...allRuntimes()].find(isPaired);
+  }
+
+  function closeLanTerminal(runtime: WindowControlRuntime): void {
+    const parent = runtime.lanParent;
+    if (!parent?.lanTerminals?.delete(runtime)) return;
+    endTerminalOwner(runtime);
+    clearPendingOutboundPayloadTimer(runtime);
+    clearMobileDisconnectGraceTimer(runtime);
+    runtime.pendingOutboundPayloads.length = 0;
+    mobileLogPulls.cancelOwner(runtime, "LAN terminal disconnected");
+    runtime.transport.dispose();
+    if (isCurrentRuntime(parent)) emitRuntimeStatus(parent);
+  }
+
+  function closeLanTerminals(runtime: WindowControlRuntime): void {
+    for (const terminal of runtime.lanTerminals ?? []) closeLanTerminal(terminal);
+  }
+
+  function bindLanTerminals(parent: WindowControlRuntime): void {
+    dependencies.localPairing?.acceptLanTerminal?.(parent.deviceSid, (terminal) => {
+      const runtime: WindowControlRuntime = {
+        lanParent: parent,
+        windowId: parent.windowId,
+        workspacePath: parent.workspacePath,
+        workspaceIdentity: parent.workspaceIdentity,
+        remoteSessionId: parent.remoteSessionId,
+        initialTaskId: parent.initialTaskId,
+        theme: parent.theme,
+        status: "running",
+        deviceSid: parent.deviceSid,
+        deviceMid: parent.deviceMid,
+        qrUrl: "",
+        connectUrl: "",
+        mobileConnected: false,
+        hasEverPaired: false,
+        hasObservedSendReadyForPairing: false,
+        pendingOutboundPayloads: [],
+        transport: {
+          start() {},
+          dispose: terminal.close,
+          sendPayload: (payload) => terminal.sendPayloadResult(payload).kind === "sent",
+          sendPayloadResult: terminal.sendPayloadResult,
+        },
+      };
+      (parent.lanTerminals ??= new Set()).add(runtime);
+      return {
+        ready: () => mapTransportState(runtime, "paired"),
+        receive(payload) {
+          if (!isCurrentRuntime(runtime)) return;
+          if (routeRawTransportCandidate(runtime, payload)) return;
+          const parsed = parseWebRemoteControlAppPayload(payload);
+          if (parsed) routePayload(runtime, parsed);
+          else respondToUnrecognizedPayload(runtime, payload);
+        },
+        close: () => closeLanTerminal(runtime),
+      };
+    });
   }
 
   function mapTransportState(
@@ -1888,7 +1986,10 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
             onStateChange: (state) => {
               if (runtimes.get(windowId) !== runtime) return;
               if (state === "waiting_terminal" || state === "paired") {
-                runtime.qrUrl = runtime.connectUrl = createQrUrl(deviceSid, mobileRemoteControlUrl);
+                runtime.connectUrl = createQrUrl(deviceSid, mobileRemoteControlUrl);
+                runtime.qrUrl = dependencies.localPairing?.nativePairingUrl?.(deviceSid, runtime.connectUrl) || runtime.connectUrl;
+                if (dependencies.localPairing?.nativeOnly) runtime.connectUrl = runtime.qrUrl;
+                bindLanTerminals(runtime);
               }
               mapTransportState(runtime, state);
               if (state === "waiting_terminal" || state === "paired") {
@@ -2197,12 +2298,11 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       }
 
       if (dependencies.localPairing && runtime.qrUrl) {
-        runtime.qrUrl = runtime.connectUrl = dependencies.localPairing.pairingUrl(
-          runtime.deviceSid,
-          runtime.qrUrl,
-        );
+        if (!dependencies.localPairing.nativeOnly) runtime.connectUrl = dependencies.localPairing.pairingUrl(runtime.deviceSid, runtime.connectUrl);
+        runtime.qrUrl = dependencies.localPairing.nativePairingUrl?.(runtime.deviceSid, runtime.connectUrl) || runtime.connectUrl;
+        if (dependencies.localPairing.nativeOnly) runtime.connectUrl = runtime.qrUrl;
       }
-      return buildRuntimeStatus(runtime);
+      return buildWindowStatus(runtime);
     },
 
     syncAvailableWorkspaces(windowId: number, workspaces: WebRemoteControlWorkspaceTarget[]): void {
@@ -2212,7 +2312,12 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         return;
       }
       if (syncRuntimeRemoteSession(runtime)) emitRuntimeStatus(runtime);
-      pushWorkspaceListUpdated(runtime);
+      if (!dependencies.localPairing?.acceptLanTerminal || runtime.transportState === "paired")
+        pushWorkspaceListUpdated(runtime);
+      for (const terminal of runtime.lanTerminals ?? []) {
+        if (syncRuntimeRemoteSession(terminal)) emitRuntimeStatus(terminal);
+        pushWorkspaceListUpdated(terminal);
+      }
     },
 
     async replaceRemoteSession(event: {
@@ -2221,7 +2326,8 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       workspacePath: string;
       workspaceIdentity: string;
     }): Promise<void> {
-      for (const [windowId, runtime] of runtimes) {
+      for (const runtime of allRuntimes()) {
+        const { windowId } = runtime;
         const bridge = runtime.currentBridge;
         const bridgeMatches =
           bridge?.remoteSessionId === event.previousSessionId &&
@@ -2272,7 +2378,6 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       clearStartAuthorizationsForWindow(windowId);
       await stopWindowRuntime(windowId, "window-disposed");
       availableWorkspacesByWindowId.delete(windowId);
-      pushedWorkspaceListSignaturesByWindowId.delete(windowId);
     },
 
     failRemoteSession(
@@ -2280,7 +2385,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       reason: string,
       failure: WebRemoteControlFailure,
     ): void {
-      for (const [windowId, runtime] of runtimes) {
+      for (const runtime of allRuntimes()) {
         const bridge = runtime.currentBridge;
         const bridgeUsesRemoteSession = bridge?.remoteSessionId === remoteSessionId;
         const runtimeUsesRemoteSession = runtime.remoteSessionId === remoteSessionId;
@@ -2314,7 +2419,6 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
           runtime.error = undefined;
           runtime.failure = undefined;
         }
-        runtimes.set(windowId, runtime);
         emitRuntimeStatus(runtime);
       }
       dependencies.disposeWorkspaceHostAttachmentsForRemoteSession(remoteSessionId, reason);

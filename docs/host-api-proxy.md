@@ -28,6 +28,17 @@ NodeApiClient -> OAuth / Coding Plan / client-scenes / provider APIs
 
 本次不把 CLI adapter 直接引入 services，也不设置 Host 进程全局 dispatcher。Host 与 Agent 共享 Node egress adapter 可以作为后续独立改造，避免扩大本工单的模型请求、WebFetch 和 HTTP MCP 回归范围。
 
+## Android 本机 Server
+
+Android App 拥有系统解析器。启动本机 Server 时，App 把用于解析的私有 Unix socket 名称传给 Core。Core 把该平台的 lookup 注入现有 Host API 网络 transport。直连目标及代理主机的 DNS 都走当前 Android 默认网络，显式代理选路、证书校验和授权服务接口沿用各自原有规则。没有注入时，Host 使用 Node 默认网络栈。
+
+```text
+Android App 启动 Core → Host API transport → 新建连接时请求 App 的解析器
+                                            ← Android 当前网络返回 IPv4 / IPv6 地址
+```
+
+验证场景覆盖 Android 包内 Debian 根目录无 DNS 配置时的直连 HTTPS，IPv4/IPv6 查询，和无网络时本机 Server 启动。
+
 ## 验证
 
 需要覆盖无代理直连、代理转发、No Proxy 命中、代理错误不直连，以及 endpoint rewrite 后选路；现有 timeout、abort 和响应流语义必须保持不变。

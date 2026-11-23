@@ -187,12 +187,17 @@ export function createWebRemoteControlSharedHostAttachments(dependencies: {
     }
   }
 
-  function setTerminalOwner(windowId: number, ownerId: string | null): void {
+  function setTerminalOwner(
+    windowId: number,
+    ownerId: string | null,
+    previousOwnerId?: string | null,
+  ): void {
     // local/remote attachment 都归该窗口已有 Host；不把页面 owner 绑定到临时 port。
     const webContentsId = BrowserWindow.fromId(windowId)?.webContents.id ?? windowId;
     dependencies.windowHostProcessMap.get(webContentsId)?.postMessage({
       type: HostMessageTypes.SetTerminalOwner,
       ownerId,
+      ...(previousOwnerId === undefined ? {} : { previousOwnerId }),
     });
   }
 

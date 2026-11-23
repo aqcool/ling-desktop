@@ -1,3 +1,4 @@
+export { IrohMobileHost } from "./irohMobileHost.js";
 export type * from "#src/main/web-remote-relay/contract.js";
 export { createWebRemoteControlDeviceStorage } from "#src/main/web-remote-relay/webRemoteControlDeviceStorage.js";
 export { createMobilePairingGateway } from "./mobilePairingGateway.js";

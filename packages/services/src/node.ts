@@ -1268,6 +1268,7 @@ export function createLocalServices(options: {
   >["prepareLegacyAccountConnections"];
   /** 注入后由 ServiceCollection 接管释放，并供 Host 其它 app-managed 下载复用。 */
   hostApiNetworkTransport?: HostApiNetworkTransport;
+  hostApiLookup?: import("node:net").LookupFunction;
   /** Desktop Host 注入 Main 推送的实时界面语言，供 ZCode endpoint 的 X-Client-Language；远端 server 不注入。 */
   resolveClientLanguage?: () => string | undefined;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
@@ -1441,14 +1442,17 @@ export function createLocalServices(options: {
   const gitCheckpointService = createGitCheckpointService();
   const hostApiNetworkTransport =
     options?.hostApiNetworkTransport ??
-    createHostApiNetworkTransport(async () => {
-      const settings = await settingService.get();
-      return {
-        httpProxy: settings.httpProxy,
-        noProxy: settings.httpProxyNoProxy,
-        caCertPath: settings.httpProxyCaCertPath,
-      };
-    });
+    createHostApiNetworkTransport(
+      async () => {
+        const settings = await settingService.get();
+        return {
+          httpProxy: settings.httpProxy,
+          noProxy: settings.httpProxyNoProxy,
+          caCertPath: settings.httpProxyCaCertPath,
+        };
+      },
+      { lookup: options?.hostApiLookup },
+    );
   const zcodeJwtLogoutHandlerRef: {
     current: ((input: string | URL, headers: Headers) => void) | null;
   } = { current: null };
@@ -3721,6 +3725,7 @@ export async function createServerHostServices(options: {
   zcodeBuiltinProviderConfigFilePath: string;
   providerProvisioningTargetEnabled?: boolean;
   credentialCipherProvider?: CredentialCipher;
+  hostApiLookup?: import("node:net").LookupFunction;
 }) {
   // 无桌面环境不能等到首次登录或 Provisioning 才发现系统库缺失。
   const credentialCipherProvider =
@@ -3762,6 +3767,7 @@ export async function createServerHostServices(options: {
   const migrationFailedPathCount = await workspaceAliasRepo.getFailedPathCount();
   const services = createLocalServices({
     credentialCipherProvider,
+    hostApiLookup: options.hostApiLookup,
     zcodeBuiltinProviderConfigFilePath: options.zcodeBuiltinProviderConfigFilePath,
     providerProvisioningTargetEnabled: options.providerProvisioningTargetEnabled,
     serviceAuthorityMode: "standalone-server",

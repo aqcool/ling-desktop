@@ -3807,7 +3807,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
   }
 
   if (msg.type === HostMessageTypes.SetTerminalOwner) {
-    terminalOwners.setOwner(msg.ownerId);
+    terminalOwners.setOwner(msg.ownerId, msg.previousOwnerId);
     return;
   }
 

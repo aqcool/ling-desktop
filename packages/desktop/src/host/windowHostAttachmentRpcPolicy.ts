@@ -208,23 +208,29 @@ export function exposeWindowHostAttachmentServices(params: {
 
 /** 手机终端属于页面 owner，不属于可随导航换代的 RPC attachment。 */
 export function createWindowHostTerminalOwners(onCleanupError: (error: unknown) => void) {
-  let current:
-    | { id: string; scopes: Map<string, ReturnType<typeof createTerminalScope>> }
-    | undefined;
+  const owners = new Map<string, Map<string, ReturnType<typeof createTerminalScope>>>();
+  function release(id: string) {
+    const scopes = owners.get(id);
+    owners.delete(id);
+    // 先撤销 owner，再异步回收；晚到的 create 不能重新挂回。
+    for (const scope of scopes?.values() ?? []) scope.dispose();
+  }
   return {
-    setOwner(id: string | null): void {
-      if (current?.id === id) return;
-      const previous = current;
-      current = id === null ? undefined : { id, scopes: new Map() };
-      // 先撤销旧 owner，再异步回收；旧 attachment 和晚到 create 均不能复活它。
-      for (const scope of previous?.scopes.values() ?? []) scope.dispose();
+    setOwner(id: string | null, previousOwnerId?: string | null): void {
+      if (previousOwnerId === undefined) {
+        for (const current of owners.keys()) if (current !== id) release(current);
+      } else if (previousOwnerId && previousOwnerId !== id) {
+        release(previousOwnerId);
+      }
+      if (id && !owners.has(id)) owners.set(id, new Map());
     },
     bind(ownerId: string, scopeKey: string, base: ITerminalService): ITerminalService {
-      if (current?.id !== ownerId) throw new Error("Terminal owner has ended");
-      let scope = current.scopes.get(scopeKey);
+      const scopes = owners.get(ownerId);
+      if (!scopes) throw new Error("Terminal owner has ended");
+      let scope = scopes.get(scopeKey);
       if (!scope) {
         scope = createTerminalScope(base, onCleanupError);
-        current.scopes.set(scopeKey, scope);
+        scopes.set(scopeKey, scope);
       }
       return scope.service;
     },

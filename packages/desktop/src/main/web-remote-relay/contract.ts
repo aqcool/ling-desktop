@@ -1,5 +1,15 @@
 import type { AppSettings, WebRemoteControlAppPayload } from "@zcode/shared";
 import type { WebRemoteControlRelayV2Meta } from "@zcode/shared/web-remote-relay";
+import type { WebRemoteControlPayloadSendResult } from "@zcode/client";
+
+export type AcceptWebRemoteControlLanTerminal = (terminal: {
+  sendPayloadResult(payload: WebRemoteControlAppPayload): WebRemoteControlPayloadSendResult;
+  close(): void;
+}) => {
+  ready(): void;
+  receive(payload: unknown): void;
+  close(): void;
+};
 
 export type WebRemoteControlRegisteredDevice = NonNullable<
   AppSettings["webRemoteControlRelayV2Device"]
