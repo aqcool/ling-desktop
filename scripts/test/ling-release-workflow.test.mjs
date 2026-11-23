@@ -56,7 +56,7 @@ printf '%s\\n%s\\n' "$*" "\${CUSTOM_DMGBUILD_PATH:-}" > "$PROBE_OUTPUT"
   }
 });
 
-async function withRepository(check) {
+async function withRepository(check, version = "1.2.3") {
   const root = await mkdtemp(join(tmpdir(), "ling-release-source-"));
   const env = {
     ...process.env,
@@ -74,7 +74,7 @@ async function withRepository(check) {
   try {
     await git("init", "-q", "-b", "master");
     await commit("1.2.2");
-    await commit("1.2.3");
+    await commit(version);
     await git("update-ref", "refs/remotes/origin/master", "HEAD");
     const output = join(root, "github-output");
     const run = async (tag) => {
@@ -98,7 +98,7 @@ async function withRepository(check) {
   }
 }
 
-test("只有 master 分支时，从附注 tag 解析不可变发布版本", async () => {
+test.each(["0.1.0", "1.2.3"])("只有 master 分支时，从附注 tag 解析发布版本 %s", async (version) => {
   expect(
     workflow.jobs.prepare.steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with
       .ref,
@@ -108,13 +108,13 @@ test("只有 master 分支时，从附注 tag 解析不可变发布版本", asyn
     expect((await git("branch", "-r", "--format=%(refname:short)")).stdout.trim()).toBe(
       "origin/master",
     );
-    await git("tag", "-a", "ling-v1.2.3", "-m", "Release 1.2.3");
+    await git("tag", "-a", `ling-v${version}`, "-m", `Release ${version}`);
     const revision = (await git("rev-parse", "HEAD")).stdout.trim();
-    await run("ling-v1.2.3");
+    await run(`ling-v${version}`);
     expect(await readFile(output, "utf8")).toBe(
-      `tag=ling-v1.2.3\nversion=1.2.3\nrevision=${revision}\nauto_update=0\n`,
+      `tag=ling-v${version}\nversion=${version}\nrevision=${revision}\nauto_update=0\n`,
     );
-  });
+  }, version);
 });
 
 test.each(["unmerged", "lightweight", "version-mismatch"])(
