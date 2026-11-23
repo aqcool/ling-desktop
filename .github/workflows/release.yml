@@ -29,15 +29,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # 标签触发时默认 checkout 会把附注标签改为提交引用，破坏下方校验。
-          # 发布来源固定为 main；仓库默认分支仍为旧 master 时也必须包含本次修复。
-          ref: main
+          # 发布来源统一为唯一的 master，清理 main 后不能继续依赖旧分支。
+          ref: master
           fetch-depth: 0
           persist-credentials: false
       - name: Resolve the immutable release source
         id: release
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
-          RELEASE_BRANCH: main
+          RELEASE_BRANCH: master
           LING_SIGNED_RELEASES: ${{ vars.LING_SIGNED_RELEASES }}
         run: |
           set -euo pipefail

@@ -74,10 +74,8 @@ async function withRepository(check) {
   try {
     await git("init", "-q", "-b", "master");
     await commit("1.2.2");
-    await git("update-ref", "refs/remotes/origin/master", "HEAD");
-    await git("switch", "-qc", "main");
     await commit("1.2.3");
-    await git("update-ref", "refs/remotes/origin/main", "HEAD");
+    await git("update-ref", "refs/remotes/origin/master", "HEAD");
     const output = join(root, "github-output");
     const run = async (tag) => {
       await writeFile(output, "");
@@ -87,8 +85,8 @@ async function withRepository(check) {
           ...env,
           TAG: tag,
           RELEASE_BRANCH: prepare.env.RELEASE_BRANCH,
-          // 模拟仓库默认分支仍是旧 master；发布不能受这个值影响。
-          DEFAULT_BRANCH: "master",
+          // 发布来源固定为 master，不依赖默认分支名或已删除的 main 引用。
+          DEFAULT_BRANCH: "main",
           LING_SIGNED_RELEASES: "0",
           GITHUB_OUTPUT: output,
         },
@@ -100,12 +98,16 @@ async function withRepository(check) {
   }
 }
 
-test("默认分支仍为 master 时，从 main 的附注 tag 解析不可变发布版本", async () => {
+test("只有 master 分支时，从附注 tag 解析不可变发布版本", async () => {
   expect(
     workflow.jobs.prepare.steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with
       .ref,
-  ).toBe("main");
+  ).toBe("master");
   await withRepository(async ({ git, run, output }) => {
+    expect((await git("branch", "--format=%(refname:short)")).stdout.trim()).toBe("master");
+    expect((await git("branch", "-r", "--format=%(refname:short)")).stdout.trim()).toBe(
+      "origin/master",
+    );
     await git("tag", "-a", "ling-v1.2.3", "-m", "Release 1.2.3");
     const revision = (await git("rev-parse", "HEAD")).stdout.trim();
     await run("ling-v1.2.3");
@@ -116,7 +118,7 @@ test("默认分支仍为 master 时，从 main 的附注 tag 解析不可变发�
 });
 
 test.each(["unmerged", "lightweight", "version-mismatch"])(
-  "拒绝不满足 main 发布合同的 tag：%s",
+  "拒绝不满足 master 发布合同的 tag：%s",
   async (reason) => {
     await withRepository(async ({ git, commit, run, output }) => {
       if (reason === "unmerged") {
