@@ -1,7 +1,8 @@
 {
   "name": "zcode",
-  "version": "3.18.6",
+  "version": "3.18.7",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev:web": "concurrently -k -n server,web -c blue,green \"pnpm --filter @zcode/server dev\" \"pnpm --filter @zcode/web dev\"",
@@ -137,6 +138,5 @@
       "@extend-ai/react-xlsx@0.16.0": "patches/@extend-ai__react-xlsx@0.16.0.patch",
       "@radix-ui/react-menu@2.1.16": "patches/@radix-ui__react-menu@2.1.16.patch"
     }
-  },
-  "license": "Apache-2.0"
+  }
 }
