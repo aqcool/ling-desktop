@@ -4,34 +4,8 @@ Claude、ChatGPT、Grok 的订阅登录是普通个人供应商，凭证类型�
 
 ## 所有者
 
-- 三个订阅模板属于 LING 随包功能，由包内配置唯一维护；上游 CDN 的较高 revision 不得删除或改写它们。普通供应商和通用模型能力规则继续跟随上游。订阅模型沿用已有同厂商模型规则，不另建能力目录。
-- `NodeZCodeBuiltinProviderConfigSource` 在同一文件锁内，把选中的上游 Release 与包内三个订阅模板组合，再原子物化到现有 Active 文件。Host、Managed Worker、独立 CLI 和手机目标 Host 都读取这一份结果，不在 UI 补入口或另存缓存。修复前已缓存的缺模板 Release 在首次读取时自动修复；无需删除个人供应商或凭据。
-- 供应商配置保存访问类型、厂商、请求地址和模型目录。`claude-subscription`、`chatgpt-subscription`、`grok-subscription` 分别对应 `anthropic`、`openai-chatgpt`、`xai`。
-- 访问令牌和刷新令牌在凭据库，键为 `subscription-oauth:${providerId}`。配置、设置同步和日志都不保存令牌。
-- 登录使用与 Pi 相同的公开 OAuth 客户端：Claude Pro/Max（PKCE，本地回调 `127.0.0.1:53692`）、ChatGPT Codex（PKCE，本地回调 `127.0.0.1:1455`）、xAI Grok（设备码）。客户端没有密钥。
-- 每次模型请求由 Host 读取当前访问令牌。过期则先刷新，再把访问令牌交给当次请求。ChatGPT 同时带 `ChatGPT-Account-ID`。
-
-### 上游配置更新顺序与验收
-
-```mermaid
-sequenceDiagram
-    participant U as 上游 CDN
-    participant S as Release Source（唯一写入者）
-    participant B as 包内订阅模板
-    participant A as Endpoint Active 文件
-    participant H as Host / Worker Registry
-    U->>S: 较高 revision 的供应商配置
-    S->>S: 获得现有 Active 文件锁并校验 revision
-    S->>B: 读取 LING 所有的三个模板
-    S->>A: 原子写入上游配置 + 包内订阅模板
-    S->>H: 通过既有变更事件发布同一 revision
-```
-
-组合不增加发布序号；同号同内容幂等、低版本忽略、同号普通供应商内容冲突仍拒绝。比较远端内容前采用相同的订阅模板组合规则，避免合法重复下载被误报冲突。Endpoint 隔离、刷新 lease、Account 配对和桌面连续/手机恢复传输均沿用既有机制；此次不改会话事件顺序。
-
-验收必须覆盖：已有 revision 48 缓存缺少三个订阅模板时启动自动恢复；后续较高 revision 和重启仍保留三个入口；同号重复刷新幂等；普通供应商的更新仍生效；Managed Worker 读取 Active 得到相同模板与 revision；ChatGPT 模板仍包含 GPT-6.2 Astra/Sol 并使用 Codex 地址。桌面在生产配置环境进入「模型设置 → 添加供应商」应能看到三个订阅入口，选择 ChatGPT 后展示授权登录卡。
-
-发布检查直接运行每个平台安装包中的 Electron 和 Agent，使用临时数据目录：先启动协议进程定位实际缓存，再写入缺少三个订阅模板的较高 revision 配置，再次启动并检查自动恢复和重启保留。包内模板或恢复结果不正确时阻止发布，不能只检查源码或 `--version`。发布报告的 `subscriptionTemplates` 必须为 `passed`；不访问用户数据或执行真实账号授权。
+- LING 随包维护三个订阅模板、模型身份与请求协议。发布检查通过临时数据目录确认实际包内和协议进程都能读取三个模板。
+- 通用模型目录的更新不进入订阅模板。ChatGPT 推理档位与 Fast 由当前订阅的 Codex 模型接口给出。
 
 ## 事件顺序
 
@@ -68,9 +42,9 @@ ChatGPT 的 Pro 档位采用购买页面的名称，`prolite` 显示 `Pro 100`�
 
 每个供应商详情只显示一张授权卡片。刷新供应商列表时仍复用该卡片，首次查询授权状态完成后再显示授权操作。
 
-## ChatGPT 订阅的 Fast
+## ChatGPT 订阅的思考档位与 Fast
 
-内置订阅目录 revision 46 将 `gpt-6.2-astra` 与 `gpt-6.2-sol` 加到已授权的 ChatGPT 订阅模型列表，已有会话和模型选择继续使用其原来的模型 ID。两个新模型使用现有 Codex Responses 通道，支持文本、图像、PDF 和 `low / medium / high / xhigh / max` 推理档位。Fast 继续以当前账号的 Codex 模型接口返回为准。验收时检查已有订阅可看到两个新模型，且标准请求分别使用对应模型 ID。 [OpenAI 模型规格](https://developers.openai.com/api/docs/models)
+内置订阅目录 revision 46 将 `gpt-6.2-astra` 与 `gpt-6.2-sol` 加到已授权的 ChatGPT 订阅模型列表，已有会话和模型选择继续使用其原来的模型 ID。两个新模型使用现有 Codex Responses 通道，支持文本、图像和 PDF。当前账号目录为模型返回非空的 `supported_reasoning_levels` 时，按返回顺序展示并校验其 `effort` 值。首次读取前、模型未提供档位或目录请求失败且尚无账号结果时，使用随包的兼容档位。验收时检查已有订阅可看到两个新模型，且标准请求分别使用对应模型 ID。 [OpenAI 模型规格](https://developers.openai.com/api/docs/models)
 
 聊天工具栏的模型菜单右下角用齿轮打开「管理模型」。ChatGPT 和 Grok 订阅的模型使用 `GPT-6.1 Sol` 和 `Grok 4.7` 这样的名称显示，请求继续使用原始模型 ID。桌面和手机端使用同一模型菜单。
 
@@ -84,8 +58,10 @@ Codex 账号模型目录 → 当前 Host 的 Provider Registry → 聊天模型�
 模型菜单 → 会话或草稿 ModelSelection → Worker 冻结的 Submission → Codex Responses
 ```
 
-Host 在加载授权、更换账号，或在聊天模型菜单切换到订阅供应商时读取目录。切换时目录在后台读取，模型选择无需等待。读取失败沿用已有能力，成功返回空目录则清除该供应商的 Fast 能力。退出登录丢弃账号能力，迟到的旧请求不能更新新授权。桌面和手机端共用当前 Host 的模型选项。速度随会话选择存储，已提交或排队的请求保留各自的选择。Worker 根据同一份能力目录校验 Fast。ChatGPT 订阅请求使用 `service_tier: "priority"`。
+Host 在加载授权、更换账号，或在聊天模型菜单切换到订阅供应商时读取目录。切换时目录在后台读取，模型选择无需等待。读取失败沿用已有能力，成功返回空目录则清除该供应商的 Fast 能力。退出登录或换账号丢弃账号快照，迟到的旧请求不能更新新授权。Host 从同一响应发布档位和速度，Worker 在准入刷新时接收同一份非凭据数据。Codex 请求继续通过现有 Responses 通道传送所选 effort。桌面和手机端共用当前 Host 的模型选项。速度随会话选择存储，已提交或排队的请求保留各自的选择。Worker 根据同一份能力目录校验 Fast 和思考档位。ChatGPT 订阅请求使用 `service_tier: "priority"`。
 
 ## Grok 4.7 Fast
 
 Grok Build 的账户目录 `/models-v2` 列出 `grok-4.7-build-fast` 时，Grok 4.7 复用模型菜单左下角的 Fast 闪电。提示显示「Grok 4.7 Fast」和「用量更多」。开启后，Worker 使用现有 Grok OAuth 凭据发送到 Grok Build 的 `/responses`，请求模型和 `x-grok-model-override` 均使用 Fast 模型 ID。关闭 Fast 后走原 Grok 4.7 请求路径。会话、队列和模型菜单继续以 Grok 4.7 为模型身份。
+
+验收覆盖 Astra 与 Sol 的账号档位不同、账号返回新的档位、失败保留上次目录以及旧账号结果被丢弃。Managed Worker 必须从协议同步得到与桌面菜单相同的可选值。

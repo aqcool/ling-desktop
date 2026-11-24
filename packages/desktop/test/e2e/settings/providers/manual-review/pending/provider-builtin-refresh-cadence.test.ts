@@ -1,10 +1,6 @@
-// BIR-01：Built-in Provider Config 跟随 client/configs 的刷新间隔自动更新；
-// 规格见 docs/builtin-provider-maintenance/delivery.md「生效与恢复边界」。
-import {
-  NodePersonalProviderConfigRepository,
-  createZCodeBuiltinEndpointKey,
-} from "@zcode/provider-node";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+// BIR-01/02：models.dev 到期自动刷新，设置页可强制更新同一地址。
+import { NodePersonalProviderConfigRepository } from "@zcode/provider-node";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   TID_MODEL_PROVIDER_NAV_ITEM,
@@ -26,22 +22,20 @@ import {
   type E2ENetworkCaptureResponseMock,
 } from "#e2e/helpers/network-capture-proxy";
 
-const CONTROL_HOST = "builtin-control.e2e.invalid";
-const CDN_HOST = "builtin-cdn.e2e.invalid";
-// 60 秒检查定时器 + 60 秒间隔：容差生效时一个间隔内必然完成下一轮。
-const REFRESH_INTERVAL_SECONDS = 60;
-const AUTO_REFRESH_TIMEOUT_MS = 130_000;
+const CATALOG_HOST = "models.dev";
+const CATALOG_PATH = "/api.json";
+const CATALOG_URL = `https://${CATALOG_HOST}${CATALOG_PATH}`;
 
-describe("Built-in 按服务端间隔自动刷新", () => {
+describe("models.dev 目录自动刷新", () => {
   after(async () => {
     await browser.electron.restoreAllMocks();
     await clearAppData();
   });
 
-  it("BIR-01/02：URL 不变时只请求第一跳；换新 URL 后自动生效；强制刷新重新下载", async function () {
+  it("BIR-01/02：到期自动更新同一地址，手动刷新立即重新下载", async function () {
     this.timeout(360_000);
     const providerId = "e2e-builtin-cadence";
-    const modelId = "E2E_BUILTIN_CADENCE_MODEL";
+    const modelId = "gpt-e2e-builtin-cadence";
     const paths = getE2EAppDataPaths();
     const repository = new NodePersonalProviderConfigRepository({
       filePath: paths.configFile,
@@ -58,63 +52,55 @@ describe("Built-in 按服务端间隔自动刷新", () => {
       );
       await mkdir(artifacts, { recursive: true });
       const networkArtifact = join(artifacts, "network.json");
-      const release = JSON.parse(
-        await readFile(join(process.cwd(), "../../config/provider/zcode-builtin.json"), "utf8"),
-      );
-      const clientConfig = JSON.parse(
-        await readFile(
-          join(process.cwd(), "test/e2e/fixtures/coding-plan-client-configs.json"),
-          "utf8",
-        ),
-      );
-      clientConfig.data.configs.clientConfigRefreshIntervalSeconds = REFRESH_INTERVAL_SECONDS;
-      clientConfig.data.configs.builtin_provider_config_json = `https://${CDN_HOST}/release-a.json`;
-      const control: E2ENetworkCaptureResponseMock = {
-        host: CONTROL_HOST,
-        path: "/api/v1/client/configs",
-        body: JSON.stringify(clientConfig),
+      let context = 500_000;
+      const catalog: E2ENetworkCaptureResponseMock = {
+        host: CATALOG_HOST,
+        path: CATALOG_PATH,
+        body: () =>
+          JSON.stringify({
+            openai: {
+              models: {
+                [modelId]: {
+                  id: modelId,
+                  tool_call: true,
+                  modalities: { input: ["text"], output: ["text"] },
+                  limit: { context },
+                },
+              },
+            },
+          }),
       };
-      const oldCdn: E2ENetworkCaptureResponseMock = {
-        host: CDN_HOST,
-        path: "/release-a.json",
-        body: "",
-      };
-      const newCdn = { ...oldCdn, path: "/release-b.json" };
       proxy = await startE2ENetworkCaptureProxy({
         artifactPath: networkArtifact,
         caDir: join(root, "ca"),
-        responseMocks: [control, oldCdn, newCdn],
+        responseMocks: [catalog],
       });
       const network = proxy;
+      const providerRoot = join(paths.appDataDir, "runtime", "provider");
+      const findControlFiles = async () =>
+        (await readdir(providerRoot, { recursive: true })).filter(
+          (file) => file.includes("models-dev-v1-") && file.endsWith("zcode-builtin-refresh.json"),
+        );
       await restartIntoWorkspace({
         afterElectronProcessExit: async () => {
+          // 首个隔离窗口在代理装配前可能已开始失败退避。
+          await Promise.all(
+            (await findControlFiles()).map((file) => rm(join(providerRoot, file), { force: true })),
+          );
           await seedReplayProvider({
             id: providerId,
             name: "E2E Builtin Cadence",
             apiKey: "e2e-only",
             baseURL: "http://127.0.0.1:9/v1",
             models: [modelId],
+            templateId: "openai",
           });
-          const personal = await repository.read();
-          const config = personal.models.getExact(providerId, modelId)!.toJSON();
-          config.properties!.contextWindow = 500_000;
-          release.revision += 1000;
-          release.config.modelConfigRules.modelApiRules.push({
-            modelMatch: modelId,
-            apiTypeMatch: "openai-chat-completions",
-            config,
-          });
-          oldCdn.body = JSON.stringify(release);
-          config.properties!.contextWindow = 700_000;
-          release.revision += 1;
-          newCdn.body = JSON.stringify(release);
           // 测试模型必须继承 Built-in，不留下 Personal 规则掩盖更新。
           await repository.update((current) => ({
             ...current,
             models: current.models.deleteExactForProvider(providerId),
           }));
           await seedSettings({
-            zcodeEndpointOrigin: `https://${CONTROL_HOST}`,
             httpProxy: network.proxyUrl,
             httpProxyNoProxy: "localhost,127.0.0.1,::1",
             httpProxyCaCertPath: network.caCertPath,
@@ -130,88 +116,40 @@ describe("Built-in 按服务端间隔自动刷新", () => {
         timeoutMsg: "启动后的首轮 Built-in 下载没有进入设置 Registry",
       });
 
-      const requests = async (host: string, path: string) => {
+      const requests = async () => {
         const artifact = JSON.parse(
           await readFile(networkArtifact, "utf8"),
         ) as E2ENetworkCaptureArtifact;
         return artifact.records.filter(
-          (record) => record.host.startsWith(host) && record.path.startsWith(path),
+          (record) => record.host === CATALOG_HOST && record.path === CATALOG_PATH,
         );
       };
-      // ClientConfigService 也读同一个 client/configs；Built-in 是否完成一轮检查只看它自己的控制文件。
-      const readControl = async () => {
-        const providerRoot = join(paths.appDataDir, "runtime", "provider");
-        const endpointKey = createZCodeBuiltinEndpointKey(`https://${CONTROL_HOST}`);
-        const files = (await readdir(providerRoot, { recursive: true })).filter(
-          (file) => file.includes(endpointKey) && file.endsWith("zcode-builtin-refresh.json"),
-        );
-        if (files.length !== 1) return null;
-        return JSON.parse(await readFile(join(providerRoot, files[0]!), "utf8")) as {
-          nextEligibleAt: number;
-          releaseUrl?: string;
-        };
-      };
-      const first = await readControl();
-      expect(first?.releaseUrl).toBe(`https://${CDN_HOST}/release-a.json`);
-      // 启动阶段 Host 与托管进程可能各自完成首次物化，只比较首轮之后的新增下载。
-      const releaseADownloadsAfterFirst = (await requests(CDN_HOST, "/release-a.json")).length;
-      // URL 不变：下一轮检查只请求第一跳，不重复下载 CDN。
-      await browser.waitUntil(
-        async () => ((await readControl())?.nextEligibleAt ?? 0) > first!.nextEligibleAt,
-        {
-          timeout: AUTO_REFRESH_TIMEOUT_MS,
-          timeoutMsg: "按服务端间隔的第二轮 Built-in 检查没有发生",
-        },
-      );
-      const second = await readControl();
-      // 成功间隔从本轮开始计时；两轮相隔应接近服务端下发的 60 秒，而不是原来的一小时。
-      expect(second!.nextEligibleAt - first!.nextEligibleAt).toBeLessThan(
-        (REFRESH_INTERVAL_SECONDS + 15) * 1000,
-      );
-      expect(await requests(CDN_HOST, "/release-a.json")).toHaveLength(releaseADownloadsAfterFirst);
-
-      // 换新 URL：不点刷新，等待下一个间隔自动生效。
-      clientConfig.data.configs.builtin_provider_config_json = `https://${CDN_HOST}/release-b.json`;
-      control.body = JSON.stringify(clientConfig);
-      const changedAt = Date.now();
+      const files = await findControlFiles();
+      expect(files).toHaveLength(1);
+      const controlPath = join(providerRoot, files[0]!);
+      const first = JSON.parse(await readFile(controlPath, "utf8"));
+      expect(first.releaseUrl).toBe(CATALOG_URL);
+      expect(first.nextEligibleAt - first.releaseDownloadedAt).toBe(3_600_000);
+      const downloadsBeforeExpiry = (await requests()).length;
+      // 在隔离目录将成功排期推进到期，实际等待下一轮 Host 定时检查。
+      context = 700_000;
+      await writeFile(controlPath, JSON.stringify({ ...first, nextEligibleAt: 0 }));
       await browser.waitUntil(async () => (await row().getText()).includes("700K"), {
-        timeout: AUTO_REFRESH_TIMEOUT_MS,
-        timeoutMsg: "新 URL 没有在一个刷新间隔内自动生效",
+        timeout: 90_000,
+        timeoutMsg: "到期检查未自动更新 models.dev 目录",
       });
-      const elapsedMs = Date.now() - changedAt;
-      // 新 URL 只需要被下载，不能每轮重复下载；多进程首轮物化同样允许各一次。
-      expect((await requests(CDN_HOST, "/release-b.json")).length).toBeGreaterThanOrEqual(1);
-      expect((await requests(CDN_HOST, "/release-b.json")).length).toBeLessThanOrEqual(
-        releaseADownloadsAfterFirst,
-      );
+      expect((await requests()).length).toBeGreaterThan(downloadsBeforeExpiry);
 
-      // BIR-02：URL 不变时点设置页“刷新”仍重新下载 CDN，便于排查与即时生效。
-      const releaseBBeforeForce = (await requests(CDN_HOST, "/release-b.json")).length;
+      const downloadsBeforeForce = (await requests()).length;
+      context = 800_000;
       const refresh = $('button[aria-label="刷新"],button[aria-label="Refresh"]');
       await refresh.waitForClickable({ timeout: 15_000 });
       await refresh.click();
-      await browser.waitUntil(
-        async () => (await requests(CDN_HOST, "/release-b.json")).length > releaseBBeforeForce,
-        { timeout: 30_000, timeoutMsg: "强制刷新没有重新下载同一 URL 的 CDN 配置" },
-      );
-      const forcedDownloads = (await requests(CDN_HOST, "/release-b.json")).length;
-      await writeFile(
-        join(artifacts, "asserted-cadence.json"),
-        JSON.stringify(
-          {
-            elapsedMs,
-            controlRequests: (await requests(CONTROL_HOST, "/api/v1/client/configs")).map(
-              (record) => record.startedAt,
-            ),
-            releaseA: (await requests(CDN_HOST, "/release-a.json")).length,
-            releaseB: (await requests(CDN_HOST, "/release-b.json")).length,
-            releaseBBeforeForce,
-            releaseBAfterForce: forcedDownloads,
-          },
-          null,
-          2,
-        ),
-      );
+      await browser.waitUntil(async () => (await row().getText()).includes("800K"), {
+        timeout: 30_000,
+        timeoutMsg: "设置页刷新未更新同一 URL 的 models.dev 目录",
+      });
+      expect((await requests()).length).toBeGreaterThan(downloadsBeforeForce);
     } finally {
       repository.dispose();
       await proxy?.stop();

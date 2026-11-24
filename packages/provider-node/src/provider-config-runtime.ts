@@ -21,6 +21,7 @@ import {
 export interface NodeProviderConfigRuntimeOptions {
   readonly zcodeBuiltinFilePath: string;
   readonly zcodeBuiltinActiveFilePath?: string;
+  readonly modelsDevCache?: boolean;
   readonly zcodeBuiltinRemote?: Omit<ZCodeBuiltinRemoteSynchronizerOptions, "source">;
   readonly zcodeBuiltinEnvironment?: Omit<
     EndpointScopedZCodeBuiltinSourceOptions,
@@ -62,6 +63,7 @@ export class NodeProviderConfigRuntime {
           bundledFilePath: options.zcodeBuiltinFilePath,
           activeFilePath: options.zcodeBuiltinActiveFilePath,
           watch: options.watch,
+          modelsDevCache: options.modelsDevCache,
         });
     this.#remoteSynchronizer =
       options.zcodeBuiltinRemote &&

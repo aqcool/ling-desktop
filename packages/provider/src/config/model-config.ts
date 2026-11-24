@@ -401,10 +401,7 @@ export class ModelConfigRules {
       }
       if (rule.type === "template-model") {
         // 订阅模板没有单独的模型规则，沿用同厂商 API Key 模板的能力与启用状态。
-        if (
-          templateModelRuleMatches(rule.templateId, input.templateId) &&
-          rule.modelId === input.modelId
-        ) {
+        if (templateModelRuleMatches(rule, input.templateId) && rule.modelId === input.modelId) {
           result = result.overlay(rule.config);
         }
         continue;
@@ -553,12 +550,15 @@ const SUBSCRIPTION_MODEL_TEMPLATE_SOURCE: Readonly<Record<string, string>> = {
 };
 
 function templateModelRuleMatches(
-  ruleTemplateId: string,
+  rule: TemplateModelConfigRule,
   inputTemplateId: string | null | undefined,
 ): boolean {
   if (!inputTemplateId) return false;
-  if (ruleTemplateId === inputTemplateId) return true;
-  return SUBSCRIPTION_MODEL_TEMPLATE_SOURCE[inputTemplateId] === ruleTemplateId;
+  if (rule.templateId === inputTemplateId) return true;
+  return (
+    rule.inheritSubscription !== false &&
+    SUBSCRIPTION_MODEL_TEMPLATE_SOURCE[inputTemplateId] === rule.templateId
+  );
 }
 
 function matchesRule(pattern: string, value: string, ignoreCase = false): boolean {

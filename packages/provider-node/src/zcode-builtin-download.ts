@@ -1,10 +1,60 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
   resolveClientConfigRefreshIntervalMs,
   resolveOptionalZCodeAuthorization,
   type ZCodeJwtTokenResolver,
 } from "@zcode/shared";
-import { decodeZCodeBuiltinRelease, type ZCodeBuiltinRelease } from "./zcode-builtin-release.js";
+import {
+  decodeZCodeBuiltinRelease,
+  projectModelsDevCatalog,
+  type ZCodeBuiltinRelease,
+} from "./zcode-builtin-release.js";
+import type { ZCodeBuiltinRemoteSynchronizerOptions } from "./zcode-builtin-remote-synchronizer.js";
+
+const MODELS_DEV_URL = "https://models.dev/api.json";
+const MODELS_DEV_REFRESH_MS = 60 * 60 * 1_000;
+
+export function createModelsDevBuiltinRemote(options: {
+  readonly bundledFilePath: string;
+  readonly activeFilePath: string;
+  readonly request: ZCodeBuiltinDownloadOptions["request"];
+  readonly onRefreshResult?: ZCodeBuiltinRemoteSynchronizerOptions["onRefreshResult"];
+}): Omit<ZCodeBuiltinRemoteSynchronizerOptions, "source"> {
+  return {
+    controlFilePath: join(dirname(options.activeFilePath), "zcode-builtin-refresh.json"),
+    resolveEndpointKey: () => MODELS_DEV_URL,
+    onRefreshResult: options.onRefreshResult,
+    async fetchRelease(_endpoint, parentSignal) {
+      const timeout = AbortSignal.timeout(20_000);
+      const signal = AbortSignal.any([parentSignal, timeout]);
+      try {
+        const [catalog, bundled] = await Promise.all([
+          readJson(options.request, new URL(MODELS_DEV_URL), signal, undefined, 32_000_000),
+          readFile(options.bundledFilePath, "utf8"),
+        ]);
+        const release = projectModelsDevCatalog(
+          decodeZCodeBuiltinRelease(JSON.parse(bundled)),
+          catalog,
+        );
+        return {
+          kind: "release",
+          release,
+          url: MODELS_DEV_URL,
+          refreshIntervalMs: MODELS_DEV_REFRESH_MS,
+        };
+      } catch (error) {
+        const reason = timeout.aborted
+          ? "timeout"
+          : error instanceof DownloadBoundaryError
+            ? error.message
+            : "invalid catalog or request failed";
+        throw new Error(`models.dev: ${reason}`);
+      }
+    },
+  };
+}
 
 const clientConfigSchema = z
   .object({
@@ -75,7 +125,9 @@ export async function downloadZCodeBuiltinRelease(
     url.searchParams.set("app_version", options.appVersion);
     url.searchParams.set("platform", options.platform);
     const authorization = await resolveOptionalZCodeAuthorization(options.resolveZcodeJwtToken);
-    const payload = clientConfigSchema.parse(await readJson(url, authorization));
+    const payload = clientConfigSchema.parse(
+      await readJson(options.request, url, signal, authorization),
+    );
     // 间隔与地址各自校验：间隔写错只回落默认值，不能让整次 Built-in 刷新失败。
     const refreshIntervalMs = resolveClientConfigRefreshIntervalMs(payload.data.configs);
     const downloadUrl = payload.data.configs.builtin_provider_config_json;
@@ -84,7 +136,9 @@ export async function downloadZCodeBuiltinRelease(
       return { kind: "not-modified", url: downloadUrl, refreshIntervalMs };
     }
     stage = "cdn";
-    const release = decodeZCodeBuiltinRelease(await readJson(new URL(downloadUrl)));
+    const release = decodeZCodeBuiltinRelease(
+      await readJson(options.request, new URL(downloadUrl), signal),
+    );
     return { kind: "release", release, url: downloadUrl, refreshIntervalMs };
   } catch (error) {
     // 不能把带 query 的 URL、响应正文或 Schema 输入（可能含凭据）交给上层日志。
@@ -101,55 +155,59 @@ export async function downloadZCodeBuiltinRelease(
   } finally {
     clearTimeout(timer);
   }
+}
 
-  async function readJson(url: URL, authorization?: string | null): Promise<unknown> {
-    signal.throwIfAborted();
-    // 只有第一跳配置请求接收可选登录头；CDN 调用不传入，避免向资源源站泄露 JWT。
-    const response = await abortable(
-      options
-        .request(url, {
-          method: "GET",
-          signal,
-          credentials: "omit",
-          redirect: "error",
-          ...(authorization ? { headers: { Authorization: authorization } } : {}),
-        })
-        .then((value) => {
-          if (signal.aborted) {
-            void value.body?.cancel().catch(() => {});
-            signal.throwIfAborted();
-          }
-          return value;
-        }),
+async function readJson(
+  request: ZCodeBuiltinDownloadOptions["request"],
+  url: URL,
+  signal: AbortSignal,
+  authorization?: string | null,
+  maxBytes = 10_000_000,
+): Promise<unknown> {
+  signal.throwIfAborted();
+  // 只有第一跳配置请求接收可选登录头；CDN 调用不传入，避免向资源源站泄露 JWT。
+  const response = await abortable(
+    request(url, {
+      method: "GET",
       signal,
-    );
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => {});
-      throw new DownloadBoundaryError(`HTTP ${response.status}`);
-    }
-    const reader = response.body?.getReader();
-    if (!reader) throw new DownloadBoundaryError("empty body");
-    const decoder = new TextDecoder();
-    const chunks: string[] = [];
-    let bytes = 0;
-    try {
-      for (;;) {
-        const part = await abortable(reader.read(), signal);
-        if (part.done) break;
-        bytes += part.value.byteLength;
-        if (bytes > 10_000_000) throw new DownloadBoundaryError("body limit exceeded");
-        chunks.push(decoder.decode(part.value, { stream: true }));
+      credentials: "omit",
+      redirect: "error",
+      ...(authorization ? { headers: { Authorization: authorization } } : {}),
+    }).then((value) => {
+      if (signal.aborted) {
+        void value.body?.cancel().catch(() => {});
+        signal.throwIfAborted();
       }
-      chunks.push(decoder.decode());
-      signal.throwIfAborted();
-      return JSON.parse(chunks.join("")) as unknown;
-    } catch (error) {
-      // cancel 不得成为新的无期限等待；释放 reader 后底层请求仍由同一 signal 取消。
-      void reader.cancel().catch(() => {});
-      throw error;
-    } finally {
-      reader.releaseLock();
+      return value;
+    }),
+    signal,
+  );
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => {});
+    throw new DownloadBoundaryError(`HTTP ${response.status}`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new DownloadBoundaryError("empty body");
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const part = await abortable(reader.read(), signal);
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > maxBytes) throw new DownloadBoundaryError("body limit exceeded");
+      chunks.push(decoder.decode(part.value, { stream: true }));
     }
+    chunks.push(decoder.decode());
+    signal.throwIfAborted();
+    return JSON.parse(chunks.join("")) as unknown;
+  } catch (error) {
+    // cancel 不得成为新的无期限等待；释放 reader 后底层请求仍由同一 signal 取消。
+    void reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
 }
 

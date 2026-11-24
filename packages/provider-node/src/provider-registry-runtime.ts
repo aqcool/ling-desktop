@@ -1,3 +1,4 @@
+import type { SubscriptionReasoningLevels } from "@zcode/shared/model-config";
 import {
   ProviderRegistryService,
   MutableAccountProviderConfigSource,
@@ -18,6 +19,7 @@ export interface NodeProviderRegistryRuntimeOptions extends NodeProviderConfigRu
   /** 同步读取已登录的订阅供应商。名单由宿主在刷新前替换，Registry 不读凭据。 */
   readonly readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
   readonly readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
+  readonly readSubscriptionReasoningLevels?: () => SubscriptionReasoningLevels;
 }
 
 /** 一个 Node.js 进程内共享的 Config + Registry 生命周期。 */
@@ -40,6 +42,7 @@ export class NodeProviderRegistryRuntime {
       accountSource: this.#accountSource,
       readSubscriptionAuthorizedProviderIds: options.readSubscriptionAuthorizedProviderIds,
       readSubscriptionFastModels: options.readSubscriptionFastModels,
+      readSubscriptionReasoningLevels: options.readSubscriptionReasoningLevels,
     });
   }
 

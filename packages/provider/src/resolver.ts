@@ -1,6 +1,9 @@
 /* oxlint-disable eslint(max-lines) -- Resolver 同时产出 Settings 分层结果与唯一 Registry 完整类型证明。 */
 import type { z } from "zod";
-import type { completeModelConfigDataSchema } from "@zcode/shared/model-config";
+import type {
+  completeModelConfigDataSchema,
+  SubscriptionReasoningLevels,
+} from "@zcode/shared/model-config";
 import type {
   completeApiKeyAccessDataSchema,
   completeZhipuAccountAccessDataSchema,
@@ -148,6 +151,7 @@ export interface ProviderConfigResolverInput {
    */
   readonly subscriptionAuthorizedProviderIds?: ReadonlySet<string>;
   readonly subscriptionFastModels?: Readonly<Record<string, readonly string[]>>;
+  readonly subscriptionReasoningLevels?: SubscriptionReasoningLevels;
 }
 
 export interface ResolvedProviderModelCandidate {
@@ -298,13 +302,33 @@ export class ProviderConfigResolver {
         subscriptionAuthorized &&
         providerIssues.length === 0;
       const models = orderedModelIds.map((modelId): ResolvedProviderModel => {
-        const modelConfig = effectiveModelRules.resolve({
+        const resolvedModelConfig = effectiveModelRules.resolve({
           providerId,
           templateId,
           modelId,
           apiType: config.api?.type,
           baseUrl: config.api?.baseUrl,
         });
+        const reportedLevels =
+          subscriptionAuthorized &&
+          config.access?.type === "subscription-oauth" &&
+          config.access.vendor === "openai-chatgpt" &&
+          config.api?.type === "openai-responses"
+            ? input.subscriptionReasoningLevels?.[providerId]?.[modelId]
+            : undefined;
+        // Codex 对当前账号实际接受的档位由目录声明。UI 和 Worker 用同一组值准入。
+        const modelConfig = reportedLevels?.length
+          ? resolvedModelConfig.overlay(
+              ModelConfig.fromData({
+                optionSpecs: {
+                  reasoningLevel: {
+                    values: reportedLevels,
+                    map: '{"reasoning":{"effort":reasoningLevel}}',
+                  },
+                },
+              }),
+            )
+          : resolvedModelConfig;
         const effectiveBuiltinConfig = input.zcodeBuiltinModelRules.resolve({
           providerId,
           templateId,

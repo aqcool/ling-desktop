@@ -41,79 +41,74 @@ afterEach(async () => {
 });
 
 describe("process provider registry runtime", () => {
-  it("Standalone 长生命周期下载 URL Release 后跟进 Registry；Managed Worker 不下载", async () => {
+  it("Standalone 从 models.dev 刷新公开模型，Managed Worker 读取同一份目录", async () => {
     const root = await temporaryDirectory();
-    const builtin = JSON.parse(
-      await readFile(
-        new URL("../../../../../config/provider/zcode-builtin.json", import.meta.url),
-        "utf8",
-      ),
-    );
     const bundled = join(root, "bundled.json");
     const active = join(root, "active.json");
-    await writeFile(bundled, JSON.stringify(builtin));
-    await writeFile(active, JSON.stringify(builtin));
-    builtin.revision += 1;
-    let releaseDownload!: () => void;
-    const wait = new Promise<void>((resolve) => {
-      releaseDownload = resolve;
-    });
+    const original = await readFile(
+      new URL("../../../../../config/provider/zcode-builtin.json", import.meta.url),
+      "utf8",
+    );
+    await writeFile(bundled, original);
+    const context = 456_000;
     const request = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      expect(new Headers(init?.headers).get("authorization")).toBe(
-        String(url).includes("/api/v1/client/configs?") ? "Bearer fixture-cli-config" : null,
-      );
-      if (String(url).includes("/api/v1/client/configs?"))
-        return new Response(
-          JSON.stringify({
-            code: 0,
-            data: { configs: { builtin_provider_config_json: "https://cdn.example.com/new.json" } },
-          }),
-        );
-      await wait;
-      return new Response(JSON.stringify(builtin));
+      expect(String(url)).toBe("https://models.dev/api.json");
+      expect(new Headers(init?.headers).get("authorization")).toBeNull();
+      return Response.json({
+        openai: {
+          models: {
+            "gpt-fixture": {
+              id: "gpt-fixture",
+              tool_call: true,
+              modalities: { input: ["text"], output: ["text"] },
+              limit: { context, output: 16_000 },
+            },
+          },
+        },
+        "openai-codex": { models: { "gpt-6.2-sol": { limit: { context: 10 } } } },
+      });
     });
-    // 此用例验证 Registry 更新。使用测试密钥可在未解锁系统凭据库的机器上写入夹具令牌。
-    const credentialStore = createSharedZCodeCredentialStore({
-      baseDir: root,
-      env: { ZCODE_CREDENTIAL_SECRET: "process-registry-test" },
-    });
-    await credentialStore.save("zcodejwttoken", "fixture-cli-config");
     const env = {
       [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: active,
       [ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]: join(root, "personal.json"),
       ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE: bundled,
     };
-    const runtime = await startProcessProviderRegistryRuntime(env, {
-      standalone: {
-        credentialStore,
-        request,
-        legacyCliUserConfigFilePath: join(root, "absent.json"),
-      },
-    });
-    const old = runtime.runtime.registryService.getSnapshot()!;
+    const start = () =>
+      startProcessProviderRegistryRuntime(env, {
+        standalone: {
+          request,
+          legacyCliUserConfigFilePath: join(root, "absent.json"),
+          credentialStore: createSharedZCodeCredentialStore({ baseDir: root, env: {} }),
+        },
+      });
+    const runtime = await start();
+    const inspect = (running: typeof runtime) => {
+      const { config } = running.runtime.registryService.getSnapshot()!;
+      const model = config.zcodeBuiltinModelRules.resolve({
+        providerId: "fixture",
+        templateId: "openai",
+        modelId: "gpt-fixture",
+      });
+      return [config.zcodeBuiltinRevision, model.properties?.contextWindow];
+    };
     try {
-      await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
-      expect(runtime.runtime.registryService.getSnapshot()).toBe(old);
-      releaseDownload();
-      await vi.waitFor(() =>
-        expect(runtime.runtime.registryService.getSnapshot()!.config.zcodeBuiltinRevision).toMatch(
-          `zcode-builtin:${builtin.revision}:`,
-        ),
-      );
-      const next = runtime.runtime.registryService.getSnapshot()!;
-      expect(next.account.basedOnZCodeBuiltinRevision).toBe(next.config.zcodeBuiltinRevision);
-      expect(JSON.parse(await readFile(active, "utf8")).revision).toBe(builtin.revision);
-      expect(JSON.parse(await readFile(bundled, "utf8")).revision).toBe(builtin.revision - 1);
+      await vi.waitFor(() => expect(inspect(runtime)[1]).toBe(456_000));
+      expect(await readFile(bundled, "utf8")).toBe(original);
       const worker = await startProcessProviderRegistryRuntime(env);
       try {
-        expect(worker.snapshot.config.zcodeBuiltinRevision).toBe(next.config.zcodeBuiltinRevision);
-        expect(request).toHaveBeenCalledTimes(2);
+        expect(inspect(worker)).toEqual(inspect(runtime));
+        expect(request).toHaveBeenCalledTimes(1);
       } finally {
         worker.dispose();
       }
     } finally {
-      releaseDownload();
       runtime.dispose();
+    }
+    const restarted = await start();
+    try {
+      expect(inspect(restarted)[1]).toBe(456_000);
+    } finally {
+      restarted.dispose();
     }
   });
   it("Standalone 无凭据时 Built-in 文件更新仍重新解析 Account 并整体发布 Registry", async () => {

@@ -12,6 +12,7 @@ import { importLegacyPersonalProviderConfig } from "./legacyPersonalProviderConf
 export interface ProviderConfigRuntimeOptions {
   readonly zcodeBuiltinFilePath: string;
   readonly zcodeBuiltinActiveFilePath?: string;
+  readonly modelsDevCache?: boolean;
   readonly zcodeBuiltinRemote?: NodeProviderConfigRuntimeOptions["zcodeBuiltinRemote"];
   readonly zcodeBuiltinEnvironment?: NodeProviderConfigRuntimeOptions["zcodeBuiltinEnvironment"];
   readonly onZCodeBuiltinRefreshError?: (error: unknown) => void;
@@ -35,6 +36,7 @@ export class ProviderConfigRuntime {
     const runtimeOptions: NodeProviderConfigRuntimeOptions = {
       zcodeBuiltinFilePath: options.zcodeBuiltinFilePath,
       zcodeBuiltinActiveFilePath: options.zcodeBuiltinActiveFilePath,
+      modelsDevCache: options.modelsDevCache,
       zcodeBuiltinRemote: options.zcodeBuiltinRemote,
       zcodeBuiltinEnvironment: options.zcodeBuiltinEnvironment,
       onZCodeBuiltinRefreshError: options.onZCodeBuiltinRefreshError,

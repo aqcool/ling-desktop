@@ -12,7 +12,8 @@ export interface ZCodeBuiltinCachePathOptions {
   readonly environmentConfigRoot: string;
   readonly platform: string;
   readonly appVersion: string;
-  readonly zcodeEndpointOrigin: string;
+  readonly zcodeEndpointOrigin?: string;
+  readonly modelsDevEnvironment?: "test" | "production";
 }
 
 export interface ZCodeBuiltinCachePaths {
@@ -26,7 +27,9 @@ export function resolveZCodeBuiltinCachePaths(
 ): ZCodeBuiltinCachePaths {
   const platform = normalizeSegment(options.platform, "platform");
   const appVersion = normalizeSegment(options.appVersion, "appVersion");
-  const endpointKey = createZCodeBuiltinEndpointKey(options.zcodeEndpointOrigin);
+  const endpointKey = options.zcodeEndpointOrigin
+    ? createZCodeBuiltinEndpointKey(options.zcodeEndpointOrigin)
+    : `models-dev-v1-${options.modelsDevEnvironment ?? "test"}`;
   const directory = join(
     options.environmentConfigRoot,
     "runtime",

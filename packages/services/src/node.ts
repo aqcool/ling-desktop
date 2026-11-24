@@ -59,7 +59,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { prependPathEntries } from "#src/runtime-tools/runtimeToolResolver.js";
 import {
+  createModelsDevBuiltinRemote,
   createNodeProviderRuntimePathEnv,
+  resolveZCodeBuiltinCachePaths,
   NodeModelSelectionConfigRepository,
   PERSONAL_PROVIDER_CONFIG_FILE_NAME,
 } from "@zcode/provider-node";
@@ -520,7 +522,6 @@ import { AccountProviderApiClient } from "./model-provider/accountProviderApiCli
 import { createAccountProjectTokenClient } from "./model-provider/accountProjectTokenClient.js";
 import { AccountProviderApiKeyResolver } from "./model-provider/accountProviderApiKeyResolver.js";
 import { createProviderConfigRuntime } from "./model-provider/providerConfigRuntime.js";
-import { fetchZCodeBuiltinRemoteRelease } from "./model-provider/zcodeBuiltinRemoteConfig.js";
 import {
   createProviderRuntimeFromConfigRuntime,
   type ProviderRuntime,
@@ -532,7 +533,10 @@ import {
 } from "./model-provider/providerFacadeServices.js";
 import { createProviderSettingsConnectivityTester } from "./model-provider/providerSettingsConnectivity.js";
 import { createImagegenBridge, type ImagegenBridge } from "./model-provider/imagegen/module.js";
-import { createSubscriptionOAuthService } from "./model-provider/subscriptionOAuthService.js";
+import {
+  createSubscriptionOAuthService,
+  type SubscriptionModelCatalog,
+} from "./model-provider/subscriptionOAuthService.js";
 import {
   createProviderProvisioningSource,
   listProviderProvisioningCredentialKeys,
@@ -1644,32 +1648,28 @@ export function createLocalServices(options: {
     }),
   );
   const providerConfigLog = createServiceLogger("provider-config");
-  const clientConfigPlatform = resolveClientConfigPlatform();
+  const builtinPaths = resolveZCodeBuiltinCachePaths({
+    environmentConfigRoot: resolveAppConfigDir(),
+    platform: resolveClientConfigPlatform(),
+    modelsDevEnvironment: ZCODE_ENV,
+    appVersion: ZCODE_VERSION,
+  });
   const providerConfigRuntime = createProviderConfigRuntime({
     zcodeBuiltinFilePath: options.zcodeBuiltinProviderConfigFilePath,
-    zcodeBuiltinEnvironment: {
-      environmentConfigRoot: resolveAppConfigDir(),
-      platform: clientConfigPlatform,
-      appVersion: ZCODE_VERSION,
-      resolveEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
+    zcodeBuiltinActiveFilePath: builtinPaths.activeFilePath,
+    modelsDevCache: true,
+    zcodeBuiltinRemote: createModelsDevBuiltinRemote({
+      bundledFilePath: options.zcodeBuiltinProviderConfigFilePath,
+      activeFilePath: builtinPaths.activeFilePath,
+      request: hostApiNetworkTransport.fetch,
       onRefreshResult: (event) => {
         if (event.result === "updated")
-          providerConfigLog.info(undefined, "ZCode Built-in CDN 配置已更新", event);
-        else providerConfigLog.debug(undefined, "ZCode Built-in 刷新检查", event);
+          providerConfigLog.info(undefined, "models.dev 模型目录已更新", event);
+        else providerConfigLog.debug(undefined, "models.dev 目录刷新检查", event);
       },
-      fetchRelease: (endpointOrigin, signal, { reuseUrl }) =>
-        fetchZCodeBuiltinRemoteRelease({
-          apiClient,
-          resolveZcodeJwtToken: () => credentialService.load("zcodejwttoken"),
-          endpointOrigin,
-          signal,
-          appVersion: ZCODE_VERSION,
-          platform: clientConfigPlatform,
-          reuseUrl,
-        }),
-    },
+    }),
     onZCodeBuiltinRefreshError: (error) => {
-      providerConfigLog.warn(undefined, "ZCode Built-in Config 远端刷新失败", { error });
+      providerConfigLog.warn(undefined, "models.dev 模型目录刷新失败", { error });
     },
     onPersonalConfigRecovery: (event) => {
       providerConfigLog.warn(
@@ -1758,9 +1758,16 @@ export function createLocalServices(options: {
     | undefined;
   let subscriptionOAuth: ReturnType<typeof createSubscriptionOAuthService> | null = null;
   const subscriptionAuthorizedProviderIds = new Set<string>();
-  const subscriptionFastModels = new Map<string, string[]>();
-  const subscriptionCatalogRequests = new Map<string, Promise<string[]>>();
-  const readSubscriptionFastModels = () => Object.fromEntries(subscriptionFastModels);
+  const subscriptionCatalogs = new Map<string, SubscriptionModelCatalog>();
+  const subscriptionCatalogRequests = new Map<string, Promise<SubscriptionModelCatalog>>();
+  const readSubscriptionFastModels = () =>
+    Object.fromEntries(
+      [...subscriptionCatalogs].map(([id, catalog]) => [id, catalog.fastModelIds]),
+    );
+  const readSubscriptionReasoningLevels = () =>
+    Object.fromEntries(
+      [...subscriptionCatalogs].map(([id, catalog]) => [id, catalog.reasoningLevels ?? {}]),
+    );
   let markSubscriptionAuthorizationReady = (): void => {};
   const subscriptionAuthorizationReady = new Promise<void>((resolve) => {
     markSubscriptionAuthorizationReady = resolve;
@@ -1831,7 +1838,8 @@ export function createLocalServices(options: {
     subscriptionOAuth: subscriptionOAuthController,
     readSubscriptionAuthorizedProviderIds: () => subscriptionAuthorizedProviderIds,
     readSubscriptionFastModels,
-    refreshSubscriptionCatalog: discoverSubscriptionFastModels,
+    readSubscriptionReasoningLevels,
+    refreshSubscriptionCatalog: discoverSubscriptionModelCatalog,
   });
   function refreshSubscriptionRegistry(reason: string) {
     void providerRuntime.registryService.refresh(reason).catch((error: unknown) => {
@@ -1840,30 +1848,25 @@ export function createLocalServices(options: {
       });
     });
   }
-  function discoverSubscriptionFastModels(providerId: string) {
+  function discoverSubscriptionModelCatalog(providerId: string) {
     if (
       !subscriptionAuthorizedProviderIds.has(providerId) ||
       subscriptionCatalogRequests.has(providerId)
     )
       return;
-    const pending = subscriptionOAuth?.discoverFastModels(providerId);
+    const pending = subscriptionOAuth?.discoverModelCatalog(providerId);
     if (!pending) return;
     subscriptionCatalogRequests.set(providerId, pending);
     void pending
-      .then((models) => {
+      .then((catalog) => {
         if (subscriptionCatalogRequests.get(providerId) !== pending) return;
-        const previous = subscriptionFastModels.get(providerId);
-        if (
-          (previous?.length ?? 0) === models.length &&
-          models.every((id, i) => id === previous?.[i])
-        )
+        if (JSON.stringify(subscriptionCatalogs.get(providerId)) === JSON.stringify(catalog))
           return;
-        if (models.length > 0) subscriptionFastModels.set(providerId, models);
-        else subscriptionFastModels.delete(providerId);
+        subscriptionCatalogs.set(providerId, catalog);
         refreshSubscriptionRegistry(`subscription-models:${providerId}`);
       })
       .catch((error: unknown) => {
-        providerConfigLog.warn(undefined, "订阅模型速度读取失败", {
+        providerConfigLog.warn(undefined, "订阅模型目录读取失败", {
           providerId,
           message: error instanceof Error ? error.message : "catalog request failed",
         });
@@ -1879,11 +1882,11 @@ export function createLocalServices(options: {
     fetch: hostApiNetworkTransport.fetch,
     onAuthorizationChanged: (providerId, authorized) => {
       subscriptionCatalogRequests.delete(providerId);
-      subscriptionFastModels.delete(providerId);
+      subscriptionCatalogs.delete(providerId);
       if (authorized) subscriptionAuthorizedProviderIds.add(providerId);
       else subscriptionAuthorizedProviderIds.delete(providerId);
       refreshSubscriptionRegistry(`subscription-oauth:${providerId}`);
-      if (authorized) discoverSubscriptionFastModels(providerId);
+      if (authorized) discoverSubscriptionModelCatalog(providerId);
     },
     readVendor: async (providerId) => {
       const view = await providerRuntime.providerSettings.getView();
@@ -1926,7 +1929,7 @@ export function createLocalServices(options: {
       if (subscriptionAuthorizedProviderIds.size > 0) {
         await providerRuntime.registryService.refresh("subscription-oauth:hydrate");
         for (const providerId of subscriptionAuthorizedProviderIds) {
-          discoverSubscriptionFastModels(providerId);
+          discoverSubscriptionModelCatalog(providerId);
         }
       }
     } catch (error) {
@@ -2605,6 +2608,7 @@ export function createLocalServices(options: {
     whenSubscriptionAuthorizationReady: () => subscriptionAuthorizationReady,
     readSubscriptionAuthorizedProviderIds: () => subscriptionAuthorizedProviderIds,
     readSubscriptionFastModels,
+    readSubscriptionReasoningLevels,
     readRequestVerificationConfig: () =>
       codingPlanSubscriptionService.getRequestVerificationConfig(),
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),

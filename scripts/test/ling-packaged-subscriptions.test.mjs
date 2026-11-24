@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { verifyPackagedSubscriptions } from "../../.github/scripts/packaged-subscriptions.mjs";
 
-test.each([true, false])("发行检查识别包内程序能否恢复订阅模板：%s", async (restores) => {
+test.each([true, false])("发行检查识别包内程序能否隔离旧 ZCode 目录：%s", async (isolates) => {
   const root = await mkdtemp(join(tmpdir(), "ling-packaged-subscriptions-test-"));
   const resources = join(root, "resources");
   try {
@@ -22,7 +22,7 @@ test.each([true, false])("发行检查识别包内程序能否恢复订阅模板
         revision: 46,
         config: {
           providerConfigRules: { templateRules },
-          modelConfigRules: {},
+          modelConfigRules: { templateModelRules: [] },
         },
       }),
     );
@@ -31,10 +31,15 @@ test.each([true, false])("发行检查识别包内程序能否恢复订阅模板
       join(resources, "glm/zcode.cjs"),
       `const fs = require('node:fs');
 const path = require('node:path');
-const file = path.join(process.env.ZCODE_DATA_BASE_DIR, 'zcode-builtin.json');
+const root = process.env.ZCODE_DATA_BASE_DIR;
+const dir = path.join(root, ".zcode", "v2", "runtime", "provider", "fixture", "0.1.1");
+const file = path.join(dir, "models-dev-v1-production", "zcode-builtin.json");
+const legacy = path.join(dir, "endpoint-" + require("node:crypto").createHash("sha256")
+  .update(process.env.ZCODE_BASE_URL).digest("hex").slice(0, 32), "zcode-builtin.json");
 const bundled = JSON.parse(fs.readFileSync(process.env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE));
-const active = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : bundled;
-if (${restores}) active.config.providerConfigRules.templateRules = bundled.config.providerConfigRules.templateRules;
+const source = !${isolates} && fs.existsSync(legacy) ? legacy : file;
+const active = fs.existsSync(source) ? JSON.parse(fs.readFileSync(source)) : bundled;
+fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(active));
 `,
     );
@@ -42,8 +47,8 @@ fs.writeFileSync(file, JSON.stringify(active));
       executable: process.execPath,
       resources,
     });
-    if (restores) await expect(check).resolves.toBe("passed");
-    else await expect(check).rejects.toThrow("Packaged agent lost claude-subscription");
+    if (isolates) await expect(check).resolves.toBe("passed");
+    else await expect(check).rejects.toThrow("Old ZCode directory must remain isolated");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

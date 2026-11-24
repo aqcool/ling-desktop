@@ -1,3 +1,4 @@
+import type { SubscriptionReasoningLevels } from "@zcode/shared/model-config";
 import type { ModelId, ProviderId } from "./config/index.js";
 import {
   ProviderRegistry,
@@ -45,6 +46,7 @@ export interface ProviderRegistryServiceDependencies {
   /** 同步读取已登录的订阅供应商。登录状态变化后调用 refresh，不能只靠配置 revision。 */
   readonly readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
   readonly readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
+  readonly readSubscriptionReasoningLevels?: () => SubscriptionReasoningLevels;
 }
 
 interface RefreshWaiter {
@@ -59,6 +61,7 @@ export class ProviderRegistryService {
   readonly #resolver: ProviderConfigResolver;
   readonly #readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
   readonly #readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
+  readonly #readSubscriptionReasoningLevels?: () => SubscriptionReasoningLevels;
   #subscriptionAuthorizationKey = "";
   readonly #registry = new ProviderRegistry();
   readonly #changeListeners = new Set<(event: ProviderRegistryServiceChangedEvent) => void>();
@@ -80,6 +83,7 @@ export class ProviderRegistryService {
     this.#readSubscriptionAuthorizedProviderIds =
       dependencies.readSubscriptionAuthorizedProviderIds;
     this.#readSubscriptionFastModels = dependencies.readSubscriptionFastModels;
+    this.#readSubscriptionReasoningLevels = dependencies.readSubscriptionReasoningLevels;
   }
 
   async start(): Promise<void> {
@@ -223,9 +227,13 @@ export class ProviderRegistryService {
       const subscriptionAuthorizedProviderIds =
         this.#readSubscriptionAuthorizedProviderIds?.() ?? EMPTY_SUBSCRIPTION_AUTHORIZATION;
       const subscriptionFastModels = this.#readSubscriptionFastModels?.();
+      const subscriptionReasoningLevels = this.#readSubscriptionReasoningLevels?.();
       const subscriptionAuthorizationKey = JSON.stringify([
         [...subscriptionAuthorizedProviderIds].sort(),
         Object.entries(subscriptionFastModels ?? {}).sort(([left], [right]) =>
+          left.localeCompare(right),
+        ),
+        Object.entries(subscriptionReasoningLevels ?? {}).sort(([left], [right]) =>
           left.localeCompare(right),
         ),
       ]);
@@ -249,6 +257,7 @@ export class ProviderRegistryService {
           personalProviderOrder: config.personalProviderOrder,
           subscriptionAuthorizedProviderIds,
           subscriptionFastModels,
+          subscriptionReasoningLevels,
         });
         this.#registry.replace(resolution.registryProviders, [...reasons].join(","));
         const snapshot = Object.freeze({

@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import {
+  parseZCodeBuiltinModelConfigRules,
   ProviderTemplateMap,
+  type ProviderSiteMatchConfigRule,
   type ProviderConfigLayerSnapshot,
   type ProviderSource,
 } from "@zcode/provider";
@@ -19,6 +21,7 @@ export interface NodeZCodeBuiltinProviderConfigSourceOptions {
   readonly bundledFilePath: string;
   readonly activeFilePath?: string;
   readonly watch?: boolean;
+  readonly modelsDevCache?: boolean;
 }
 
 export type ApplyZCodeBuiltinReleaseResult = "updated" | "unchanged" | "stale";
@@ -29,6 +32,7 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
   readonly #activeFilePath: string;
   readonly #sourceKey: string;
   readonly #watchEnabled: boolean;
+  readonly #modelsDevCache: boolean;
   readonly #listeners = new Set<(reason: string) => void>();
   #watcher: FSWatcher | null = null;
   #observedSignature: string | null = null;
@@ -44,6 +48,7 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
     // Active 路径已含规范化 Endpoint 隔离范围；Worker 收到同一路径，不另拼账号事实。
     this.#sourceKey = createHash("sha256").update(resolve(this.#activeFilePath)).digest("hex");
     this.#watchEnabled = options.watch !== false;
+    this.#modelsDevCache = options.modelsDevCache === true;
   }
 
   get activeFilePath(): string {
@@ -76,7 +81,7 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
       const current = await this.#readAndMaterializeLocked();
       this.#assertNotDisposed();
       if (release.revision < current.revision) return "stale" as const;
-      const incoming = withBundledSubscriptionTemplates(
+      const incoming = withLingSubscriptionConfig(
         release,
         (await readBundledReleaseCandidate(this.#bundledFilePath)).release,
       );
@@ -84,7 +89,9 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
         if (serializeZCodeBuiltinRelease(incoming) === serializeZCodeBuiltinRelease(current)) {
           return "unchanged" as const;
         }
-        throw new Error(`ZCode Built-in 相同 revision ${release.revision} 对应不同内容`);
+        if (!this.#modelsDevCache) {
+          throw new Error(`ZCode Built-in 相同 revision ${release.revision} 对应不同内容`);
+        }
       }
       await this.#writeActiveLocked(incoming);
       this.#observedSignature = signatureOf(incoming);
@@ -115,8 +122,8 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
         ? Promise.resolve(null)
         : readReleaseCandidate(this.#activeFilePath),
     ]);
-    const selected = withBundledSubscriptionTemplates(
-      selectReleaseCandidate(bundled, active),
+    const selected = withLingSubscriptionConfig(
+      selectReleaseCandidate(bundled, active, this.#modelsDevCache),
       bundled?.release,
     );
     if (this.#activeFilePath !== this.#bundledFilePath) {
@@ -188,7 +195,17 @@ const LING_SUBSCRIPTION_TEMPLATE_IDS = new Set([
   "grok-subscription",
 ]);
 
-function withBundledSubscriptionTemplates(
+function isLingCodexRule(
+  rule: Pick<ProviderSiteMatchConfigRule, "modelMatch" | "apiTypeMatch" | "baseUrlMatch">,
+): boolean {
+  return (
+    rule.modelMatch === "gpt-6\\.2-(?:astra|sol)" &&
+    rule.apiTypeMatch === "openai-responses" &&
+    rule.baseUrlMatch === "https://chatgpt\\.com/backend-api/codex/?"
+  );
+}
+
+function withLingSubscriptionConfig(
   release: ZCodeBuiltinRelease,
   bundled: ZCodeBuiltinRelease | undefined,
 ): ZCodeBuiltinRelease {
@@ -196,16 +213,31 @@ function withBundledSubscriptionTemplates(
   const subscriptions = bundled.config.providerTemplates
     .entries()
     .filter(([templateId]) => LING_SUBSCRIPTION_TEMPLATE_IDS.has(templateId));
-  if (subscriptions.length === 0) return release;
-  // 上游 revision 48 曾缺少 LING 自有的三个订阅模板，整份替换后授权入口消失。
-  // 读取旧缓存和接受下载都先组合随包模板，再写同一 Active；Worker 因而读取相同事实。
+  // 上游 revision 48 不含 LING 的订阅模板和 GPT-6.2 Codex 档位规则，只恢复模板时
+  // 模型仍落到通用开关档位。读取旧缓存和接受下载都在物化 Active 前同时组合两者。
   const templates = new Map(release.config.providerTemplates.entries());
   for (const [templateId, template] of subscriptions) templates.set(templateId, template);
+  const codexRules = bundled.config.modelConfigRules
+    .toZCodeBuiltinJSON()
+    .providerSiteRules.filter(isLingCodexRule);
+  if (subscriptions.length === 0 && codexRules.length === 0) return release;
+  let modelConfigRules = release.config.modelConfigRules;
+  if (codexRules.length > 0) {
+    const rules = modelConfigRules.toZCodeBuiltinJSON();
+    modelConfigRules = parseZCodeBuiltinModelConfigRules({
+      ...rules,
+      providerSiteRules: [
+        ...rules.providerSiteRules.filter((rule) => !isLingCodexRule(rule)),
+        ...codexRules,
+      ],
+    });
+  }
   return Object.freeze({
     ...release,
     config: Object.freeze({
       ...release.config,
       providerTemplates: new ProviderTemplateMap(templates),
+      modelConfigRules,
     }),
   });
 }
@@ -249,7 +281,14 @@ async function readReleaseCandidate(filePath: string): Promise<ReleaseCandidate>
 function selectReleaseCandidate(
   bundled: ReleaseCandidate | null,
   active: ReleaseCandidate | null,
+  modelsDevCache = false,
 ): ZCodeBuiltinRelease {
+  // models.dev 目录只是当前随包 revision 的投影，旧投影不能覆盖新版随包规则。
+  if (modelsDevCache && bundled?.release) {
+    return active?.release?.revision === bundled.release.revision
+      ? active.release
+      : bundled.release;
+  }
   if (
     bundled?.release &&
     active?.release &&
@@ -279,7 +318,11 @@ function snapshotFromRelease(
   sourceKey: string,
 ): ProviderConfigLayerSnapshot {
   return Object.freeze({
-    revision: `zcode-builtin:${release.revision}:${sourceKey}`,
+    // 同一随包 revision 的两份目录需要各自与 Account 配对。Host 与 Worker 读取同一文件。
+    revision: `zcode-builtin:${release.revision}:${createHash("sha256")
+      .update(sourceKey)
+      .update(serializeZCodeBuiltinRelease(release))
+      .digest("hex")}`,
     providers: release.config.providers,
     providerTemplates: release.config.providerTemplates,
     models: release.config.modelConfigRules,

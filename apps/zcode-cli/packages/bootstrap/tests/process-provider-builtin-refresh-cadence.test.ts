@@ -307,52 +307,59 @@ describe("Built-in 远端刷新节奏", () => {
     }
   }, CASE_TIMEOUT_MS);
 
-  it("独立 CLI 运行时按服务端间隔排期，到期复查时 URL 不变不下载 CDN", async () => {
-    const remote = await createRemote();
-    const events: ZCodeBuiltinRefreshEvent[] = [];
-    const credentialStore = createSharedZCodeCredentialStore({
-      env: { ZCODE_DATA_BASE_DIR: remote.root },
-    });
-    const env = {
-      [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: remote.active,
-      [ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]: join(remote.root, "personal.json"),
-      [ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV]: remote.bundled,
-    };
-    const start = () =>
-      startProcessProviderRegistryRuntime(env, {
-        standalone: {
-          credentialStore,
-          request: remote.request,
-          legacyCliUserConfigFilePath: join(remote.root, "absent.json"),
-          onBuiltinRefreshResult: (event) => events.push(event),
-        },
+  it(
+    "独立 CLI 每小时刷新 models.dev，到期后的同内容响应保持幂等",
+    async () => {
+      const remote = await createRemote();
+      const events: ZCodeBuiltinRefreshEvent[] = [];
+      const credentialStore = createSharedZCodeCredentialStore({
+        env: { ZCODE_DATA_BASE_DIR: remote.root },
       });
+      const request = vi.fn(async () =>
+        Response.json({
+          openai: { models: { "gpt-5.4": { id: "gpt-5.4", limit: { context: 932_000 } } } },
+        }),
+      );
+      const env = {
+        [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: remote.active,
+        [ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]: join(remote.root, "personal.json"),
+        [ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV]: remote.bundled,
+      };
+      const start = () =>
+        startProcessProviderRegistryRuntime(env, {
+          standalone: {
+            credentialStore,
+            request,
+            legacyCliUserConfigFilePath: join(remote.root, "absent.json"),
+            onBuiltinRefreshResult: (event) => events.push(event),
+          },
+        });
 
-    const before = Date.now();
-    const first = await start();
-    try {
-      await vi.waitFor(() => expect(events.map((event) => event.result)).toEqual(["updated"]));
-      const control = await readControl(remote.controlFile);
-      expect(control.nextEligibleAt as number).toBeGreaterThanOrEqual(before + MINUTE_MS);
-      expect(control.nextEligibleAt as number).toBeLessThanOrEqual(Date.now() + MINUTE_MS);
-      expect(control.releaseUrl).toBe(remote.remote.url);
-    } finally {
-      first.dispose();
-    }
+      const before = Date.now();
+      const first = await start();
+      try {
+        await vi.waitFor(() => expect(events.map((event) => event.result)).toEqual(["updated"]));
+        const control = await readControl(remote.controlFile);
+        expect(control.nextEligibleAt as number).toBeGreaterThanOrEqual(before + HOUR_MS);
+        expect(control.nextEligibleAt as number).toBeLessThanOrEqual(Date.now() + HOUR_MS);
+        expect(control.releaseUrl).toBe("https://models.dev/api.json");
+      } finally {
+        first.dispose();
+      }
 
-    // 模拟下一次定时检查：只把到期时间提前，保留上次下载的 URL 记录。
-    await writeFile(
-      remote.controlFile,
-      JSON.stringify({ ...(await readControl(remote.controlFile)), nextEligibleAt: 0 }),
-    );
-    const second = await start();
-    try {
-      await vi.waitFor(() => expect(events).toHaveLength(2));
-      expect(events[1]?.result).toBe("unchanged");
-      expect(remote.configRequests).toHaveLength(2);
-      expect(remote.cdnRequests).toHaveLength(1);
-    } finally {
-      second.dispose();
-    }
-  }, CASE_TIMEOUT_MS);
+      await writeFile(
+        remote.controlFile,
+        JSON.stringify({ ...(await readControl(remote.controlFile)), nextEligibleAt: 0 }),
+      );
+      const second = await start();
+      try {
+        await vi.waitFor(() => expect(events).toHaveLength(2));
+        expect(events[1]?.result).toBe("unchanged");
+        expect(request).toHaveBeenCalledTimes(2);
+      } finally {
+        second.dispose();
+      }
+    },
+    CASE_TIMEOUT_MS,
+  );
 });

@@ -6,7 +6,7 @@
 
 | 概念            | 含义与维护边界                                                               |
 | --------------- | ---------------------------------------------------------------------------- |
-| Builtin Release | 随包或动态下载的完整配置，Provider 模板/固定 Provider 与模型规则共同版本化   |
+| Builtin Release | 随包的 Provider 模板、固定 Provider 与模型规则基线，运行时叠加公开模型资料   |
 | Template        | 普通供应商的连接与成员基线；`templateId` 是稳定模板身份，不是用户实例身份    |
 | Provider 实例   | 由 `providerId` 标识的一组具体连接配置；模型身份是 `providerId + modelId`    |
 | Account         | 只对已知固定账号 Provider 投影动态配置与资格，不向普通模板写入用户凭据       |
@@ -241,4 +241,4 @@ ZCODE_ENV与环境文件 → 选择完整JSON → 复用Release Decoder校验
 
 构建缓存必须覆盖 `ZCODE_ENV`、环境文件、两份配置和公共构建工具。当前 CLI 的 Turbo 输入及 Desktop E2E 指纹包含这些相关输入，Server 嵌入内容参与产物 hash；bootstrap 重新构建 Agent JS 并刷新相邻配置资源。不同环境并行构建使用独立 worktree/输出目录，不能并发写同一个 dist。
 
-构建只决定包内初始配置；客户端是否采用它还受有效缓存与 revision 影响，见[交付与恢复](./delivery.md)。环境变更的回归必须用内容不同的 Release 检查实际选源、坏文件失败、缓存失效和最终嵌入内容，不能因两份文件偶然相同就宣称通过。
+构建决定包内基线，同一随包 revision 的有效 models.dev 缓存可补充运行时模型资料，见[交付与恢复](./delivery.md)。环境变更的回归必须用内容不同的 Release 检查实际选源、坏文件失败、缓存失效和最终嵌入内容，不能因两份文件偶然相同就宣称通过。

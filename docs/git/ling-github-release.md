@@ -32,4 +32,5 @@ Git tag 唯一确定源码版本，prepare 只解析该版本，build 不使用�
 - 版本线从历史较高版本重置到 `0.1.0` 时，prepare 按 tag 与 manifest 确定版本，不从旧 tag 推断版本或回退源码。
 - 未合入 `master` 的标签提交、轻量标签、manifest 与 tag 版本不一致时，prepare 必须失败。
 - 无证书 arm64 / x64 macOS 构建在调用打包命令时，环境中不存在 `CSC_LINK` / `CSC_KEY_PASSWORD`；Intel 的自定义 DMG 入口继续有效。
+- models.dev 切换后的包内验收以实际运行的 Agent 为准。在隔离数据目录确认三个订阅模板和随包版本，注入旧 ZCode 目录后继续采用新缓存路径，随后确认同随包版本的公开模型资料在重启后仍生效。
 - 发布完成后核对 Release 非 draft，四平台共五个安装包、四份运行报告与 `SHA256SUMS` 齐全，报告的源码 revision 等于 tag commit，且 `subscriptionTemplates` 为 `passed`。

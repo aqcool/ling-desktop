@@ -71,10 +71,10 @@ I27-I31 验证当前连接回退、Family 切换与模型选择恢复，已按�
 
 ## BR117-F01：远端 Built-in 下载失败不阻断账号连接
 
-- Pending spec：`settings/providers/provider-builtin-refresh-failure.test.ts`。
-- Setup：隔离本地账号控制面、有效包内配置、有效 BigModel 登录，个人套餐为初始选择；
-  case-local 控制面下发 HTTP Built-in 地址，下载器实际请求该地址并收到 500，不覆盖产品 Active。
-- Action：通过设置页切换到 Team，返回 Composer 选择 Team 模型，再选择 Start 模型 `GLM-5.3`。
+- Spec：`settings/providers/provider-builtin-refresh-failure.test.ts`。models.dev 回放 1/1，通过记录为 `desktop-e2e-20261123174940927-p51876-75a100352c8d2095`。
+- Setup：隔离本地账号控制面、有效包内配置、有效 BigModel 登录和已选团队套餐；
+  case-local HTTPS 代理让 models.dev 目录下载返回 500，保留有效的本地目录。
+- Action：通过模型设置手动刷新，返回 Composer 选择 Team 模型，再选择 Start 模型 `GLM-5.3`。
 - Assert：配置刷新 RPC 成功且存在远端失败告警；团队选择保留完整组织/项目身份，没有
   被回滚；Team/Start 模型仍可选；下载请求确实到达且失败后不回滚本地配置。
 - 本用例只证明 desktop-continuous 实际交互；共享服务单测覆盖错误分类，未声称手机、

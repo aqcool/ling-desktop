@@ -1,3 +1,4 @@
+import { reportedReasoningEffortSchema } from "@zcode/shared/model-config";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import {
@@ -42,12 +43,22 @@ const grokModelsSchema = z.object({
 const chatGptModelsSchema = z.object({
   models: z.array(
     z.object({
-      slug: z.string(),
+      slug: z.string().min(1),
+      supported_reasoning_levels: z.array(z.unknown()).nullish(),
       service_tiers: z.array(z.object({ id: z.string() })).optional(),
       additional_speed_tiers: z.array(z.string()).optional(),
     }),
   ),
 });
+
+const codexReasoningLevelSchema = z.object({ effort: reportedReasoningEffortSchema });
+
+export interface SubscriptionModelCatalog {
+  readonly fastModelIds: readonly string[];
+  readonly reasoningLevels?: Readonly<Record<string, readonly string[]>>;
+}
+
+const emptyCatalog: SubscriptionModelCatalog = { fastModelIds: [] };
 
 const chatGptUsageWindowSchema = z.object({
   used_percent: z.number().min(0),
@@ -118,7 +129,9 @@ export function createSubscriptionOAuthService(options: {
   readonly fetch?: typeof globalThis.fetch;
   /** 凭据写入或删除之后通知模型目录。不传令牌。 */
   onAuthorizationChanged?(providerId: string, authorized: boolean): void;
-}): SubscriptionOAuthController & { discoverFastModels(providerId: string): Promise<string[]> } {
+}): SubscriptionOAuthController & {
+  discoverModelCatalog(providerId: string): Promise<SubscriptionModelCatalog>;
+} {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const flows = new Map<string, ActiveFlow>();
   const failures = new Map<string, string>();
@@ -439,11 +452,11 @@ export function createSubscriptionOAuthService(options: {
   return {
     getStatus: statusOf,
 
-    async discoverFastModels(providerId) {
+    async discoverModelCatalog(providerId) {
       const vendor = await options.readVendor(providerId);
-      if (vendor !== "openai-chatgpt" && vendor !== "xai") return [];
+      if (vendor !== "openai-chatgpt" && vendor !== "xai") return emptyCatalog;
       const auth = await resolveVendorAuth(providerId, vendor);
-      if (auth.kind !== "ready") return [];
+      if (auth.kind !== "ready") return emptyCatalog;
       const url =
         vendor === "xai" ? `${GROK_BUILD_SUBSCRIPTION.baseUrl}/models-v2` : CHATGPT_MODELS_URL;
       const response = await request(url, {
@@ -462,18 +475,17 @@ export function createSubscriptionOAuthService(options: {
       const body: unknown = await response.json();
       if (vendor === "xai") {
         const { data } = grokModelsSchema.parse(body);
-        return data.some(
+        const supportsFast = data.some(
           ({ id, model, modelId, hidden, _meta }) =>
             !(hidden ?? _meta?.hidden) &&
             [id, model, modelId, _meta?.model, _meta?.modelId].includes(
               GROK_BUILD_SUBSCRIPTION.fastModelId,
             ),
-        )
-          ? [GROK_BUILD_SUBSCRIPTION.modelId]
-          : [];
+        );
+        return supportsFast ? { fastModelIds: [GROK_BUILD_SUBSCRIPTION.modelId] } : emptyCatalog;
       }
       const { models } = chatGptModelsSchema.parse(body);
-      return models
+      const fastModelIds = models
         .filter(
           (model) =>
             model.service_tiers?.some(({ id }) => id === "priority") ||
@@ -481,6 +493,19 @@ export function createSubscriptionOAuthService(options: {
         )
         .map((model) => model.slug)
         .sort();
+      const reasoningLevels = Object.fromEntries(
+        [...models]
+          .sort((a, b) => a.slug.localeCompare(b.slug))
+          .flatMap((model) => {
+            const levels = new Set<string>();
+            for (const value of model.supported_reasoning_levels ?? []) {
+              const parsed = codexReasoningLevelSchema.safeParse(value);
+              if (parsed.success) levels.add(parsed.data.effort);
+            }
+            return levels.size ? [[model.slug, [...levels]] as const] : [];
+          }),
+      );
+      return { fastModelIds, reasoningLevels };
     },
 
     async getUsage(providerId) {

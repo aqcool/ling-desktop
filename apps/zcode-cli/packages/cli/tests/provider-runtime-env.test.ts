@@ -160,12 +160,12 @@ async function temporaryDirectory(): Promise<string> {
 
 function assertActiveConfigPath(filePath: string | undefined, dataBaseDir: string): void {
   assert.ok(filePath);
-  // 不能用斜杠正则误拒绝 Windows；逐层校验仍包含环境、平台、版本和 Endpoint。
+  // 不能用斜杠正则误拒绝 Windows；逐层校验仍包含环境、平台、版本和 models.dev 目录。
   assert.equal(
     dirname(dirname(filePath)),
     join(dataBaseDir, ".zcode", "v2", "runtime", "provider", "test-platform", "test-version"),
   );
-  assert.match(basename(dirname(filePath)), /^endpoint-[a-f0-9]{32}$/u);
+  assert.equal(basename(dirname(filePath)), "models-dev-v1-test");
   assert.equal(basename(filePath), "zcode-builtin.json");
 }
 

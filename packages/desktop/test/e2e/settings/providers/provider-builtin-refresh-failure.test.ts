@@ -1,11 +1,7 @@
-import { createServer, request as forwardRequest } from "node:http";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BUILTIN_MODEL_PROVIDER_IDS as ids } from "@zcode/shared";
 import {
-  TID_MODEL_PROVIDER_CONNECTION_MODE_ITEM,
-  TID_MODEL_PROVIDER_CONNECTION_MODE_TRIGGER,
-  TID_MODEL_PROVIDER_NAV_ITEM,
   TID_SETTINGS_BACK_BUTTON,
   TID_SETTINGS_SECTION_NAV,
   TID_TASK_SETTINGS_BUTTON,
@@ -24,6 +20,7 @@ import {
   seedBigModelStartPlanCredential,
 } from "#e2e/helpers/model-provider-restart";
 import { getV4ModelConfig, prepareV4ConversationE2E } from "#e2e/helpers/v4-conversation";
+import { startE2ENetworkCaptureProxy } from "#e2e/helpers/network-capture-proxy";
 
 import {
   selectRegistryProviderModelById,
@@ -36,52 +33,27 @@ describe("Builtin 下载失败时的套餐操作", () => {
     await clearAppData();
   });
 
-  it("BR117-F01：HTTP 下载失败后有效本地配置保留 Team 切换和 Start 模型选择", async function () {
+  it("BR117-F01：models.dev 下载失败后有效本地配置保留 Team 连接和 Start 模型选择", async function () {
     this.timeout(180_000);
     const upstream = process.env.ZCODE_E2E_CODING_PLAN_MOCK_URL;
     if (!upstream) throw new Error("Missing isolated account control plane");
+    const team = {
+      kind: "team-coding-plan" as const,
+      productId: "product-team-a",
+      organizationId: "org-team-a",
+      projectId: "proj-team-a",
+    };
     const paths = getE2EAppDataPaths();
-    let controlRequests = 0;
-    let downloadRequests = 0;
-    const server = createServer((request, response) => {
-      const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-      if (path === "/api/v1/client/configs") {
-        controlRequests++;
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(
-          JSON.stringify({
-            code: 0,
-            data: {
-              configs: { builtin_provider_config_json: `http://127.0.0.1:${port}/builtin.json` },
-            },
-          }),
-        );
-        return;
-      }
-      if (path === "/builtin.json") {
-        downloadRequests++;
-        response.writeHead(500).end();
-        return;
-      }
-      // 仅替换远端配置响应；权益、项目身份等仍走既有隔离账号控制面。
-      const forwarded = forwardRequest(
-        new URL(request.url ?? "/", upstream),
-        {
-          method: request.method,
-          headers: { ...request.headers, host: new URL(upstream).host },
-        },
-        (result) => {
-          response.writeHead(result.statusCode ?? 502, result.headers);
-          result.pipe(response);
-        },
-      );
-      forwarded.on("error", () => response.writeHead(502).end());
-      request.pipe(forwarded);
+    const artifacts = join(
+      process.env.ZCODE_E2E_ARTIFACT_DIR || join(process.cwd(), ".e2e-artifacts"),
+      "builtin-refresh-failure",
+    );
+    await mkdir(artifacts, { recursive: true });
+    const network = await startE2ENetworkCaptureProxy({
+      artifactPath: join(artifacts, "network.json"),
+      caDir: join(artifacts, "ca"),
+      responseMocks: [{ host: "models.dev", path: "/api.json", statusCode: 500, body: "" }],
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Missing control port");
-    const port = address.port;
     try {
       await prepareV4ConversationE2E({ skipProvider: true });
       const scenario = await fetch(`${upstream}/__e2e/coding-plan/scenario`, {
@@ -92,32 +64,33 @@ describe("Builtin 下载失败时的套餐操作", () => {
       expect(scenario.ok).toBe(true);
       await restartIntoWorkspace({
         afterElectronProcessExit: async () => {
+          const providerRoot = join(paths.appDataDir, "runtime", "provider");
+          const controls = (await readdir(providerRoot, { recursive: true })).filter(
+            (file) =>
+              file.includes("models-dev-v1-") && file.endsWith("zcode-builtin-refresh.json"),
+          );
+          // 首个隔离窗口可能正持有直连刷新 lease；新窗口需要立即向测试代理请求。
+          await Promise.all(controls.map((file) => rm(join(providerRoot, file), { force: true })));
           await seedBigModelStartPlanCredential();
-          await seedBigModelConnectionSelection({ kind: "individual-coding-plan" });
-          await seedSettings({ zcodeEndpointOrigin: `http://127.0.0.1:${port}` });
+          await seedBigModelConnectionSelection(team);
+          await seedSettings({
+            zcodeEndpointOrigin: upstream,
+            httpProxy: network.proxyUrl,
+            httpProxyNoProxy: "localhost,127.0.0.1,::1",
+            httpProxyCaCertPath: network.caCertPath,
+          });
         },
-      });
-      await browser.waitUntil(() => controlRequests > 0, {
-        timeout: 30_000,
-        timeoutMsg: "正式下载器没有请求隔离控制面",
       });
       await clickTestIdByDom(TID_TASK_SETTINGS_BUTTON);
       await clickTestIdByDom(testId(TID_SETTINGS_SECTION_NAV, "modelProvider"));
-      await clickTestIdByDom(
-        testId(TID_MODEL_PROVIDER_NAV_ITEM, `preset:${ids.bigmodelStartPlan}`),
-      );
-      const logsBeforeSwitch = (await readRuntimeLogs(paths.appDataDir)).length;
-      await clickTestIdByDom(TID_MODEL_PROVIDER_CONNECTION_MODE_TRIGGER);
-      await clickTestIdByDom(
-        testId(
-          TID_MODEL_PROVIDER_CONNECTION_MODE_ITEM,
-          "team:bigmodel:product-team-a:org-team-a:proj-team-a",
-        ),
-      );
+      const logsBeforeRefresh = (await readRuntimeLogs(paths.appDataDir)).length;
+      const refresh = $('button[aria-label="刷新"],button[aria-label="Refresh"]');
+      await refresh.waitForClickable({ timeout: 15_000 });
+      await refresh.click();
       // 等待真实刷新 RPC 成功，避免只看保存中间态，遗漏后续回滚。
       await browser.waitUntil(
         async () => {
-          const logs = (await readRuntimeLogs(paths.appDataDir)).slice(logsBeforeSwitch);
+          const logs = (await readRuntimeLogs(paths.appDataDir)).slice(logsBeforeRefresh);
           return (
             logs.includes("Builtin 远端更新失败，继续使用本地配置") &&
             logs.includes("provider-settings.refresh OK")
@@ -125,12 +98,20 @@ describe("Builtin 下载失败时的套餐操作", () => {
         },
         { timeout: 20_000, timeoutMsg: "远端更新失败仍导致业务刷新 RPC 失败" },
       );
-      const team = {
-        kind: "team-coding-plan",
-        productId: "product-team-a",
-        organizationId: "org-team-a",
-        projectId: "proj-team-a",
-      };
+      await browser.waitUntil(
+        async () => {
+          const artifact = JSON.parse(await readFile(network.artifactPath, "utf8")) as {
+            records: Array<{ host: string; path: string; statusCode?: number }>;
+          };
+          return artifact.records.some(
+            (record) =>
+              record.host === "models.dev" &&
+              record.path === "/api.json" &&
+              record.statusCode === 500,
+          );
+        },
+        { timeout: 15_000, timeoutMsg: "代理未记录 models.dev 返回 HTTP 500" },
+      );
       expect(await readBigModelConnectionSelection()).toEqual(team);
       await clickTestIdByDom(TID_SETTINGS_BACK_BUTTON);
       // 团队菜单行按完整连接身份区分，不能查找已移除的 registry-provider:team 行。
@@ -161,25 +142,13 @@ describe("Builtin 下载失败时的套餐操作", () => {
         model: "GLM-5.3",
       });
       expect(await readBigModelConnectionSelection()).toEqual(team);
-      // HTTP 地址应真正发起下载；服务返回 500 后仍保留本地配置和账号切换能力。
-      expect(downloadRequests).toBeGreaterThan(0);
-      const artifacts = join(
-        process.env.ZCODE_E2E_ARTIFACT_DIR || join(process.cwd(), ".e2e-artifacts"),
-        "builtin-refresh-failure",
-      );
-      await mkdir(artifacts, { recursive: true });
       await browser.saveScreenshot(join(artifacts, "start-model-after-team-switch.png"));
       await writeFile(
         join(artifacts, "assertions.json"),
-        JSON.stringify(
-          { controlRequests, downloadRequests, team, selection: await getV4ModelConfig() },
-          null,
-          2,
-        ),
+        JSON.stringify({ team, selection: await getV4ModelConfig() }, null, 2),
       );
     } finally {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await network.stop();
     }
   });
 });

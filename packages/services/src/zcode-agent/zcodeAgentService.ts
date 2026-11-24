@@ -1,3 +1,4 @@
+import type { SubscriptionReasoningLevels } from "@zcode/shared/model-config";
 import {
   V4_SESSION_DELETION_PREVIEW_BATCH_MAX,
   v4SessionDeletionPreviewSchema,
@@ -1141,7 +1142,8 @@ interface CreateZCodeAgentServiceBaseOptions extends Omit<
   whenSubscriptionAuthorizationReady?: () => Promise<void>;
   /** 当前已登录的订阅供应商。只读 id，不读令牌。 */
   readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
-  readSubscriptionFastModels?: () => Record<string, string[]>;
+  readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
+  readSubscriptionReasoningLevels?: () => SubscriptionReasoningLevels;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
   authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
   modelSelectionReadinessSource?: ModelSelectionReadinessSource;
@@ -2049,6 +2051,7 @@ export function createZCodeAgentService(
                 ? { subscriptionAuthorizedProviderIds: [...subscriptionAuthorizedProviderIds] }
                 : {}),
               subscriptionFastModels: options?.readSubscriptionFastModels?.(),
+              subscriptionReasoningLevels: options?.readSubscriptionReasoningLevels?.(),
             },
             zcodeProviderRefreshRegistryResultSchema,
           );

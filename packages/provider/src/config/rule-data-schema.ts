@@ -40,12 +40,13 @@ export const providerSiteMatchConfigRuleSchema = modelMatchConfigRuleSchema.exte
 export const templateModelConfigRuleSchema = z
   .object({
     templateId: idSchema,
+    inheritSubscription: z.literal(false).optional(),
     modelId: idSchema,
     config: modelConfigDataSchema,
   })
   .strict();
 export const providerModelConfigRuleSchema = templateModelConfigRuleSchema
-  .omit({ templateId: true })
+  .omit({ templateId: true, inheritSubscription: true })
   .extend({
     providerId: idSchema,
   });

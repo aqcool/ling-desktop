@@ -1,3 +1,4 @@
+import type { SubscriptionReasoningLevels } from "@zcode/shared/model-config";
 import {
   createRootTraceContext,
   createTraceId,
@@ -79,6 +80,7 @@ export interface ZCodeProtocolAgentDependencies {
     reason: string,
     subscriptionAuthorizedProviderIds?: readonly string[],
     subscriptionFastModels?: Readonly<Record<string, readonly string[]>>,
+    subscriptionReasoningLevels?: SubscriptionReasoningLevels,
   ) => Promise<void>;
 }
 

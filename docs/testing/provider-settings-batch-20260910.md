@@ -40,7 +40,7 @@ Pro 首次运行现有 `settings-ui-polish`，发现 MP-UI-04 仍找独立垃圾
 
 ## Todo127 桌面刷新整链补充
 
-BR117-N02（accepted，pending）：隔离完整 Electron 应用通过测试 HTTPS 代理取得两个版本化 Built-in URL。初始版本提供测试模型容量 500K 与请求映射标记 0.17；仅将测试控制面切至新 URL 后，点击设置页刷新，界面变为 700K，随后真实连接测试 wire 使用新标记 0.37。Personal 文件和预置的最近选择缓存不变。复用正式下载、Account／Registry 更新及 Model 创建路径，不直接写 Active 或 stub Settings View。代理只替代外部网络响应，不放宽 HTTPS 校验；不访问真实账号，不自动发布，不新增模型请求外的业务行为。旧执行冻结另由已有 Core/SDK 测试证明，此例不冒充运行中 Model 验收。
+BR117-N02（accepted，passed，`desktop-e2e-20261123174635872-p48736-39ba93320c749e33`）：隔离 Electron 通过测试 HTTPS 代理读取 models.dev。初始目录报告测试模型容量 500K，替换同地址的响应后点击设置页刷新，容量变为 700K，且同一模型仍可完成连接测试。Personal 文件和最近选择缓存保持原状。两次目录请求经过真实下载器，模型请求只发往本机夹具。
 
 ```text
 设置页刷新 -> Host 正式下载 -> 测试控制面 URL -> 测试 HTTPS CDN

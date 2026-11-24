@@ -2,6 +2,11 @@ import { z } from "zod";
 import { compileModelOptionMap } from "@zcode/model-option-map";
 import { sparseShape } from "./config-schema.js";
 
+export const reportedReasoningEffortSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/u);
+export type SubscriptionReasoningLevels = Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+>;
+
 function optionMapSchema(variableName: "reasoningLevel" | "maxOutputTokens") {
   return z
     .string()

@@ -1,3 +1,4 @@
+import { reportedReasoningEffortSchema } from "../model-config.js";
 import { requestVerificationReasons } from "../request-security-edition/verification-policy.js";
 import { zcodeProtocolTraceSchema } from "./trace.js";
 export * from "../app-control/contract.js";
@@ -2719,6 +2720,12 @@ export const zcodeProviderRefreshRegistryParamsSchema = z
     reason: nonEmptyString,
     subscriptionAuthorizedProviderIds: z.array(nonEmptyString).max(128).optional(),
     subscriptionFastModels: z.record(nonEmptyString, z.array(nonEmptyString)).optional(),
+    subscriptionReasoningLevels: z
+      .record(
+        nonEmptyString,
+        z.record(nonEmptyString, z.array(reportedReasoningEffortSchema).min(1)),
+      )
+      .optional(),
   })
   .strict();
 export const zcodeProviderRefreshRegistryResultSchema = z

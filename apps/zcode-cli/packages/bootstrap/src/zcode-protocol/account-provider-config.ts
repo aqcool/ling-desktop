@@ -52,6 +52,7 @@ export async function refreshProviderRegistry(
     envelope.reason,
     envelope.subscriptionAuthorizedProviderIds,
     envelope.subscriptionFastModels,
+    envelope.subscriptionReasoningLevels,
   );
   return { refreshed: true };
 }

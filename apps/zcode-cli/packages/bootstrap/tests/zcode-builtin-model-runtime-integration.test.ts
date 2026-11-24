@@ -1,3 +1,4 @@
+import { zcodeProviderRefreshRegistryParamsSchema } from "@zcode/shared";
 import type { CreateAiSdkModelOptions } from "@zcode/adapters/model";
 import type { Model } from "@zcode/contracts";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,14 @@ describe("CLI 与 Host 共用的订阅配置交付", () => {
       remote.config.providerConfigRules.templateRules.filter(
         (template: { templateId: string }) => !subscriptions.includes(template.templateId),
       );
+    const codexRule = bundled.config.modelConfigRules.providerSiteRules.find(
+      (rule: { modelMatch: string }) => rule.modelMatch === "gpt-6\\.2-(?:astra|sol)",
+    );
+    expect(codexRule).toBeDefined();
+    remote.config.modelConfigRules.providerSiteRules =
+      remote.config.modelConfigRules.providerSiteRules.filter(
+        (rule: { modelMatch: string }) => rule.modelMatch !== codexRule.modelMatch,
+      );
     remote.config.providerConfigRules.templateRules[0].templateNameMap["en-US"] =
       "Updated upstream provider";
     await writeFile(activeFilePath, JSON.stringify(remote));
@@ -61,8 +70,32 @@ describe("CLI 与 Host 共用的订阅配置交付", () => {
     const host = createHost();
     let worker: NodeZCodeBuiltinProviderConfigSource | undefined;
     let restarted: NodeZCodeBuiltinProviderConfigSource | undefined;
+    const expectCodexReasoning = (snapshot: ZCodeBuiltinProviderConfigSnapshot) => {
+      for (const modelId of ["gpt-6.2-astra", "gpt-6.2-sol"]) {
+        const selection = {
+          providerId: "chatgpt-subscription",
+          modelId,
+          apiType: "openai-responses",
+        };
+        const reasoning = snapshot.models?.resolve({
+          ...selection,
+          templateId: "chatgpt-subscription",
+          baseUrl: "https://chatgpt.com/backend-api/codex",
+        }).optionSpecs?.reasoningLevel;
+        expect(reasoning?.values).toEqual(["low", "medium", "high", "xhigh", "max"]);
+        expect(reasoning?.map).toBe(codexRule.config.optionSpecs.reasoningLevel.map);
+        expect(
+          snapshot.models?.resolve({
+            ...selection,
+            templateId: "openai",
+            baseUrl: "https://api.openai.com/v1",
+          }).optionSpecs?.reasoningLevel?.values,
+        ).toEqual(["disabled", "enabled"]);
+      }
+    };
     try {
       const snapshot = await host.read();
+      expectCodexReasoning(snapshot);
       for (const templateId of subscriptions) {
         expect(snapshot.providerTemplates.get(templateId)?.config.access?.type).toBe(
           "subscription-oauth",
@@ -86,6 +119,7 @@ describe("CLI 与 Host 共用的订阅配置交付", () => {
         snapshot.providerTemplates.toJSON(),
       );
       expect((await worker.read()).revision).toBe(snapshot.revision);
+      expectCodexReasoning(await worker.read());
       expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(remote))).toBe("unchanged");
 
       remote.revision += 1;
@@ -99,8 +133,14 @@ describe("CLI 与 Host 共用的订阅配置交付", () => {
       );
       conflicting.config.api.baseUrl = "https://example.invalid/overridden";
       remote.config.providerConfigRules.templateRules.push(conflicting);
+      remote.config.modelConfigRules.providerSiteRules.push({
+        ...codexRule,
+        config: { optionSpecs: { reasoningLevel: { values: ["disabled", "enabled"] } } },
+      });
       expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(remote))).toBe("updated");
       const updated = await host.read();
+      expectCodexReasoning(updated);
+      expectCodexReasoning(await worker.read());
       expect(updated.providerTemplates.get("chatgpt-subscription")?.config.api?.baseUrl).toBe(
         chatgpt.api?.baseUrl,
       );
@@ -114,6 +154,7 @@ describe("CLI 与 Host 共用的订阅配置交付", () => {
       expect((await restarted.read()).providerTemplates.toJSON()).toEqual(
         updated.providerTemplates.toJSON(),
       );
+      expectCodexReasoning(await restarted.read());
       expect(await readFile(activeFilePath, "utf8")).toBe(beforeRestart);
       const stale = { ...remote, revision: remote.revision - 1 };
       expect(await host.applyRemoteRelease(decodeZCodeBuiltinRelease(stale))).toBe("stale");
@@ -129,6 +170,44 @@ describe("CLI 与 Host 共用的订阅配置交付", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+});
+
+it("Codex 账号档位跨 Worker 协议同步并替换随包档位", () => {
+  const providerId = "chatgpt-fixture";
+  const owned = {
+    "gpt-6.2-astra": ["low", "high"],
+    "gpt-6.2-sol": ["medium", "xhigh", "ultra"],
+  };
+  const envelope = zcodeProviderRefreshRegistryParamsSchema.parse({
+    reason: "test catalog",
+    subscriptionAuthorizedProviderIds: [providerId],
+    subscriptionReasoningLevels: { [providerId]: owned },
+  });
+  const registry = new ProviderConfigResolver().resolve({
+    zcodeBuiltinProviders: zcodeBuiltin.providers,
+    zcodeBuiltinProviderTemplates: zcodeBuiltin.providerTemplates,
+    zcodeBuiltinModelRules: zcodeBuiltin.models!,
+    personalProviders: new ProviderConfigMap([
+      {
+        providerId,
+        templateId: "chatgpt-subscription",
+        config: new ProviderConfig({ group: "standard-personal" }),
+      },
+    ]),
+    accountProviders: ProviderConfigMap.empty(),
+    personalModels: ModelConfigRules.empty(),
+    subscriptionAuthorizedProviderIds: new Set(envelope.subscriptionAuthorizedProviderIds),
+    subscriptionReasoningLevels: envelope.subscriptionReasoningLevels,
+  });
+  const models = registry.registryProviders.find(
+    (provider) => provider.providerId === providerId,
+  )?.models;
+  for (const [id, values] of Object.entries(owned)) {
+    const reasoning = models?.find((model) => model.modelId === id)?.config.optionSpecs
+      .reasoningLevel;
+    expect(reasoning?.values).toEqual(values);
+    expect(reasoning?.map).toBe('{"reasoning":{"effort":reasoningLevel}}');
+  }
 });
 
 describe("真实 ZCode Built-in Config 到 Active Model", () => {

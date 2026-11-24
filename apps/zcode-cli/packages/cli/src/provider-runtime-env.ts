@@ -12,7 +12,7 @@ import {
   ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV,
   type ZCodeBuiltinRefreshEvent,
 } from "@zcode/provider-node";
-import { resolveRuntimeZCodeEndpointOrigin, ZCODE_VERSION } from "@zcode/shared";
+import { ZCODE_ENV, ZCODE_VERSION } from "@zcode/shared";
 import type { CliEnv } from "./env.js";
 
 export const SEA_ZCODE_BUILTIN_PROVIDER_CONFIG_ASSET_KEY = "zcode-provider/zcode-builtin.json";
@@ -23,14 +23,14 @@ export function createCliProviderRefreshReporter(
   return {
     onBuiltinRefreshError(error: unknown) {
       stderr.write(
-        `ZCode Built-in 刷新失败: ${error instanceof Error ? error.message : "unknown error"}\n`,
+        `models.dev 目录刷新失败: ${error instanceof Error ? error.message : "unknown error"}\n`,
       );
     },
     onBuiltinRefreshResult(event: ZCodeBuiltinRefreshEvent) {
-      // TTL 检查不是生产事件；成功更新才默认留痕，不能输出 CDN URL 查询参数或内容。
+      // TTL 检查不是生产事件；成功更新才默认留痕，不能输出目录内容。
       if (event.result === "updated" || process.env.NODE_ENV !== "production") {
         stderr.write(
-          `ZCode Built-in ${event.result}${event.reason ? ` (${event.reason})` : ""}${event.revision === undefined ? "" : ` revision=${event.revision} source=CDN`}\n`,
+          `models.dev ${event.result}${event.reason ? ` (${event.reason})` : ""}${event.revision === undefined ? "" : ` revision=${event.revision} source=models.dev`}\n`,
         );
       }
     },
@@ -76,17 +76,17 @@ export async function prepareCliProviderRuntimeEnv(
     explicitPersonal ?? join(dataBaseDir, ".zcode", "v2", PERSONAL_PROVIDER_CONFIG_FILE_NAME);
   const appVersion = options.appVersion ?? ZCODE_VERSION;
   const platform = options.platform ?? resolveZCodeBuiltinClientPlatform();
-  const zcodeEndpointOrigin = resolveRuntimeZCodeEndpointOrigin(options.env);
   const cachePaths = resolveZCodeBuiltinCachePaths({
     environmentConfigRoot: join(dataBaseDir, ".zcode", "v2"),
+    modelsDevEnvironment: ZCODE_ENV,
     platform,
     appVersion,
-    zcodeEndpointOrigin,
   });
   const source = new NodeZCodeBuiltinProviderConfigSource({
     bundledFilePath: zcodeBuiltinFilePath,
     activeFilePath: cachePaths.activeFilePath,
     watch: false,
+    modelsDevCache: true,
   });
   // 入口只准备资源和路径；下载由 Prompt/TUI 长生命周期 Runtime 持有并取消。
   try {

@@ -1,3 +1,4 @@
+import type { SubscriptionReasoningLevels } from "@zcode/shared/model-config";
 import {
   NodeModelSelectionConfigRepository,
   createNodeModelSelectionFacade,
@@ -42,6 +43,7 @@ export interface ProviderRuntimeDependencies {
   readonly subscriptionOAuth?: SubscriptionOAuthController;
   readonly readSubscriptionAuthorizedProviderIds?: () => ReadonlySet<string>;
   readonly readSubscriptionFastModels?: () => Readonly<Record<string, readonly string[]>>;
+  readonly readSubscriptionReasoningLevels?: () => SubscriptionReasoningLevels;
   readonly refreshSubscriptionCatalog?: (providerId: string) => void;
   readonly modelSelectionConfiguredDefaultSource?: ModelSelectionConfiguredDefaultSource;
   readonly disposeModelSelectionConfiguredDefaultSource?: () => void;
@@ -103,6 +105,7 @@ export class ProviderRuntime {
       accountSource,
       readSubscriptionAuthorizedProviderIds: dependencies.readSubscriptionAuthorizedProviderIds,
       readSubscriptionFastModels: dependencies.readSubscriptionFastModels,
+      readSubscriptionReasoningLevels: dependencies.readSubscriptionReasoningLevels,
     });
     const mutations = createSettingsMutationTarget(
       this.#configRuntime,

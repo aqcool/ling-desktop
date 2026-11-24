@@ -1,3 +1,4 @@
+import type { SubscriptionReasoningLevels } from "@zcode/shared/model-config";
 import {
   AccountProviderService,
   MutableAccountProviderConfigSource,
@@ -5,18 +6,12 @@ import {
   type AccountProviderConfigSnapshot,
   type AccountProviderStates,
 } from "@zcode/provider";
-import {
-  isBuiltinModelProviderId,
-  resolveRuntimeZCodeEndpointOrigin,
-  ZCODE_VERSION,
-} from "@zcode/shared";
-import { dirname, join } from "node:path";
+import { isBuiltinModelProviderId } from "@zcode/shared";
 import {
   NodeModelSelectionConfigRepository,
   NodeProviderRegistryRuntime,
   resolveNodeProviderRuntimePaths,
-  downloadZCodeBuiltinRelease,
-  resolveZCodeBuiltinClientPlatform,
+  createModelsDevBuiltinRemote,
   ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV,
   type ZCodeBuiltinRefreshEvent,
 } from "@zcode/provider-node";
@@ -55,6 +50,7 @@ export async function startProcessProviderRegistryRuntime(
   // 订阅令牌留在 Host 凭据库。这里只记已登录的供应商 id，供发送准入发布模型。
   const subscriptionAuthorizedProviderIds = new Set<string>();
   let subscriptionFastModels: Readonly<Record<string, readonly string[]>> = {};
+  let subscriptionReasoningLevels: SubscriptionReasoningLevels = {};
   const credentialStore = options.standalone
     ? (options.standalone.credentialStore ?? createSharedZCodeCredentialStore({ env: { ...env } }))
     : undefined;
@@ -68,30 +64,20 @@ export async function startProcessProviderRegistryRuntime(
       ? {
           zcodeBuiltinFilePath: bundledFile,
           zcodeBuiltinActiveFilePath: paths.zcodeBuiltinFilePath,
-          zcodeBuiltinRemote: {
-            controlFilePath: join(
-              dirname(paths.zcodeBuiltinFilePath),
-              "zcode-builtin-refresh.json",
-            ),
-            resolveEndpointKey: () => resolveRuntimeZCodeEndpointOrigin(env),
-            fetchRelease: (endpointOrigin, signal, { reuseUrl }) =>
-              downloadZCodeBuiltinRelease({
-                endpointOrigin,
-                signal,
-                appVersion: ZCODE_VERSION,
-                platform: resolveZCodeBuiltinClientPlatform(),
-                request: options.standalone?.request ?? globalThis.fetch,
-                resolveZcodeJwtToken: () => credentialStore?.load("zcodejwttoken"),
-                ...(reuseUrl ? { reuseUrl } : {}),
-              }),
+          modelsDevCache: true,
+          zcodeBuiltinRemote: createModelsDevBuiltinRemote({
+            bundledFilePath: bundledFile,
+            activeFilePath: paths.zcodeBuiltinFilePath,
+            request: options.standalone?.request ?? globalThis.fetch,
             onRefreshResult: options.standalone?.onBuiltinRefreshResult,
-          },
+          }),
         }
       : {}),
     onZCodeBuiltinRefreshError: options.standalone?.onBuiltinRefreshError,
     accountSource,
     readSubscriptionAuthorizedProviderIds: () => subscriptionAuthorizedProviderIds,
     readSubscriptionFastModels: () => subscriptionFastModels,
+    readSubscriptionReasoningLevels: () => subscriptionReasoningLevels,
     ...(credentialStore
       ? {
           createAccountSource(configService) {
@@ -173,6 +159,9 @@ export async function startProcessProviderRegistryRuntime(
         },
         replaceSubscriptionFastModels(models: Readonly<Record<string, readonly string[]>>): void {
           subscriptionFastModels = models;
+        },
+        replaceSubscriptionReasoningLevels(levels: SubscriptionReasoningLevels): void {
+          subscriptionReasoningLevels = levels;
         },
         async syncAccountProviderConfig(next: AccountProviderConfigSnapshot): Promise<boolean> {
           if (standaloneAccount)

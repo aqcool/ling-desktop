@@ -1,3 +1,4 @@
+import { reportedReasoningEffortSchema } from "@zcode/shared/model-config";
 import { z } from "zod";
 import {
   parseZCodeBuiltinModelConfigRules,
@@ -72,4 +73,169 @@ export function encodeZCodeBuiltinRelease(release: ZCodeBuiltinRelease): object 
 
 export function serializeZCodeBuiltinRelease(release: ZCodeBuiltinRelease): string {
   return JSON.stringify(encodeZCodeBuiltinRelease(release));
+}
+
+const modelsDevSourceByTemplate: Readonly<Record<string, string>> = {
+  "zai-api": "zai",
+  "zai-standard-api": "zai",
+  "bigmodel-api": "zhipuai",
+  "bigmodel-standard-api": "zhipuai",
+  "moonshot-kimi": "moonshotai-cn",
+  "kimi-code-cn": "kimi-code-plan-cn",
+  "kimi-code-intl": "kimi-code-plan-global",
+  minimax: "minimax",
+  "minimax-m-plan-cn": "minimax-cn-coding-plan",
+  deepseek: "deepseek",
+  "qwen-alibaba-model-studio-cn": "alibaba-cn",
+  "qwen-alibaba-model-studio-intl": "alibaba",
+  "qwen-coding-plan-cn": "alibaba-coding-plan-cn",
+  "qwen-token-plan-team-cn": "alibaba-token-plan-cn",
+  "xiaomi-mimo": "xiaomi",
+  "xiaomi-mimo-token-plan": "xiaomi-token-plan-cn",
+  "tencent-tokenhub-cn": "tencent-tokenhub",
+  "tencent-tokenhub-intl": "tencent-tokenhub",
+  "volcengine-ark": "volcengine",
+  "volcengine-coding-plan": "volcengine-coding-plan",
+  stepfun: "stepfun",
+  "stepfun-step-plan": "stepfun-step-plan",
+  openai: "openai",
+  anthropic: "anthropic",
+  xai: "xai",
+  "siliconflow-cn": "siliconflow-cn",
+  openrouter: "openrouter",
+  "opencode-go-responses": "opencode-go",
+  "opencode-go-messages": "opencode-go",
+  "opencode-go-chat": "opencode-go",
+  "opencode-zen-responses": "opencode",
+  "opencode-zen-messages": "opencode",
+  "opencode-zen-chat": "opencode",
+};
+
+const directCatalogTemplates = new Set(["openai", "anthropic", "xai"]);
+const modelsDevDocSchema = z.record(z.string(), z.unknown());
+const modelsDevProviderSchema = z.object({ models: modelsDevDocSchema });
+const tokenLimit = z.number().int().positive();
+const modelsDevModelSchema = z.object({
+  id: z.string(),
+  status: z.string().optional(),
+  tool_call: z.boolean().optional(),
+  structured_output: z.boolean().optional(),
+  modalities: z.object({ input: z.array(z.string()), output: z.array(z.string()) }).optional(),
+  limit: z.object({ context: tokenLimit.optional(), output: tokenLimit.optional() }).optional(),
+  reasoning_options: z
+    .array(z.object({ type: z.string(), values: z.array(z.unknown()).optional() }))
+    .optional(),
+});
+
+export function projectModelsDevCatalog(
+  bundled: ZCodeBuiltinRelease,
+  input: unknown,
+): ZCodeBuiltinRelease {
+  const catalog = modelsDevDocSchema.parse(input);
+  const rules = bundled.config.modelConfigRules.toZCodeBuiltinJSON();
+  const metadataRules: typeof rules.templateModelRules = [];
+  const templateRules = bundled.config.providerTemplates.toJSON().map((template) => {
+    const source = modelsDevSourceByTemplate[template.templateId];
+    if (!source || template.config.access?.type !== "api-key") return template;
+    const provider = modelsDevProviderSchema.safeParse(catalog[source]);
+    if (!provider.success) return template;
+    const ids = new Set(template.config.builtinModelIds ?? []);
+    const mayAddModels = directCatalogTemplates.has(template.templateId);
+    for (const [id, value] of Object.entries(provider.data.models)) {
+      if (!mayAddModels && !ids.has(id)) continue;
+      const result = modelsDevModelSchema.safeParse(value);
+      if (!result.success || result.data.id !== id) continue;
+      const model = result.data;
+      if (!ids.has(id)) {
+        if (!isDirectChatModel(id, model)) continue;
+        ids.add(id);
+      }
+      metadataRules.push({
+        templateId: template.templateId,
+        inheritSubscription: false,
+        modelId: id,
+        config: modelsDevModelConfig(model, template.templateId === "openai"),
+      });
+    }
+    const original = template.config.builtinModelIds ?? [];
+    const additions = [...ids].filter((id) => !original.includes(id)).sort();
+    return additions.length
+      ? {
+          ...template,
+          config: { ...template.config, builtinModelIds: [...original, ...additions] },
+        }
+      : template;
+  });
+  if (metadataRules.length === 0) throw new Error("models.dev 目录没有匹配的模型");
+  // 公开目录只读取能力字段。端点、鉴权和参数映射始终来自随包配置。
+  const { providers, providerTemplates } = parseZCodeBuiltinProviderConfigRules({
+    templateRules,
+    providerRules: bundled.config.providers.toJSON(),
+  });
+  return {
+    ...bundled,
+    config: {
+      providers,
+      providerTemplates,
+      modelConfigRules: parseZCodeBuiltinModelConfigRules({
+        ...rules,
+        templateModelRules: [
+          ...rules.templateModelRules,
+          ...metadataRules.sort(
+            (a, b) =>
+              a.templateId.localeCompare(b.templateId) || a.modelId.localeCompare(b.modelId),
+          ),
+        ],
+      }),
+    },
+  };
+}
+
+function isDirectChatModel(id: string, model: z.infer<typeof modelsDevModelSchema>): boolean {
+  return (
+    /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(id) &&
+    model.tool_call === true &&
+    model.modalities?.input.includes("text") === true &&
+    model.modalities.output.includes("text") &&
+    model.status !== "deprecated"
+  );
+}
+
+function modelsDevModelConfig(
+  model: z.infer<typeof modelsDevModelSchema>,
+  openAiResponses: boolean,
+) {
+  const inputs = model.modalities?.input;
+  const effort = openAiResponses
+    ? model.reasoning_options?.find((option) => option.type === "effort")?.values
+    : undefined;
+  const levels = [
+    ...new Set(
+      effort?.filter(
+        (value): value is string => reportedReasoningEffortSchema.safeParse(value).success,
+      ),
+    ),
+  ];
+  return {
+    properties: {
+      contextWindow: model.limit?.context,
+      supportsToolCall: model.tool_call,
+      supportsJsonSchemaOutput: model.structured_output,
+      ...(inputs && {
+        inputFormat: {
+          supportsText: inputs.includes("text"),
+          supportsImage: inputs.includes("image"),
+          supportsVideo: inputs.includes("video"),
+          supportsAudio: inputs.includes("audio"),
+          supportsPdf: inputs.includes("pdf"),
+        },
+      }),
+    },
+    optionSpecs: {
+      ...(model.limit?.output && { maxOutputTokens: { max: model.limit.output } }),
+      ...(levels.length > 0 && {
+        reasoningLevel: { values: levels, map: '{"reasoning":{"effort":reasoningLevel}}' },
+      }),
+    },
+  };
 }
