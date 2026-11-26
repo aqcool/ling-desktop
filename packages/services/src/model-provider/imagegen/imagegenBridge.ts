@@ -5,6 +5,41 @@ import { imagegenRequestSchema, maxImagegenInputBytes, type ImagegenBridge } fro
 const imagesEndpoint = "https://chatgpt.com/backend-api/codex/images";
 const maxRequestBytes = Math.ceil(maxImagegenInputBytes / 3) * 4 + 256 * 1024;
 const maxResultBytes = 32 * 1024 * 1024;
+const maxResponseBytes = Math.ceil(maxResultBytes / 3) * 4 + 256 * 1024;
+
+class ImagegenUnauthorizedError extends Error {
+  constructor() {
+    super("ChatGPT sign-in expired. Reconnect the subscription.");
+  }
+}
+
+async function readResponseJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  // 修复原因：流式限制上游响应体积上限，避免超大或异常代理响应在 JSON.parse 前造成 Host 内存暴涨。
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("ChatGPT did not return a supported PNG image.");
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxResponseBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error("ChatGPT returned an oversized image response.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks, total).toString("utf8")) as unknown;
+  } catch {
+    throw new Error("ChatGPT did not return a supported PNG image.");
+  }
+}
 
 interface SubscriptionAuth {
   apiKey: string;
@@ -16,6 +51,7 @@ export async function requestChatGptImage(
   auth: SubscriptionAuth,
   fetchImage: typeof fetch,
   signal: AbortSignal,
+  onTransportError?: (error: unknown, mode: "edit" | "generate") => void,
 ): Promise<string> {
   const parsed = imagegenRequestSchema.safeParse(input);
   if (!parsed.success) throw new Error("Invalid image prompt or reference image.");
@@ -40,14 +76,14 @@ export async function requestChatGptImage(
     }),
     redirect: "error",
     signal,
-  }).catch(() => {
+  }).catch((error: unknown) => {
     signal.throwIfAborted();
+    onTransportError?.(error, image ? "edit" : "generate");
     throw new Error("Could not reach ChatGPT image generation.");
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
-    if (response.status === 401)
-      throw new Error("ChatGPT sign-in expired. Reconnect the subscription.");
+    if (response.status === 401) throw new ImagegenUnauthorizedError();
     if (response.status === 403)
       throw new Error("ChatGPT denied image generation for this subscription.");
     if (response.status === 429)
@@ -55,8 +91,8 @@ export async function requestChatGptImage(
     throw new Error(`ChatGPT image generation failed (HTTP ${response.status}).`);
   }
 
-  const result = (await response.json()) as { data?: { b64_json?: unknown }[] };
-  const data = result.data?.[0]?.b64_json;
+  const result = (await readResponseJson(response, signal)) as { data?: { b64_json?: unknown }[] };
+  const data = result?.data?.[0]?.b64_json;
   if (
     typeof data !== "string" ||
     data.length > Math.ceil(maxResultBytes / 3) * 4 ||
@@ -82,7 +118,8 @@ async function readRequest(request: IncomingMessage): Promise<unknown> {
 
 export function createImagegenBridge(options: {
   fetch: typeof fetch;
-  resolveAuth(): Promise<SubscriptionAuth>;
+  resolveAuth(authOptions?: { readonly forceRefresh?: boolean }): Promise<SubscriptionAuth>;
+  onTransportError?: (error: unknown, mode: "edit" | "generate") => void;
 }): ImagegenBridge {
   const token = randomBytes(32).toString("hex");
   const expected = Buffer.from(`Bearer ${token}`);
@@ -113,7 +150,29 @@ export function createImagegenBridge(options: {
         signal.throwIfAborted();
         const auth = await options.resolveAuth();
         signal.throwIfAborted();
-        const data = await requestChatGptImage(input, auth, options.fetch, signal);
+        let data: string;
+        try {
+          data = await requestChatGptImage(
+            input,
+            auth,
+            options.fetch,
+            signal,
+            options.onTransportError,
+          );
+        } catch (error) {
+          // 修复原因：上游因服务端轮换或时钟偏差返回 401 时，先强制刷新一次令牌再重试，避免无谓要求重登。
+          if (!(error instanceof ImagegenUnauthorizedError) || signal.aborted) throw error;
+          const refreshed = await options.resolveAuth({ forceRefresh: true }).catch(() => null);
+          if (!refreshed || refreshed.apiKey === auth.apiKey) throw error;
+          signal.throwIfAborted();
+          data = await requestChatGptImage(
+            input,
+            refreshed,
+            options.fetch,
+            signal,
+            options.onTransportError,
+          );
+        }
         response.end(JSON.stringify({ data }));
       } catch (error) {
         if (response.destroyed) return;

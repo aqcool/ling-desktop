@@ -55,6 +55,7 @@ import { createGenUiService } from "./gen-ui/node.js";
 // Node.js service implementations — NOT safe to import in browser code
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { prependPathEntries } from "#src/runtime-tools/runtimeToolResolver.js";
@@ -809,6 +810,10 @@ export function getPluginUserOptionsReader(
   return pluginUserOptionsReaders.get(services);
 }
 const imagegenBridges = new WeakMap<ServiceCollection, ImagegenBridge>();
+const subscriptionOAuthCleanupHooks = new WeakMap<
+  ServiceCollection,
+  { waitForPendingRefreshes(timeoutMs?: number): Promise<void>; dispose(): void }
+>();
 const managedHostApiNetworkTransports = new WeakMap<ServiceCollection, HostApiNetworkTransport>();
 
 export function registerManagedCuaHelperHostForDispose(
@@ -1841,6 +1846,58 @@ export function createLocalServices(options: {
     readSubscriptionReasoningLevels,
     refreshSubscriptionCatalog: discoverSubscriptionModelCatalog,
   });
+  const subscriptionCatalogCachePath = join(resolveAppConfigDir(), "subscription-catalog-cache.json");
+  const subscriptionCatalogRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const subscriptionCatalogRetryCounts = new Map<string, number>();
+  let subscriptionCatalogWriteChain = Promise.resolve();
+  let subscriptionCatalogDisposed = false;
+
+  async function loadSubscriptionCatalogCache(authorizedIds: ReadonlySet<string>): Promise<boolean> {
+    // 参考 Codex CLI / LKG 策略：启动 hydrate 前先载入上次成功拉取的订阅目录缓存，消除冷启动档位空窗期。
+    try {
+      const raw = await readFile(subscriptionCatalogCachePath, "utf8");
+      const parsed = JSON.parse(raw) as Record<string, SubscriptionModelCatalog>;
+      if (!parsed || typeof parsed !== "object") return false;
+      let loadedAny = false;
+      for (const providerId of authorizedIds) {
+        const entry = parsed[providerId];
+        if (entry && Array.isArray(entry.fastModelIds)) {
+          subscriptionCatalogs.set(providerId, entry);
+          loadedAny = true;
+        }
+      }
+      return loadedAny;
+    } catch {
+      return false;
+    }
+  }
+
+  function persistSubscriptionCatalogCache(): void {
+    const snapshot = Object.fromEntries(subscriptionCatalogs);
+    subscriptionCatalogWriteChain = subscriptionCatalogWriteChain
+      .then(async () => {
+        await mkdir(resolveAppConfigDir(), { recursive: true });
+        const temp = `${subscriptionCatalogCachePath}.${process.pid}.${randomUUID()}.tmp`;
+        try {
+          await writeFile(temp, JSON.stringify(snapshot), { mode: 0o600 });
+          await rename(temp, subscriptionCatalogCachePath);
+        } catch (error) {
+          await unlink(temp).catch(() => {});
+          throw error;
+        }
+      })
+      .catch(() => {});
+  }
+
+  function clearSubscriptionCatalogRetry(providerId: string): void {
+    const timer = subscriptionCatalogRetryTimers.get(providerId);
+    if (timer) {
+      clearTimeout(timer);
+      subscriptionCatalogRetryTimers.delete(providerId);
+    }
+    subscriptionCatalogRetryCounts.delete(providerId);
+  }
+
   function refreshSubscriptionRegistry(reason: string) {
     void providerRuntime.registryService.refresh(reason).catch((error: unknown) => {
       providerConfigLog.warn(undefined, "订阅能力未能更新到模型目录", {
@@ -1850,6 +1907,7 @@ export function createLocalServices(options: {
   }
   function discoverSubscriptionModelCatalog(providerId: string) {
     if (
+      subscriptionCatalogDisposed ||
       !subscriptionAuthorizedProviderIds.has(providerId) ||
       subscriptionCatalogRequests.has(providerId)
     )
@@ -1860,9 +1918,11 @@ export function createLocalServices(options: {
     void pending
       .then((catalog) => {
         if (subscriptionCatalogRequests.get(providerId) !== pending) return;
+        clearSubscriptionCatalogRetry(providerId);
         if (JSON.stringify(subscriptionCatalogs.get(providerId)) === JSON.stringify(catalog))
           return;
         subscriptionCatalogs.set(providerId, catalog);
+        persistSubscriptionCatalogCache();
         refreshSubscriptionRegistry(`subscription-models:${providerId}`);
       })
       .catch((error: unknown) => {
@@ -1870,6 +1930,22 @@ export function createLocalServices(options: {
           providerId,
           message: error instanceof Error ? error.message : "catalog request failed",
         });
+        // 保留已有 LKG 缓存，并按指数退避（5s -> 15s -> 45s）重试最多 3 次。
+        const attempt = subscriptionCatalogRetryCounts.get(providerId) ?? 0;
+        if (
+          !subscriptionCatalogDisposed &&
+          attempt < 3 &&
+          subscriptionAuthorizedProviderIds.has(providerId)
+        ) {
+          subscriptionCatalogRetryCounts.set(providerId, attempt + 1);
+          const delayMs = 5_000 * 3 ** attempt;
+          const timer = setTimeout(() => {
+            subscriptionCatalogRetryTimers.delete(providerId);
+            discoverSubscriptionModelCatalog(providerId);
+          }, delayMs);
+          timer.unref?.();
+          subscriptionCatalogRetryTimers.set(providerId, timer);
+        }
       })
       .finally(() => {
         if (subscriptionCatalogRequests.get(providerId) === pending) {
@@ -1879,10 +1955,13 @@ export function createLocalServices(options: {
   }
   subscriptionOAuth = createSubscriptionOAuthService({
     credentialService,
+    lockDirectory: join(resolveAppConfigDir(), "locks"),
     fetch: hostApiNetworkTransport.fetch,
     onAuthorizationChanged: (providerId, authorized) => {
+      clearSubscriptionCatalogRetry(providerId);
       subscriptionCatalogRequests.delete(providerId);
       subscriptionCatalogs.delete(providerId);
+      persistSubscriptionCatalogCache();
       if (authorized) subscriptionAuthorizedProviderIds.add(providerId);
       else subscriptionAuthorizedProviderIds.delete(providerId);
       refreshSubscriptionRegistry(`subscription-oauth:${providerId}`);
@@ -1896,17 +1975,28 @@ export function createLocalServices(options: {
     },
   });
   const subscriptionAuthorization = subscriptionOAuth;
+  const imagegenLogger = createServiceLogger("imagegen-bridge");
   const imagegenBridge = options?.enableImagegen
     ? createImagegenBridge({
         fetch: hostApiNetworkTransport.fetch,
-        async resolveAuth() {
+        onTransportError(error, mode) {
+          imagegenLogger.warn(undefined, "ChatGPT 生图上游请求失败", {
+            mode,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        },
+        async resolveAuth(authOptions) {
           const view = await providerRuntime.providerSettings.getView();
-          const chatGptProviders = view.providers.filter(({ effectiveConfig }) => {
+          // 修复原因：过滤掉已禁用的 ChatGPT 订阅供应商，避免误用禁用账号或遮蔽后续已启用账号。
+          const chatGptProviders = view.providers.filter(({ enabled, effectiveConfig }) => {
+            if (!enabled) return false;
             const access = effectiveConfig.access;
             return access?.type === "subscription-oauth" && access.vendor === "openai-chatgpt";
           });
           for (const { providerId } of chatGptProviders) {
-            const auth = await subscriptionAuthorization.resolveRequestAuth(providerId);
+            const auth = authOptions?.forceRefresh
+              ? await subscriptionAuthorization.refreshRequestAuth(providerId)
+              : await subscriptionAuthorization.resolveRequestAuth(providerId);
             if (auth.kind === "ready") return auth;
           }
           throw new Error("Connect a ChatGPT subscription in Model Settings to generate images.");
@@ -1927,6 +2017,8 @@ export function createLocalServices(options: {
         }),
       );
       if (subscriptionAuthorizedProviderIds.size > 0) {
+        // 先载入上次持久化成功的订阅目录 LKG 缓存再刷新注册表，保证首屏就有完整思考强度档位。
+        await loadSubscriptionCatalogCache(subscriptionAuthorizedProviderIds);
         await providerRuntime.registryService.refresh("subscription-oauth:hydrate");
         for (const providerId of subscriptionAuthorizedProviderIds) {
           discoverSubscriptionModelCatalog(providerId);
@@ -3479,6 +3571,15 @@ export function createLocalServices(options: {
   if (pluginUserOptionsReader) pluginUserOptionsReaders.set(services, pluginUserOptionsReader);
 
   if (imagegenBridge) imagegenBridges.set(services, imagegenBridge);
+  subscriptionOAuthCleanupHooks.set(services, {
+    waitForPendingRefreshes: (timeoutMs) => subscriptionAuthorization.waitForPendingRefreshes(timeoutMs),
+    dispose: () => {
+      subscriptionCatalogDisposed = true;
+      for (const timer of subscriptionCatalogRetryTimers.values()) clearTimeout(timer);
+      subscriptionCatalogRetryTimers.clear();
+      subscriptionCatalogRetryCounts.clear();
+    },
+  });
   providerRuntimes.set(services, providerRuntime);
   providerProvisioningSources.set(services, providerProvisioningSource);
   providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
@@ -3702,6 +3803,13 @@ export async function disposeServiceResourcesAndWait(services: ServiceCollection
   providerProvisioningSources.delete(services);
   taskAutoArchiveDisposers.get(services)?.();
   taskAutoArchiveDisposers.delete(services);
+  // 优雅退出屏障：等待在途 OAuth 令牌刷新落盘完成（最多 4s），避免服务端已轮换而本地未写盘导致下次 invalid_grant。
+  const subscriptionOAuthCleanup = subscriptionOAuthCleanupHooks.get(services);
+  if (subscriptionOAuthCleanup) {
+    subscriptionOAuthCleanup.dispose();
+    await subscriptionOAuthCleanup.waitForPendingRefreshes(4_000).catch(() => {});
+    subscriptionOAuthCleanupHooks.delete(services);
+  }
   await managedHostApiNetworkTransports
     .get(services)
     ?.disposeAndWait()

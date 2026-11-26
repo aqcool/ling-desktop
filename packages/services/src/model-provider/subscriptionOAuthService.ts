@@ -1,12 +1,22 @@
 import { reportedReasoningEffortSchema } from "@zcode/shared/model-config";
+import { withFileLock } from "@zcode/shared/node";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
+import { join } from "node:path";
 import {
   buildSubscriptionAuthorizeUrl,
+  buildSubscriptionOAuthHeaders as subscriptionOAuthHeaders,
+  describeSubscriptionTransportError,
   GROK_BUILD_SUBSCRIPTION,
   parseSubscriptionAuthorizationInput,
+  PERMANENT_OAUTH_ERROR_CODES,
   readChatGptAccountId,
+  readStoredSubscriptionToken as readStoredToken,
+  readSubscriptionOAuthError as readOAuthError,
+  readSubscriptionOAuthErrorCode as readOAuthErrorCode,
+  SubscriptionOAuthExchangeError as OAuthExchangeError,
   subscriptionOAuthProfile,
+  type StoredSubscriptionToken,
   type SubscriptionOAuthVendor,
 } from "@zcode/provider";
 import { z } from "zod";
@@ -20,7 +30,6 @@ import type {
 
 const log = createServiceLogger("subscription-oauth");
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
-const REFRESH_SKEW_MS = 5 * 60 * 1000;
 const TOKEN_REQUEST_TIMEOUT_MS = 30_000;
 const CHATGPT_ACCOUNT_HEADER = "ChatGPT-Account-ID";
 const CHATGPT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
@@ -40,15 +49,15 @@ const grokModelsSchema = z.object({
   ),
 });
 
+const chatGptModelSchema = z.object({
+  slug: z.string().min(1),
+  supported_reasoning_levels: z.array(z.unknown()).nullish(),
+  // 修复原因：Codex 后端可能对部分模型返回 null 而非省略字段，逐项容错避免单个字段异常拖垮整份目录。
+  service_tiers: z.array(z.object({ id: z.string() })).nullish(),
+  additional_speed_tiers: z.array(z.string()).nullish(),
+});
 const chatGptModelsSchema = z.object({
-  models: z.array(
-    z.object({
-      slug: z.string().min(1),
-      supported_reasoning_levels: z.array(z.unknown()).nullish(),
-      service_tiers: z.array(z.object({ id: z.string() })).optional(),
-      additional_speed_tiers: z.array(z.string()).optional(),
-    }),
-  ),
+  models: z.array(z.unknown()),
 });
 
 const codexReasoningLevelSchema = z.object({ effort: reportedReasoningEffortSchema });
@@ -79,13 +88,6 @@ const grokSettingsSchema = z.object({
   subscription_tier_display: z.string().trim().nullish(),
 });
 
-interface StoredSubscriptionToken {
-  readonly accessToken: string;
-  readonly refreshToken: string;
-  readonly expiresAt: number;
-  readonly accountId?: string;
-}
-
 interface LoadedSubscriptionToken {
   readonly raw: string;
   readonly token: StoredSubscriptionToken;
@@ -100,6 +102,7 @@ interface BrowserFlow {
   server: Server | null;
   settle: ((value: { code: string; state: string } | null) => void) | null;
   readonly done: Promise<{ code: string; state: string } | null>;
+  finishing: Promise<SubscriptionOAuthLoginStatus> | null;
   timer: NodeJS.Timeout;
 }
 
@@ -125,16 +128,21 @@ export function createSubscriptionOAuthService(options: {
     "load" | "save" | "delete" | "updateMany"
   >;
   readVendor(providerId: string): Promise<SubscriptionOAuthVendor | null>;
+  /** 跨进程刷新锁目录：多窗口并发刷新一次性 refresh_token 时避免触发服务端重放吊销。 */
+  readonly lockDirectory?: string;
   /** Host 网络传输。裸 fetch 不走桌面代理，连接失败时界面只能看到 fetch failed。 */
   readonly fetch?: typeof globalThis.fetch;
   /** 凭据写入或删除之后通知模型目录。不传令牌。 */
   onAuthorizationChanged?(providerId: string, authorized: boolean): void;
 }): SubscriptionOAuthController & {
   discoverModelCatalog(providerId: string): Promise<SubscriptionModelCatalog>;
+  refreshRequestAuth(providerId: string): Promise<SubscriptionRequestAuthDecision>;
+  waitForPendingRefreshes(timeoutMs?: number): Promise<void>;
 } {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const flows = new Map<string, ActiveFlow>();
   const failures = new Map<string, string>();
+  const permanentFailures = new Set<string>();
   const refreshes = new Map<string, Promise<StoredSubscriptionToken | null>>();
 
   function credentialKey(providerId: string): string {
@@ -170,8 +178,16 @@ export function createSubscriptionOAuthService(options: {
   async function statusOf(providerId: string): Promise<SubscriptionOAuthLoginStatus> {
     const flow = flows.get(providerId);
     if (flow) return flow.status;
-    if (await readToken(providerId)) return { status: "signed-in" };
+    const loaded = await readToken(providerId);
     const message = failures.get(providerId);
+    // 区分永久吊销与瞬时网络错误：只有服务端明确拒绝（如 invalid_grant）且令牌已过期时才标记需重登，
+    // 断网/代理抖动不把用户误判为掉登录。
+    if (loaded) {
+      if (loaded.token.expiresAt <= Date.now() && permanentFailures.has(providerId) && message) {
+        return { status: "failed", message };
+      }
+      return { status: "signed-in" };
+    }
     return message ? { status: "failed", message } : { status: "signed-out" };
   }
 
@@ -218,7 +234,11 @@ export function createSubscriptionOAuthService(options: {
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(readOAuthError(text, response.status));
+      const code = readOAuthErrorCode(text);
+      const permanent =
+        (response.status === 400 || response.status === 401) &&
+        PERMANENT_OAUTH_ERROR_CODES.has(code);
+      throw new OAuthExchangeError(readOAuthError(text, response.status), permanent);
     }
     return readStoredToken(vendor, text, allowMissingRefresh);
   }
@@ -232,38 +252,53 @@ export function createSubscriptionOAuthService(options: {
     if (state && state !== flow.state) {
       throw new Error("Sign-in state did not match.");
     }
-    const profile = subscriptionOAuthProfile(flow.vendor);
-    const token =
-      flow.vendor === "anthropic"
-        ? await exchange(
-            flow.vendor,
-            {
-              grant_type: "authorization_code",
-              client_id: profile.clientId,
-              code,
-              state: state ?? flow.state,
-              redirect_uri: flow.redirectUri,
-              code_verifier: flow.verifier,
-            },
-            "json",
-          )
-        : await exchange(
-            flow.vendor,
-            {
-              grant_type: "authorization_code",
-              client_id: profile.clientId,
-              code,
-              code_verifier: flow.verifier,
-              redirect_uri: flow.redirectUri,
-            },
-            "form",
-          );
-    closeFlow(providerId);
-    failures.delete(providerId);
-    await writeToken(providerId, token);
-    noteAuthorization(providerId, true);
-    log.info(undefined, "订阅授权已完成", { providerId, vendor: flow.vendor });
-    return { status: "signed-in" };
+    // 修复原因：防止浏览器回调与手动粘贴授权码并发兑换同一个一次性 code。
+    if (flow.finishing) return flow.finishing;
+    const pending = (async (): Promise<SubscriptionOAuthLoginStatus> => {
+      const profile = subscriptionOAuthProfile(flow.vendor);
+      const token =
+        flow.vendor === "anthropic"
+          ? await exchange(
+              flow.vendor,
+              {
+                grant_type: "authorization_code",
+                client_id: profile.clientId,
+                code,
+                state: state ?? flow.state,
+                redirect_uri: flow.redirectUri,
+                code_verifier: flow.verifier,
+              },
+              "json",
+            )
+          : await exchange(
+              flow.vendor,
+              {
+                grant_type: "authorization_code",
+                client_id: profile.clientId,
+                code,
+                code_verifier: flow.verifier,
+                redirect_uri: flow.redirectUri,
+              },
+              "form",
+            );
+      // 修复原因：换票期间若用户已取消、登出或发起新登录流，禁止旧请求误杀新流或把凭据写回登录态。
+      if (flows.get(providerId)?.browser !== flow) {
+        throw new Error("Sign-in was cancelled.");
+      }
+      closeFlow(providerId);
+      failures.delete(providerId);
+      permanentFailures.delete(providerId);
+      await writeToken(providerId, token);
+      noteAuthorization(providerId, true);
+      log.info(undefined, "订阅授权已完成", { providerId, vendor: flow.vendor });
+      return { status: "signed-in" };
+    })();
+    flow.finishing = pending;
+    try {
+      return await pending;
+    } finally {
+      if (flow.finishing === pending) flow.finishing = null;
+    }
   }
 
   function listenForCallback(flow: BrowserFlow, providerId: string): Server | null {
@@ -277,20 +312,23 @@ export function createSubscriptionOAuthService(options: {
           response.end("Not found");
           return;
         }
+        const state = url.searchParams.get("state");
         const error = url.searchParams.get("error");
         if (error) {
           response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
           response.end("Sign-in did not complete.");
-          failures.set(providerId, error);
-          flow.settle?.(null);
+          // 修复原因：仅当 state 匹配当前登录流时才终止流程，防止无关请求或 CSRF 毒化本地回调服务。
+          if (state === flow.state && flows.get(providerId)?.browser === flow) {
+            failures.set(providerId, error);
+            closeFlow(providerId);
+          }
           return;
         }
         const code = url.searchParams.get("code");
-        const state = url.searchParams.get("state");
         if (!code || state !== flow.state) {
+          // 修复原因：无效或 state 不匹配的请求只返回 400，不提前 settle(null) 破坏后续合法回调。
           response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
           response.end("Sign-in did not complete.");
-          flow.settle?.(null);
           return;
         }
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -370,11 +408,22 @@ export function createSubscriptionOAuthService(options: {
   async function refreshToken(
     providerId: string,
     vendor: SubscriptionOAuthVendor,
-    { raw, token: current }: LoadedSubscriptionToken,
+    loaded: LoadedSubscriptionToken,
+    forceRefresh = false,
   ): Promise<StoredSubscriptionToken | null> {
     const existing = refreshes.get(providerId);
     if (existing) return existing;
-    const pending = (async () => {
+    const runRefresh = async (): Promise<StoredSubscriptionToken | null> => {
+      // 跨进程文件锁内二次检查（Double-Checked Locking）：若另一窗口已先完成轮换，直接复用新令牌，
+      // 不再发出重复的 refresh_token 请求，避免触发服务端重放吊销整个 token family。
+      const latestBefore = await readToken(providerId);
+      if (latestBefore && !forceRefresh && latestBefore.token.expiresAt > Date.now()) {
+        failures.delete(providerId);
+        permanentFailures.delete(providerId);
+        return latestBefore.token;
+      }
+      const effective = latestBefore ?? loaded;
+      const { raw, token: current } = effective;
       const profile = subscriptionOAuthProfile(vendor);
       try {
         const next =
@@ -411,15 +460,42 @@ export function createSubscriptionOAuthService(options: {
           { [key]: JSON.stringify(stored) },
           { expected: { [key]: raw } },
         );
-        return committed ? stored : ((await readToken(providerId))?.token ?? null);
+        const result = committed ? stored : ((await readToken(providerId))?.token ?? null);
+        if (result) {
+          failures.delete(providerId);
+          permanentFailures.delete(providerId);
+        }
+        return result;
       } catch (error) {
+        const latestAfter = await readToken(providerId);
+        if (latestAfter && latestAfter.raw !== raw && latestAfter.token.expiresAt > Date.now()) {
+          failures.delete(providerId);
+          permanentFailures.delete(providerId);
+          return latestAfter.token;
+        }
+        const permanent = error instanceof OAuthExchangeError && error.permanent;
         log.warn(undefined, "订阅令牌刷新失败", {
           providerId,
           vendor,
+          permanent,
           message: error instanceof Error ? error.message : "refresh failed",
         });
-        failures.set(providerId, error instanceof Error ? error.message : "Sign-in expired.");
+        if (permanent) {
+          permanentFailures.add(providerId);
+          failures.set(providerId, error instanceof Error ? error.message : "Sign-in expired.");
+        }
         return null;
+      }
+    };
+    const pending = (async () => {
+      try {
+        if (!options.lockDirectory) return await runRefresh();
+        const safeId = providerId.replace(/[^a-zA-Z0-9._-]/g, "_");
+        return await withFileLock(
+          join(options.lockDirectory, `subscription-oauth-${safeId}.lock`),
+          runRefresh,
+          { lockMaxWaitMs: 15_000 },
+        );
       } finally {
         refreshes.delete(providerId);
       }
@@ -431,14 +507,17 @@ export function createSubscriptionOAuthService(options: {
   async function resolveVendorAuth(
     providerId: string,
     vendor: SubscriptionOAuthVendor,
+    forceRefresh = false,
   ): Promise<SubscriptionRequestAuthDecision> {
     const loaded = await readToken(providerId);
     if (!loaded) return { kind: "signed-out" };
     const token =
-      loaded.token.expiresAt <= Date.now()
-        ? await refreshToken(providerId, vendor, loaded)
+      forceRefresh || loaded.token.expiresAt <= Date.now()
+        ? await refreshToken(providerId, vendor, loaded, forceRefresh)
         : loaded.token;
     if (!token) return { kind: "signed-out" };
+    failures.delete(providerId);
+    permanentFailures.delete(providerId);
     const accountId = token.accountId ?? readChatGptAccountId(token.accessToken);
     return {
       kind: "ready",
@@ -484,7 +563,11 @@ export function createSubscriptionOAuthService(options: {
         );
         return supportsFast ? { fastModelIds: [GROK_BUILD_SUBSCRIPTION.modelId] } : emptyCatalog;
       }
-      const { models } = chatGptModelsSchema.parse(body);
+      const { models: rawModels } = chatGptModelsSchema.parse(body);
+      const models = rawModels.flatMap((entry) => {
+        const parsed = chatGptModelSchema.safeParse(entry);
+        return parsed.success ? [parsed.data] : [];
+      });
       const fastModelIds = models
         .filter(
           (model) =>
@@ -607,9 +690,10 @@ export function createSubscriptionOAuthService(options: {
       }
 
       // 授权地址由公开客户端参数在本机拼出。先交给界面打开浏览器，令牌交换发生在回调之后。
+      // 修复原因：state 与 PKCE code_verifier 必须相互独立，避免明文 verifier 暴露在浏览器地址栏与本地回调 URL 中。
       const verifier = randomBytes(32).toString("base64url");
       const challenge = createHash("sha256").update(verifier).digest("base64url");
-      const state = vendor === "anthropic" ? verifier : randomBytes(16).toString("base64url");
+      const state = randomBytes(16).toString("base64url");
       const authorizeUrl = buildSubscriptionAuthorizeUrl({ vendor, challenge, state });
       let settle: BrowserFlow["settle"] = null;
       const done = new Promise<{ code: string; state: string } | null>((resolve) => {
@@ -624,6 +708,7 @@ export function createSubscriptionOAuthService(options: {
         server: null,
         settle,
         done,
+        finishing: null,
         timer: setTimeout(() => {
           failures.set(providerId, "Sign-in timed out.");
           closeFlow(providerId);
@@ -670,6 +755,7 @@ export function createSubscriptionOAuthService(options: {
     async signOut(providerId) {
       closeFlow(providerId);
       failures.delete(providerId);
+      permanentFailures.delete(providerId);
       await options.credentialService.delete(credentialKey(providerId));
       noteAuthorization(providerId, false);
       return { status: "signed-out" };
@@ -677,102 +763,21 @@ export function createSubscriptionOAuthService(options: {
 
     async resolveRequestAuth(providerId) {
       const vendor = await options.readVendor(providerId);
-      return vendor ? resolveVendorAuth(providerId, vendor) : { kind: "not-subscription" };
+      return vendor ? resolveVendorAuth(providerId, vendor, false) : { kind: "not-subscription" };
+    },
+
+    async refreshRequestAuth(providerId) {
+      const vendor = await options.readVendor(providerId);
+      return vendor ? resolveVendorAuth(providerId, vendor, true) : { kind: "not-subscription" };
+    },
+
+    async waitForPendingRefreshes(timeoutMs = 4_000) {
+      const pending = [...refreshes.values()];
+      if (pending.length === 0) return;
+      await Promise.race([
+        Promise.allSettled(pending),
+        new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+      ]);
     },
   };
-}
-
-function readStoredToken(
-  vendor: SubscriptionOAuthVendor,
-  body: string,
-  allowMissingRefresh = false,
-): StoredSubscriptionToken {
-  const parsed = JSON.parse(body) as {
-    access_token?: unknown;
-    refresh_token?: unknown;
-    expires_in?: unknown;
-    id_token?: unknown;
-  };
-  const accessToken = typeof parsed.access_token === "string" ? parsed.access_token : "";
-  const refreshToken = typeof parsed.refresh_token === "string" ? parsed.refresh_token : "";
-  const expiresIn = typeof parsed.expires_in === "number" ? parsed.expires_in : 3600;
-  if (!accessToken || (!refreshToken && !allowMissingRefresh)) {
-    throw new Error("Sign-in did not return a token.");
-  }
-  const accountId =
-    vendor === "openai-chatgpt"
-      ? (readChatGptAccountId(accessToken) ??
-        readChatGptAccountId(typeof parsed.id_token === "string" ? parsed.id_token : undefined))
-      : undefined;
-  return {
-    accessToken,
-    refreshToken,
-    expiresAt: Date.now() + expiresIn * 1000 - REFRESH_SKEW_MS,
-    ...(accountId ? { accountId } : {}),
-  };
-}
-
-function subscriptionOAuthHeaders(
-  vendor: SubscriptionOAuthVendor,
-  contentType: "json" | "form",
-): Record<string, string> {
-  const profile = subscriptionOAuthProfile(vendor);
-  return {
-    Accept: "application/json",
-    "Content-Type":
-      contentType === "json" ? "application/json" : "application/x-www-form-urlencoded",
-    ...(profile.userAgent ? { "User-Agent": profile.userAgent } : {}),
-  };
-}
-
-function describeSubscriptionTransportError(error: unknown, target: string): string {
-  const host = endpointHost(target);
-  const parts: string[] = [];
-  const seen = new Set<unknown>();
-  let current: unknown = error;
-  while (current instanceof Error && !seen.has(current) && parts.length < 4) {
-    seen.add(current);
-    const code = "code" in current && typeof current.code === "string" ? current.code : "";
-    const message = scrubAuthorizationDetail(current.message);
-    if (code) parts.push(code);
-    if (message && message !== "fetch failed" && message !== code) parts.push(message);
-    current = "cause" in current ? current.cause : undefined;
-  }
-  const detail = parts.filter((part, index) => parts.indexOf(part) === index).join(": ");
-  const text = detail.slice(0, 180);
-  return text ? `Sign-in could not reach ${host} (${text}).` : `Sign-in could not reach ${host}.`;
-}
-
-function endpointHost(target: string): string {
-  try {
-    return new URL(target).host;
-  } catch {
-    return "the authorization service";
-  }
-}
-
-function scrubAuthorizationDetail(text: string): string {
-  return text.replace(/https?:\/\/\S+/g, (url) => endpointHost(url)).trim();
-}
-
-function readOAuthError(body: string, status: number): string {
-  const code = readOAuthErrorCode(body);
-  let description = "";
-  try {
-    const parsed = JSON.parse(body) as { error_description?: unknown };
-    if (typeof parsed.error_description === "string") description = parsed.error_description;
-  } catch {
-    description = "";
-  }
-  const message = [code, description].filter(Boolean).join(": ");
-  return message || `Sign-in failed (HTTP ${status}).`;
-}
-
-function readOAuthErrorCode(body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: unknown };
-    return typeof parsed.error === "string" ? parsed.error : "";
-  } catch {
-    return "";
-  }
 }

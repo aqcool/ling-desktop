@@ -39,6 +39,8 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
   "skill-creator@zcode-plugins-official",
   "plugin-creator@zcode-plugins-official",
   "zcode-guide@zcode-plugins-official",
+  // 修复原因：official-plugin-definitions.ts 将 server-ops 声明为 defaultEnabled: true，同步纳入以保持 Settings 与 CLI 一致。
+  "server-ops@zcode-plugins-official",
   // 电脑控制和交互视图默认关闭，故 computer-use、visualize 不在此名单内。
   // 该集合必须与 official-plugin-definitions.ts 里标了 defaultEnabled 的插件逐一对应，
   // bootstrap 的「Settings 默认启用集合与 CLI 的官方插件声明一致」单测机械对照两者。

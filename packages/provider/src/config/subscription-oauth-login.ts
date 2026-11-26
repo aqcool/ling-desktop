@@ -167,3 +167,124 @@ export function readChatGptAccountId(token: string | undefined): string | undefi
     return undefined;
   }
 }
+
+export const SUBSCRIPTION_OAUTH_REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+export const PERMANENT_OAUTH_ERROR_CODES: ReadonlySet<string> = new Set([
+  "invalid_grant",
+  "invalid_token",
+  "unauthorized_client",
+  "access_denied",
+]);
+
+export class SubscriptionOAuthExchangeError extends Error {
+  constructor(
+    message: string,
+    readonly permanent: boolean,
+  ) {
+    super(message);
+  }
+}
+
+export interface StoredSubscriptionToken {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+  readonly expiresAt: number;
+  readonly accountId?: string;
+}
+
+export function readStoredSubscriptionToken(
+  vendor: SubscriptionOAuthVendor,
+  body: string,
+  allowMissingRefresh = false,
+): StoredSubscriptionToken {
+  const parsed = JSON.parse(body) as {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+    id_token?: unknown;
+  };
+  const accessToken = typeof parsed.access_token === "string" ? parsed.access_token : "";
+  const refreshToken = typeof parsed.refresh_token === "string" ? parsed.refresh_token : "";
+  const expiresIn =
+    typeof parsed.expires_in === "number" &&
+    Number.isFinite(parsed.expires_in) &&
+    parsed.expires_in > 0
+      ? parsed.expires_in
+      : 3600;
+  if (!accessToken || (!refreshToken && !allowMissingRefresh)) {
+    throw new Error("Sign-in did not return a token.");
+  }
+  const accountId =
+    vendor === "openai-chatgpt"
+      ? (readChatGptAccountId(accessToken) ??
+        readChatGptAccountId(typeof parsed.id_token === "string" ? parsed.id_token : undefined))
+      : undefined;
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + expiresIn * 1000 - SUBSCRIPTION_OAUTH_REFRESH_SKEW_MS,
+    ...(accountId ? { accountId } : {}),
+  };
+}
+
+export function buildSubscriptionOAuthHeaders(
+  vendor: SubscriptionOAuthVendor,
+  contentType: "json" | "form",
+): Record<string, string> {
+  const profile = subscriptionOAuthProfile(vendor);
+  return {
+    Accept: "application/json",
+    "Content-Type":
+      contentType === "json" ? "application/json" : "application/x-www-form-urlencoded",
+    ...(profile.userAgent ? { "User-Agent": profile.userAgent } : {}),
+  };
+}
+
+function endpointHost(target: string): string {
+  try {
+    return new URL(target).host;
+  } catch {
+    return "the authorization service";
+  }
+}
+
+export function describeSubscriptionTransportError(error: unknown, target: string): string {
+  const host = endpointHost(target);
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current instanceof Error && !seen.has(current) && parts.length < 4) {
+    seen.add(current);
+    const code = "code" in current && typeof current.code === "string" ? current.code : "";
+    const message = current.message.replace(/https?:\/\/\S+/g, (url) => endpointHost(url)).trim();
+    if (code) parts.push(code);
+    if (message && message !== "fetch failed" && message !== code) parts.push(message);
+    current = "cause" in current ? current.cause : undefined;
+  }
+  const detail = parts.filter((part, index) => parts.indexOf(part) === index).join(": ");
+  const text = detail.slice(0, 180);
+  return text ? `Sign-in could not reach ${host} (${text}).` : `Sign-in could not reach ${host}.`;
+}
+
+export function readSubscriptionOAuthErrorCode(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : "";
+  } catch {
+    return "";
+  }
+}
+
+export function readSubscriptionOAuthError(body: string, status: number): string {
+  const code = readSubscriptionOAuthErrorCode(body);
+  let description = "";
+  try {
+    const parsed = JSON.parse(body) as { error_description?: unknown };
+    if (typeof parsed.error_description === "string") description = parsed.error_description;
+  } catch {
+    description = "";
+  }
+  const message = [code, description].filter(Boolean).join(": ");
+  return message || `Sign-in failed (HTTP ${status}).`;
+}

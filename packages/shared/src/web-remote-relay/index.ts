@@ -1,6 +1,30 @@
 // 新源码原来散落在 legacy 根目录，CI 无法确认归属；公开入口统一收口到受管模块。
 export * from "#src/web-remote-relay/contract.js";
 export { LING_MOBILE_PAIRING } from "./lingMobilePairingRoutes.js";
+export {
+  LingE2eeSession,
+  acceptDesktopHello,
+  base64ToBytes,
+  bytesToBase64,
+  bytesToHex,
+  chacha20Poly1305Open,
+  chacha20Poly1305Seal,
+  completeMobileHandshake,
+  constantTimeEqual,
+  createMobileHello,
+  hexToBytes,
+  hkdfSha256,
+  hmacSha256,
+  sha256,
+  x25519,
+  x25519PublicKey,
+  type LingV2BoxMessage,
+  type LingV2ErrorMessage,
+  type LingV2HelloMessage,
+  type LingV2WelcomeMessage,
+  type LingV2WireMessage,
+  type MobileHandshakeState,
+} from "./e2eeChannel.js";
 export * from "#src/web-remote-relay/domain/retry.js";
 export * from "#src/web-remote-relay/domain/heartbeatTiming.js";
 export * from "#src/web-remote-relay/domain/webRemoteControlActions.js";

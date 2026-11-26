@@ -14,6 +14,8 @@ export function useSubscriptionUsage(providerId: string) {
 
   useEffect(() => {
     let active = true;
+    // 修复原因：切换 providerId 时立即重置为 loading，避免短暂展示上一个供应商的额度数据。
+    setState({ status: "loading" });
     void providerSettingsService.getSubscriptionUsage(providerId).then(
       (usage) => {
         if (active) setState({ status: "ready", usage });

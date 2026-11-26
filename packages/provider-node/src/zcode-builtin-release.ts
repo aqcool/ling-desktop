@@ -179,21 +179,27 @@ export function projectModelsDevCatalog(
       providerTemplates,
       modelConfigRules: parseZCodeBuiltinModelConfigRules({
         ...rules,
+        // 修复原因：models.dev 规则作为默认基线放在前面，随包精选的 templateModelRules 放在后面保持更高优先级。
         templateModelRules: [
-          ...rules.templateModelRules,
           ...metadataRules.sort(
             (a, b) =>
               a.templateId.localeCompare(b.templateId) || a.modelId.localeCompare(b.modelId),
           ),
+          ...rules.templateModelRules,
         ],
       }),
     },
   };
 }
 
+// 排除 realtime / audio / 语音转写 / 向量 / 审核 / 生图生视频等非通用文本对话端点模型。
+const NON_DIRECT_CHAT_MODEL_PATTERN =
+  /(?:^|[-_.])(realtime|audio|transcribe|tts|whisper|embedding|moderation|dall-e|sora|search-preview)(?:$|[-_.])/iu;
+
 function isDirectChatModel(id: string, model: z.infer<typeof modelsDevModelSchema>): boolean {
   return (
     /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(id) &&
+    !NON_DIRECT_CHAT_MODEL_PATTERN.test(id) &&
     model.tool_call === true &&
     model.modalities?.input.includes("text") === true &&
     model.modalities.output.includes("text") &&

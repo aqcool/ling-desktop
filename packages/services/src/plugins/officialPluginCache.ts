@@ -15,6 +15,8 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
   "node-repl-host@zcode-plugins-official",
   "skill-creator@zcode-plugins-official",
   "zcode-guide@zcode-plugins-official",
+  // 修复原因：与 official-plugin-definitions.ts 和 @zcode/shared 保持一致，避免 services 侧漏发现默认启用的 server-ops 技能。
+  "server-ops@zcode-plugins-official",
 ]);
 
 export interface OfficialPluginCacheRoot {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, realpath, unlink } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -50,11 +51,18 @@ async function readReference(root, input, signal) {
     if (!stat.isFile() || stat.size === 0 || stat.size > maxReferenceBytes) {
       throw new Error("Choose a regular image file of up to 15 MB.");
     }
+    // 修复原因：网络盘/FUSE/云同步目录单次 handle.read 可能发生 short read，循环读到 EOF 避免误报文件变化。
     const bytes = Buffer.alloc(stat.size + 1);
-    const read = await handle.read(bytes, 0, bytes.length, 0);
-    if (read.bytesRead !== stat.size) throw new Error("The reference image changed. Try again.");
+    let offset = 0;
+    while (offset < bytes.length) {
+      signal.throwIfAborted();
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (read.bytesRead === 0) break;
+      offset += read.bytesRead;
+    }
+    if (offset !== stat.size) throw new Error("The reference image changed. Try again.");
     signal.throwIfAborted();
-    const image = bytes.subarray(0, read.bytesRead);
+    const image = bytes.subarray(0, offset);
     return `data:${detectImage(image)};base64,${image.toString("base64")}`;
   } finally {
     await handle.close();
@@ -79,8 +87,59 @@ async function saveImage(directory, data, signal) {
   }
 }
 
+// 修复原因：回环桥接请求改用 node:http 直连（agent: false），避免受 HTTP_PROXY / NODE_USE_ENV_PROXY 影响导致桥接令牌泄漏或代理拦截。
+function postBridge(bridge, payload, signal) {
+  return new Promise((resolveResponse, reject) => {
+    const body = Buffer.from(JSON.stringify(payload), "utf8");
+    const req = httpRequest(
+      bridge.url,
+      {
+        method: "POST",
+        agent: false,
+        signal,
+        headers: {
+          authorization: `Bearer ${bridge.token}`,
+          "content-type": "application/json",
+          "content-length": String(body.length),
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("error", reject);
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          let parsed;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            return reject(new Error("Image generation bridge returned an invalid response."));
+          }
+          resolveResponse({
+            ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+            body: parsed,
+          });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+function parseBridgeConfig(raw) {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.url === "string" && typeof parsed?.token === "string") return parsed;
+  } catch {
+    // 忽略非法环境变量，按无桥接能力处理。
+  }
+  return undefined;
+}
+
 export async function main(bridgeConfig = process.env.ZCODE_IMAGEGEN_BRIDGE) {
-  const bridge = bridgeConfig ? JSON.parse(bridgeConfig) : undefined;
+  const bridge = parseBridgeConfig(bridgeConfig);
   const server = new Server({ name: "imagegen", version: "0.1.0" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: bridge ? tools : [] }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }, { signal }) => {
@@ -95,16 +154,17 @@ export async function main(bridgeConfig = process.env.ZCODE_IMAGEGEN_BRIDGE) {
         throw new Error("Open a workspace to generate an image.");
       const root = await realpath(workspace);
       const image = params.name === "edit" ? await readReference(root, imagePath, signal) : undefined;
-      const result = await fetch(bridge.url, {
-        method: "POST",
-        headers: { authorization: `Bearer ${bridge.token}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          prompt, transparentBackground, image, turnId: params._meta?.turn_id,
-        }),
-        redirect: "error",
+      const result = await postBridge(
+        bridge,
+        {
+          prompt,
+          transparentBackground,
+          image,
+          turnId: params._meta?.turn_id,
+        },
         signal,
-      });
-      const { data, error } = await result.json();
+      );
+      const { data, error } = result.body ?? {};
       if (!result.ok || typeof data !== "string") throw new Error(error ?? "Image generation failed.");
       signal.throwIfAborted();
       const output = join(root, "generated_images");

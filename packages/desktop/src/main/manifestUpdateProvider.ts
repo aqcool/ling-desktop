@@ -69,14 +69,48 @@ function getLingReleaseCandidates(raw: unknown, currentVersion: string) {
 
 type LingInstaller = { version: string; name: string; size: number; url: URL };
 
+const TRUSTED_LING_RELEASE_HOSTS = new Set([
+  "api.github.com",
+  "github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+]);
+
+function assertTrustedLingReleaseUrl(target: URL): void {
+  if (
+    target.protocol !== "https:" ||
+    !(
+      TRUSTED_LING_RELEASE_HOSTS.has(target.hostname) ||
+      target.hostname.endsWith(".githubusercontent.com")
+    )
+  ) {
+    throw new Error(`Untrusted LING release URL: ${target.origin}`);
+  }
+}
+
 async function fetchLingReleaseFile(url: string | URL, headers?: Record<string, string>) {
-  const response = await net.fetch(url.toString(), {
-    credentials: "omit",
-    headers,
-    signal: AbortSignal.timeout(headers ? 30_000 : 60 * 60 * 1000),
-  });
-  if (!response.ok || !response.body) throw new Error(`GitHub HTTP ${response.status}`);
-  return response;
+  // 修复原因：手动跟随重定向并逐跳校验必须为 https 与受信任 GitHub 域名，防止安装包下载被重定向到非受信源。
+  let current = url instanceof URL ? url : new URL(url);
+  const signal = AbortSignal.timeout(headers ? 30_000 : 60 * 60 * 1000);
+  for (let hop = 0; hop <= 5; hop += 1) {
+    assertTrustedLingReleaseUrl(current);
+    const response = await net.fetch(current.toString(), {
+      credentials: "omit",
+      headers: hop === 0 ? headers : undefined,
+      redirect: "manual",
+      signal,
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      await response.body?.cancel().catch(() => {});
+      if (!location || hop === 5) throw new Error(`Invalid GitHub redirect (${response.status})`);
+      current = new URL(location, current);
+      continue;
+    }
+    if (!response.ok || !response.body) throw new Error(`GitHub HTTP ${response.status}`);
+    return response;
+  }
+  throw new Error("Too many GitHub redirects");
 }
 
 export async function findLingInstaller(
@@ -249,7 +283,8 @@ export class LingGitHubUpdateProvider extends Provider<UpdateInfo> {
       update.files.some(
         (file) =>
           !file ||
-          ![".zip", ".exe", ".AppImage", ".deb"].some(
+          // 修复原因：与 getLinuxUpdateExtensions 支持的格式保持一致，避免拦截 .rpm / .pacman / .pkg.tar.zst 更新清单。
+          ![".zip", ".exe", ".AppImage", ".deb", ".rpm", ".pkg.tar.zst", ".pacman"].some(
             (ext) => file.url === `LING-${selected.version}-${this.target}${ext}`,
           ) ||
           !selected.release.assets.some((asset) => asset.name === file.url) ||

@@ -674,7 +674,6 @@ export default {
     "!node_modules/react-dom/**",
   ],
   asarUnpack: [
-    "node_modules/@number0/iroh-*/**/*.node",
     "node_modules/@napi-rs/keyring-*/**/*.node",
     // node-pty 的 target prebuild 还包含 spawn-helper / winpty-agent.exe 等辅助可执行文件，
     // 整个目标目录必须 unpack；其他平台目录已由 files 规则裁剪。

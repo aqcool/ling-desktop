@@ -37,12 +37,29 @@ export function scopeCredentialServiceForRpc(
       },
     );
   };
+  // 纵深防御：非本地 Desktop RPC 禁止读写宿主内部保留凭据前缀，防止手机端越权读取订阅令牌或远程密钥。
+  const assertAllowedRemoteKey = (key: string) => {
+    if (key.startsWith("ling:iroh:") || key.startsWith("subscription-oauth:")) {
+      throw Object.assign(new Error("Access to internal host credentials is restricted"), {
+        kind: "feature_disabled" as const,
+      });
+    }
+  };
   // clientMode 和可自领的 host ticket 都不是恢复授权。所有 RPC 默认只读写，
   // 唯一本机 Desktop MessagePort 发布点显式放行，避免新网络入口漏设限制。
   return {
-    load: service.load.bind(service),
-    save: service.save.bind(service),
-    delete: service.delete.bind(service),
+    load: async (key: string) => {
+      assertAllowedRemoteKey(key);
+      return service.load(key);
+    },
+    save: async (key: string, value: string) => {
+      assertAllowedRemoteKey(key);
+      return service.save(key, value);
+    },
+    delete: async (key: string) => {
+      assertAllowedRemoteKey(key);
+      return service.delete(key);
+    },
     inspectStore: rejectRecovery,
     recoverStore: rejectRecovery,
   };

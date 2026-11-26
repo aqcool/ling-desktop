@@ -25,6 +25,48 @@ interface ModelSelectionCompletionView {
   }[];
 }
 
+export const CANONICAL_REASONING_EFFORT_ORDER = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+/**
+ * 参考 Pi / OpenCode 的有序强度阶梯夹逼：当模型目录变更或切换模型导致原思考强度不在新列表时，
+ * 按强度阶梯映射至最接近的可用档位，而不是直接清空。
+ */
+export function clampReasoningLevel(
+  desired: string | undefined,
+  supportedValues: readonly string[],
+): string | undefined {
+  if (!desired || supportedValues.length === 0) return undefined;
+  if (supportedValues.includes(desired)) return desired;
+  const desiredRank = CANONICAL_REASONING_EFFORT_ORDER.indexOf(
+    desired as (typeof CANONICAL_REASONING_EFFORT_ORDER)[number],
+  );
+  if (desiredRank < 0) return undefined;
+  let bestValue: string | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestRank = -1;
+  for (const candidate of supportedValues) {
+    const rank = CANONICAL_REASONING_EFFORT_ORDER.indexOf(
+      candidate as (typeof CANONICAL_REASONING_EFFORT_ORDER)[number],
+    );
+    if (rank < 0) continue;
+    const distance = Math.abs(rank - desiredRank);
+    if (distance < bestDistance || (distance === bestDistance && rank > bestRank)) {
+      bestDistance = distance;
+      bestRank = rank;
+      bestValue = candidate;
+    }
+  }
+  return bestValue;
+}
+
 export function resolveInitialModelSelection(input: {
   readonly configuredDefault?: ModelSelection;
   readonly registry: ProviderRegistryView;
@@ -37,6 +79,34 @@ export function resolveInitialModelSelection(input: {
         source: "configured-default",
         selection: freezeSelection(input.configuredDefault),
       };
+    }
+    // 当默认模型仍可用但思考强度档位随目录调整而变化时，夹逼到最接近的可用档位，避免整条默认配置被丢弃。
+    const provider = input.registry.providers.find(
+      (candidate) => candidate.providerId === input.configuredDefault?.providerId,
+    );
+    const model =
+      provider?.config.visibility !== "hidden"
+        ? provider?.models.find(
+            (candidate) => candidate.modelId === input.configuredDefault?.modelId,
+          )
+        : undefined;
+    const clamped = model
+      ? clampReasoningLevel(
+          input.configuredDefault.options?.reasoningLevel,
+          model.config.optionSpecs.reasoningLevel.values,
+        )
+      : undefined;
+    if (clamped) {
+      const candidate: ModelSelection = {
+        ...input.configuredDefault,
+        options: { ...input.configuredDefault.options, reasoningLevel: clamped },
+      };
+      if (isSelectable(input.registry, candidate)) {
+        return {
+          source: "configured-default",
+          selection: freezeSelection(candidate),
+        };
+      }
     }
   }
 

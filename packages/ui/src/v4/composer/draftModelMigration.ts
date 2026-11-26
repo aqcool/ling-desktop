@@ -1,6 +1,6 @@
 // 服务端规则驱动的草稿模型迁移：纯判定与客户端标记，规格见 docs/chat/draft-model-migration.md。
 // 判定只读目标 Host 的 ModelSelectionView，标记存在本设备 localStorage，不进 Session 或 Host 状态。
-import { completeNewModelSelection } from "@zcode/provider";
+import { clampReasoningLevel, completeNewModelSelection } from "@zcode/provider";
 import {
   OFFICIAL_PROVIDER_TEMPLATE_IDS,
   type DraftModelMigrationNotice,
@@ -57,14 +57,16 @@ export function decideDraftModelMigration(input: {
   const target = provider.models.find((model) => model.modelId === rule.targetModelId);
   if (!target) return { kind: "skip", reason: "target-unavailable" };
   const reasoningLevel = effective.options?.reasoningLevel;
-  const completed =
-    reasoningLevel !== undefined &&
-    target.config.optionSpecs.reasoningLevel.values.includes(reasoningLevel)
-      ? { options: { reasoningLevel } }
-      : completeNewModelSelection(view, {
-          providerId: provider.providerId,
-          modelId: rule.targetModelId,
-        });
+  const clampedReasoningLevel = clampReasoningLevel(
+    reasoningLevel,
+    target.config.optionSpecs.reasoningLevel.values,
+  );
+  const completed = clampedReasoningLevel
+    ? { options: { reasoningLevel: clampedReasoningLevel } }
+    : completeNewModelSelection(view, {
+        providerId: provider.providerId,
+        modelId: rule.targetModelId,
+      });
   if (!completed?.options) return { kind: "skip", reason: "target-unavailable" };
   return {
     kind: "migrate",

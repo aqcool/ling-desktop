@@ -1719,6 +1719,10 @@ export async function acknowledgePostUpdateReleaseNotes(
 
 export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Promise<void> {
   autoUpdaterSettingService = options.settingService;
+  // 修复原因：手动下载 LING 安装包会在 enabled: false 或非正式签名环境下运行，需在早退前记录界面语言。
+  if (options.locale) {
+    menuLocale = options.locale;
+  }
   if (options.enabled === false) {
     autoUpdaterDisabledForProductFlavor = true;
     if (autoUpdatePollTimer) {
@@ -1732,9 +1736,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   if (!canUseAutoUpdaterInCurrentRuntime()) return;
 
   onBeforeQuitAndInstall = options.onBeforeQuitAndInstall;
-  if (options.locale) {
-    menuLocale = options.locale;
-  }
 
   if (autoUpdatePollTimer) {
     clearInterval(autoUpdatePollTimer);

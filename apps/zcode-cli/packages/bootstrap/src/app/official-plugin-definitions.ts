@@ -496,7 +496,12 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       description_i18n: { "zh-CN": "使用 ChatGPT 订阅生成和编辑图片。" },
     },
     rootCandidates: ["packages/imagegen-plugin", "../imagegen-plugin", "../../imagegen-plugin"],
-    requiredSeedPaths: ["dist/server.mjs", "skills/imagegen/SKILL.md"],
+    requiredSeedPaths: [
+      "dist/server.mjs",
+      "skills/imagegen/SKILL.md",
+      "skills/imagegen/references/prompting.md",
+      "skills/imagegen/references/sample-prompts.md",
+    ],
     version: "0.1.0",
   },
   {

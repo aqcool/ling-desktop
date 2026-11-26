@@ -24,7 +24,7 @@ import type {
   WebRemoteControlRegisteredDevice,
 } from "./contract.js";
 
-import type { IrohMobileHost } from "./irohMobileHost.js";
+import type { RemoteTransportHost } from "./remoteTransportHost.js";
 
 const COOKIE = "ling-mobile";
 const LOOPBACK = "127.0.0.1";
@@ -106,11 +106,11 @@ export function createMobilePairingGateway(
   value: string,
   webRoot: string,
   port = 17328,
-  iroh?: IrohMobileHost,
+  remoteTransport?: RemoteTransportHost,
 ) {
   const publicUrl = new URL(value);
   const localUrl = new URL(`http://${LOOPBACK}:${port}`);
-  const nativeOnly = Boolean(iroh) && publicUrl.origin === localUrl.origin;
+  const nativeOnly = Boolean(remoteTransport) && publicUrl.origin === localUrl.origin;
   const isLan =
     publicUrl.protocol === "http:" &&
     publicUrl.port === String(port) &&
@@ -373,8 +373,12 @@ export function createMobilePairingGateway(
         if (side === "terminal") delete device.terminalId;
         send(device[peer], { type: "pair_status_ack", pair_status: "waiting" });
         if (side === "device") {
-          iroh?.detach(ticket.sid);
-          for (const terminal of device.lan?.sockets ?? []) terminal.close();
+          remoteTransport?.detach(ticket.sid);
+          if (device.lan) {
+            for (const terminal of device.lan.sockets) terminal.close();
+            device.lan.sockets.clear();
+            device.lan = undefined;
+          }
           send(device.terminal, { type: "error", code: "DEVICE_OFFLINE" });
           device.terminal?.close();
         }
@@ -442,6 +446,8 @@ export function createMobilePairingGateway(
         else reply(res, 400);
       });
     });
+    // 修复原因：为 http.Server 挂载持久 error 监听，避免网络切换或网卡断开触发未捕获异常导致主进程崩溃。
+    server.on("error", () => {});
     server.on("upgrade", upgrade);
     return { host, server };
   });
@@ -466,8 +472,9 @@ export function createMobilePairingGateway(
     },
     async start() {
       started ??= (async () => {
-        if (!iroh || publicUrl.origin !== localUrl.origin) await stat(resolve(root, "index.html"));
-        await iroh?.start();
+        if (!remoteTransport || publicUrl.origin !== localUrl.origin)
+          await stat(resolve(root, "index.html"));
+        await remoteTransport?.start();
         for (const { host, server } of listeners) {
           server.listen(port, host);
           await once(server, "listening");
@@ -478,6 +485,7 @@ export function createMobilePairingGateway(
           }
         }
       })().catch((error: unknown) => {
+        remoteTransport?.dispose();
         for (const { server } of listeners) server.close();
         started = undefined;
         throw error;
@@ -486,7 +494,7 @@ export function createMobilePairingGateway(
     },
     pairingUrl(sid: string, baseUrl: string) {
       const device = devices.get(sid);
-      if (!device?.device) return "";
+      if (!device?.device || !baseUrl) return "";
       if (!device.pairing || device.pairing.expiresAt <= Date.now()) {
         device.pairing = {
           value: randomBytes(32).toString("base64url"),
@@ -502,21 +510,23 @@ export function createMobilePairingGateway(
       return url.href;
     },
     nativeOnly,
-    nativePairingUrl: iroh ? (sid: string, url: string) => iroh.link(sid, url) : undefined,
+    nativePairingUrl: remoteTransport
+      ? (sid: string, url: string) => remoteTransport.link(sid, url)
+      : undefined,
     acceptLanTerminal:
-      isLan || iroh
+      isLan || remoteTransport
         ? (sid: string, accept: AcceptWebRemoteControlLanTerminal) => {
             const device = devices.get(sid);
-            if (device) iroh?.attach(sid, accept);
+            if (device) remoteTransport?.attach(sid, accept);
             if (device && isLan) device.lan ??= { accept, sockets: new Set() };
           }
         : undefined,
     revoke(sid: string) {
-      iroh?.detach(sid);
+      remoteTransport?.detach(sid);
       revoke(sid);
     },
     dispose() {
-      iroh?.dispose();
+      remoteTransport?.dispose();
       for (const client of sockets.clients) client.terminate();
       sockets.close();
       for (const { server } of listeners) server.close();

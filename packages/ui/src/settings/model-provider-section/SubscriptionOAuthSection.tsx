@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import type { SubscriptionOAuthVendor } from "@zcode/provider";
 import type { SubscriptionOAuthLoginStatus } from "@zcode/services";
@@ -38,9 +38,17 @@ export function SubscriptionOAuthSection({
   const [status, setStatus] = useState<SubscriptionOAuthLoginStatus | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  // 修复原因：记录当前展示的 providerId 与操作代际，防止切换供应商后在途请求把旧结果写串到新界面。
+  const activeProviderIdRef = useRef(providerId);
+  const runGenerationRef = useRef(0);
+  activeProviderIdRef.current = providerId;
 
   useEffect(() => {
     let cancelled = false;
+    runGenerationRef.current += 1;
+    setStatus(null);
+    setCode("");
+    setBusy(false);
     void providerSettingsService
       .getSubscriptionOAuthStatus(providerId)
       .then((next) => {
@@ -62,43 +70,59 @@ export function SubscriptionOAuthSection({
   useEffect(() => {
     if (status?.status !== "waiting") return;
     let cancelled = false;
-    const timer = window.setInterval(() => {
-      void providerSettingsService
-        .getSubscriptionOAuthStatus(providerId)
-        .then((next) => {
-          if (!cancelled) setStatus(next);
-        })
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            setStatus({
-              status: "failed",
-              message: error instanceof Error ? error.message : "Sign-in failed.",
-            });
-          }
-        });
-    }, 1000);
+    let timer: number | undefined;
+    // 修复原因：改为串行 setTimeout 轮询，避免慢请求重叠返回导致旧状态覆盖新状态。
+    const poll = () => {
+      timer = window.setTimeout(() => {
+        void providerSettingsService
+          .getSubscriptionOAuthStatus(providerId)
+          .then((next) => {
+            if (cancelled) return;
+            setStatus(next);
+            if (next.status === "waiting") poll();
+          })
+          .catch((error: unknown) => {
+            if (!cancelled) {
+              setStatus({
+                status: "failed",
+                message: error instanceof Error ? error.message : "Sign-in failed.",
+              });
+            }
+          });
+      }, 1000);
+    };
+    poll();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [providerId, providerSettingsService, status?.status]);
 
   async function run(
     action: () => Promise<SubscriptionOAuthLoginStatus>,
   ): Promise<SubscriptionOAuthLoginStatus | null> {
+    const requestProviderId = providerId;
+    const generation = ++runGenerationRef.current;
     setBusy(true);
     try {
       const next = await action();
+      if (activeProviderIdRef.current !== requestProviderId || runGenerationRef.current !== generation) {
+        return null;
+      }
       setStatus(next);
       return next;
     } catch (error) {
-      setStatus({
-        status: "failed",
-        message: error instanceof Error ? error.message : "Sign-in failed.",
-      });
+      if (activeProviderIdRef.current === requestProviderId && runGenerationRef.current === generation) {
+        setStatus({
+          status: "failed",
+          message: error instanceof Error ? error.message : "Sign-in failed.",
+        });
+      }
       return null;
     } finally {
-      setBusy(false);
+      if (activeProviderIdRef.current === requestProviderId && runGenerationRef.current === generation) {
+        setBusy(false);
+      }
     }
   }
 

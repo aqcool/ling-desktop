@@ -128,7 +128,8 @@ import { readBootstrapApplicationLocale } from "./desktopApplicationLocaleBootst
 import {
   createMobileLogSink,
   createMobilePairingGateway,
-  IrohMobileHost,
+  DeviceTrustStore,
+  RemoteTransportHost,
   createWebRemoteControlDeviceStorage,
   pullAndExportMobileLogs,
   runWebRemoteControlActionInRenderer,
@@ -880,18 +881,17 @@ const webRemoteControlRelayWsEnvOverride =
   process.env["ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL"]?.trim();
 const webRemoteControlUrlEnvOverride = process.env["ZCODE_WEB_REMOTE_CONTROL_URL"]?.trim();
 const lingMobileRemoteUrl = process.env["LING_MOBILE_REMOTE_URL"]?.trim();
-// The upstream native package ships macOS arm64, Windows x64 and Linux x64/arm64.
-const supportsIrohMobileHost =
-  (process.platform === "darwin" && process.arch === "arm64") ||
-  (process.platform === "win32" && process.arch === "x64") ||
-  (process.platform === "linux" && (process.arch === "x64" || process.arch === "arm64"));
+const lingMobileRelayUrl = process.env["LING_MOBILE_RELAY_URL"]?.trim();
+// v2 传输栈基于纯 Node WebSocket + E2EE，全平台与架构（macOS arm64/x64、Windows x64/arm64、Linux）统一支持。
 const useMobileGateway =
   Boolean(lingMobileRemoteUrl) ||
-  (supportsIrohMobileHost &&
-    !(webRemoteControlRelayWsEnvOverride || webRemoteControlUrlEnvOverride));
-const irohMobileHost =
-  useMobileGateway && supportsIrohMobileHost
-    ? new IrohMobileHost(deviceMid, webRemoteControlCredentialService)
+  !(webRemoteControlRelayWsEnvOverride || webRemoteControlUrlEnvOverride);
+const remoteDeviceTrustStore = useMobileGateway
+  ? new DeviceTrustStore(join(getAppConfigDir(), "ling-remote-devices.json"))
+  : undefined;
+const remoteTransportHost =
+  useMobileGateway && remoteDeviceTrustStore
+    ? new RemoteTransportHost(deviceMid, remoteDeviceTrustStore, lingMobileRelayUrl)
     : undefined;
 const mobilePairingGateway = useMobileGateway
   ? createMobilePairingGateway(
@@ -899,7 +899,7 @@ const mobilePairingGateway = useMobileGateway
       process.env["LING_MOBILE_REMOTE_WEB_ROOT"]?.trim() ||
         join(import.meta.dirname, "../../../web/dist"),
       lingMobileRemoteUrl ? 17328 : 0,
-      irohMobileHost,
+      remoteTransportHost,
     )
   : undefined;
 

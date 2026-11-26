@@ -19,7 +19,7 @@ import type {
 } from "@zcode/shared";
 import type { SessionConfigState } from "@zcode/shared/zcode-protocol-v4";
 import type { IModelSelectionService } from "@zcode/services";
-import { completeNewModelSelection } from "@zcode/provider";
+import { clampReasoningLevel, completeNewModelSelection } from "@zcode/provider";
 import {
   useModelSelectionServiceView,
   type ModelSelectionRead,
@@ -1174,14 +1174,33 @@ export function useDraftConfigControl(params: {
       const catalog =
         modelSelectionView ??
         (modelSelectionRead.state.status === "loading" ? modelSelectionRead.state.catalog : null);
+      const currentThought =
+        draftConfigRef.current.modelSelection?.options?.reasoningLevel ??
+        draftConfigRef.current.thought?.trim();
+      const targetModel = catalog?.providers
+        .find((provider) => provider.providerId === parsedSelection.providerId)
+        ?.models.find((candidate) => candidate.modelId === parsedSelection.modelId);
+      // 切模型未指定子菜单档位时，优先把当前思考强度按有序阶梯夹逼到目标模型，避免强度意外回落。
+      const inheritedLevel =
+        !reasoningLevel && currentThought && targetModel
+          ? clampReasoningLevel(
+              currentThought,
+              targetModel.config.optionSpecs.reasoningLevel.values,
+            )
+          : undefined;
       const modelSelection = reasoningLevel
         ? {
             ...parsedSelection,
             options: { reasoningLevel, ...(serviceTier ? { serviceTier } : {}) },
           }
-        : catalog
-          ? (completeNewModelSelection(catalog, parsedSelection) ?? parsedSelection)
-          : parsedSelection;
+        : inheritedLevel
+          ? {
+              ...parsedSelection,
+              options: { reasoningLevel: inheritedLevel, ...(serviceTier ? { serviceTier } : {}) },
+            }
+          : catalog
+            ? (completeNewModelSelection(catalog, parsedSelection) ?? parsedSelection)
+            : parsedSelection;
       logger.debug("[v4-draft-config] select model", {
         modelProvider,
         model,

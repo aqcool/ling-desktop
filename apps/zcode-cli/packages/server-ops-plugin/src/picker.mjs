@@ -17,6 +17,7 @@ const status = element("status");
 let profiles = [];
 let selected = new Set();
 let saving = false;
+let refreshing = null;
 
 const chinese = {
   loading: "正在读取 SSH 连接…",
@@ -63,6 +64,26 @@ function publishCount() {
     .catch(() => {});
 }
 
+async function refresh({ quiet = false } = {}) {
+  if (saving) return;
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try {
+      const result = await call("picker_read");
+      profiles = result.profiles;
+      selected = new Set(result.serverIds);
+      render();
+      publishCount();
+      if (!quiet) showError();
+    } catch {
+      if (!quiet) showError(text.loadFailed);
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
 async function toggle(id, box) {
   if (saving) return;
   saving = true;
@@ -72,11 +93,13 @@ async function toggle(id, box) {
   else next.delete(id);
   const inputs = servers.querySelectorAll("input");
   for (const input of inputs) input.disabled = true;
+  let saveFailed = false;
   try {
     const result = await call("picker_save", { serverIds: [...next] });
     selected = new Set(result.serverIds);
     publishCount();
   } catch {
+    saveFailed = true;
     box.checked = selected.has(id);
     showError(text.saveFailed);
   } finally {
@@ -84,6 +107,8 @@ async function toggle(id, box) {
     for (const input of inputs) input.disabled = false;
     box.focus();
   }
+  // 修复原因：保存失败可能是目标 SSH 配置已在设置中被删除，刷新列表以同步最新状态。
+  if (saveFailed) void refresh({ quiet: true });
 }
 
 function render() {
@@ -125,14 +150,18 @@ async function start() {
   const loading = element("loading");
   loading.textContent = text.loading;
   try {
-    const result = await call("picker_read");
-    profiles = result.profiles;
-    selected = new Set(result.serverIds);
-    render();
-    publishCount();
+    await refresh();
   } finally {
     loading.hidden = true;
   }
+
+  // 修复原因：沙箱弹窗关闭后会常驻保活，重新打开或获得焦点时主动刷新 SSH 列表，避免看不到设置页新增/删除的设备。
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refresh({ quiet: true });
+  });
+  window.addEventListener("focus", () => {
+    void refresh({ quiet: true });
+  });
 }
 
 void start().catch(() => showError(text.loadFailed));

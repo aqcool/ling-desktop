@@ -1,4 +1,5 @@
-export { IrohMobileHost } from "./irohMobileHost.js";
+export { DeviceTrustStore, type TrustedRemotePeer } from "./deviceTrustStore.js";
+export { RemoteTransportHost } from "./remoteTransportHost.js";
 export type * from "#src/main/web-remote-relay/contract.js";
 export { createWebRemoteControlDeviceStorage } from "#src/main/web-remote-relay/webRemoteControlDeviceStorage.js";
 export { createMobilePairingGateway } from "./mobilePairingGateway.js";

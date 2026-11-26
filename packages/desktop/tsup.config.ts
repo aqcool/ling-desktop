@@ -164,7 +164,6 @@ function createMainDefines() {
 }
 
 const desktopNodeRuntimeExternals = [
-  "@number0/iroh",
   "electron",
   "node-pty",
   "@napi-rs/keyring",

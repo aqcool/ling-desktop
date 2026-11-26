@@ -350,7 +350,15 @@ export class SSHBackend implements IRemoteBackend {
           stdout: channel,
           stderr: channel.stderr,
           onClose: onClose.event,
-          close: () => channel.close(),
+          close: () => {
+            // 修复原因：关闭通道前先发 SIGTERM，降低远程长耗时命令在取消或超时后沦为孤儿进程的概率。
+            try {
+              channel.signal("TERM");
+            } catch {
+              // 部分 SSH 服务端或已关闭通道不支持发信号，忽略后继续关闭通道。
+            }
+            channel.close();
+          },
         });
       });
     });
@@ -381,20 +389,46 @@ export class SSHBackend implements IRemoteBackend {
     }
   }
 
+  private async publishUploadViaExec(
+    source: string,
+    destination: string,
+    replace: boolean,
+  ): Promise<void> {
+    const quotedSource = quotePosixShellArg(source);
+    const quotedDestination = quotePosixShellArg(destination);
+    const command = replace
+      ? `mv -f ${quotedSource} ${quotedDestination}`
+      : `if [ -e ${quotedDestination} ]; then echo "Destination already exists" >&2; exit 1; fi; mv ${quotedSource} ${quotedDestination}`;
+    await this.execSimple(command);
+  }
+
   async publishUpload(source: string, destination: string, replace: boolean): Promise<void> {
     await this.ensureConnected();
-    await new Promise<void>((resolve, reject) => {
-      this.client.sftp((error, sftp) => {
-        if (error) return reject(error);
-        const finish = (failure?: Error | null) => {
-          sftp.end();
-          if (failure) reject(failure);
-          else resolve();
-        };
-        if (replace) sftp.ext_openssh_rename(source, destination, finish);
-        else sftp.rename(source, destination, finish);
+    // 修复原因：当 upload() 已降级到 execUploadOnly，或远端 SFTP 不支持 OpenSSH posix-rename 扩展时，
+    // 统一回退到同一 shell 视图下的 POSIX mv 发布，避免上传成功却在发布阶段必败。
+    if (this.execUploadOnly) {
+      await this.publishUploadViaExec(source, destination, replace);
+      return;
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.client.sftp((error, sftp) => {
+          if (error) return reject(error);
+          const finish = (failure?: Error | null) => {
+            sftp.end();
+            if (failure) reject(failure);
+            else resolve();
+          };
+          if (replace) sftp.ext_openssh_rename(source, destination, finish);
+          else sftp.rename(source, destination, finish);
+        });
       });
-    });
+    } catch (error) {
+      if (!replace && !this.shouldFallbackToExecUpload(error)) {
+        throw error;
+      }
+      await this.publishUploadViaExec(source, destination, replace);
+    }
   }
 
   async readFile(remotePath: string): Promise<string> {
